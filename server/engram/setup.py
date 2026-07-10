@@ -686,6 +686,7 @@ _HOOK_SCRIPTS = {
     "session-start.sh": "session-start.sh",
     "session-end.sh": "session-end.sh",
     "pre-compact.sh": "pre-compact.sh",
+    "session-promote-nudge.sh": "session-promote-nudge.sh",
 }
 
 
@@ -1110,7 +1111,18 @@ _HOOKS_CONFIG = {
                     "timeout": 10000,
                 }
             ],
-        }
+        },
+        {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": str(_HOOKS_DIR / "session-promote-nudge.sh"),
+                    "async": True,
+                    "timeout": 5000,
+                }
+            ],
+        },
     ],
     "PreCompact": [
         {
@@ -1287,9 +1299,14 @@ def install_hooks_interactive(
     print("    UserPromptSubmit  → capture user prompts")
     print("    Stop              → capture assistant responses")
     print("    SessionStart      → replay queued + session marker")
-    print("    SessionEnd        → session marker + trigger consolidation")
+    print("    SessionEnd        → session marker + sparse promote nudge")
+    print("    PreCompact        → reset 0–5 remember promotion window")
     print()
     print(f"  {_DIM}Hooks are async and never block Claude.{_RESET}")
+    print(
+        f"  {_DIM}Session promote nudge: ~/.engram/session-promote-nudge.md "
+        f"(skill: engram-session-promote){_RESET}"
+    )
     print(f"  {_DIM}Server: $ENGRAM_URL (default http://localhost:8100){_RESET}")
     print(
         f"  {_DIM}Adoption trace: $ENGRAM_ADOPTION_TRACE_FILE "

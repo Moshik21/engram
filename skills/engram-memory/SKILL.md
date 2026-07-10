@@ -118,6 +118,15 @@ Three layers:
 2. **Sparse promotion** — `remember` with proposals, **0–5 per compaction window**
 3. **Deliberate consolidation** — offline hygiene only
 
+### Session-end promote
+
+At session end (or before compaction), invoke skill **`engram-session-promote`**
+to propose ≤5 durable facts — never session recaps. See
+`skills/engram-session-promote/SKILL.md`. SessionEnd can write a nudge file at
+`~/.engram/session-promote-nudge.md`.
+
+Open adjudication / open_work counts are **graph hygiene**, not product success.
+
 ## MCP Core Tools (use these as the primary agent surface)
 
 | Tool | When |

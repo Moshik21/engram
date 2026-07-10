@@ -64,6 +64,18 @@ pressure does not erase them casually.
 - Claude PreCompact hook stamps `~/.engram/promotion-window.json`
 - Install: `bash hooks/install-precompact.sh` (or copy `hooks/pre-compact.sh`)
 
+## Session-end sparse promote
+
+Before you leave a long session, run skill **`engram-session-promote`**
+(`skills/engram-session-promote/SKILL.md`):
+
+1. Propose **0–5** portable Decision/Preference/Person facts (prefer 0 over noise)
+2. `remember()` with proposals + verbatim `source_span`
+3. Do **not** dump recaps
+
+Optional harness hook `hooks/session-promote-nudge.sh` writes
+`~/.engram/session-promote-nudge.md` on SessionEnd (installed via `engram hooks`).
+
 ## Continuity smoke (release gate)
 
 ```bash

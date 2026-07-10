@@ -496,6 +496,7 @@ export function StatsPanel() {
 
   const cueMetrics = stats.cueMetrics ?? EMPTY_CUE_METRICS;
   const projectionMetrics = stats.projectionMetrics ?? EMPTY_PROJECTION_METRICS;
+  const adjudicationMetrics = stats.adjudicationMetrics;
   const typeEntries = Object.entries(stats.entityTypeCounts).sort(
     ([, a], [, b]) => b - a,
   );
@@ -764,6 +765,59 @@ export function StatsPanel() {
                 helper={`${projectionMetrics.yield.relationshipCount} written`}
               />
             </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Graph Hygiene"
+          subtitle="Open work is background adjudication — not the product KPI. Success is cold Decision recall."
+          testId="stats-hygiene-section"
+        >
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <MiniMetric
+              label="Approved"
+              value={(adjudicationMetrics?.approvedEvidenceCount ?? 0).toLocaleString()}
+              accent="#34d399"
+              helper="committed evidence"
+            />
+            <MiniMetric
+              label="Deferred"
+              value={(adjudicationMetrics?.deferredEvidenceCount ?? 0).toLocaleString()}
+              accent="#facc15"
+              helper="waiting corroboration"
+            />
+            <MiniMetric
+              label="Pending"
+              value={(adjudicationMetrics?.pendingEvidenceCount ?? 0).toLocaleString()}
+              accent="#818cf8"
+              helper="in flight"
+            />
+            <MiniMetric
+              label="Open work"
+              value={(adjudicationMetrics?.openWorkCount ?? 0).toLocaleString()}
+              accent="#fb7185"
+              helper="secondary hygiene metric"
+            />
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              lineHeight: 1.4,
+              color: "var(--text-muted)",
+              borderTop: "1px solid rgba(255,255,255,0.06)",
+              paddingTop: 10,
+            }}
+          >
+            Product north star: a fresh agent surfaces ≥1 high-signal prior{" "}
+            <span style={{ color: "#67e8f9" }}>Decision</span> without a handoff
+            doc. High open work alone is not failure; zero cold Decisions is.
           </div>
         </SectionCard>
       </div>

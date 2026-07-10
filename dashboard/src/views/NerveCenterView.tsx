@@ -32,8 +32,13 @@ export function NerveCenterView() {
           <div className="text-2xl font-bold text-white">{playerStats.morale}%</div>
         </section>
         <section className="p-5 rounded-2xl bg-zinc-900/40 border border-zinc-800/50">
-          <div className="text-[9px] font-mono text-zinc-600 uppercase mb-2 tracking-widest">Adjudication Queue</div>
+          <div className="text-[9px] font-mono text-zinc-600 uppercase mb-2 tracking-widest">
+            Adjudication Queue
+          </div>
           <div className="text-2xl font-bold text-amber-400">{adjudicationCount}</div>
+          <p className="text-[10px] text-zinc-600 mt-2 leading-snug">
+            Hygiene backlog — not the product KPI. Cold Decision recall is success.
+          </p>
         </section>
         <section className="p-5 rounded-2xl bg-zinc-900/40 border border-zinc-800/50">
           <div className="text-[9px] font-mono text-zinc-600 uppercase mb-2 tracking-widest">Immunity Signals</div>

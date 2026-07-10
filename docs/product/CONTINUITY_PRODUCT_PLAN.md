@@ -54,7 +54,7 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | 3.1 | Continuity smoke: promote 3 → cold context/recall | [x] `evaluation/continuity.py` |
 | 3.2 | Pytest golden path suite | [x] `tests/test_continuity_golden_path.py` |
 | 3.3 | CLI: `engram continuity --smoke` | [x] `__main__.py` |
-| 3.4 | CI job for continuity suite (lite) | [~] snippet in `docs/product/CI_CONTINUITY_JOB.md` (local `ci.yml` dirty; needs PAT with `workflow` scope to push) |
+| 3.4 | CI job for continuity suite (lite) | [~] job in local `.github/workflows/ci.yml`; push needs PAT with `workflow` scope |
 | 3.5 | LongMemEval remains optional / not gate | [x] CI does not require LME |
 
 ---
@@ -78,8 +78,8 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | 5.1 | Multi-brain / multi-device sync design | [ ] design only until continuity CI stays green 2 weeks |
 | 5.2 | Federated / policy intelligence | [ ] vision (`docs/vision/`) — no build until 5.1 |
 | 5.3 | Sub-second durable context on 17G dogfood brain | [~] process cache 45s TTL + hard 1s pack budget in code; live p95 still optional dogfood |
-| 5.4 | Session-end promotion subagent (propose ≤N) | [ ] optional harness skill |
-| 5.5 | Dashboard: approved vs deferred framing | [ ] UI copy — open_work secondary metric |
+| 5.4 | Session-end promotion subagent (propose ≤N) | [x] skill `engram-session-promote` + SessionEnd nudge hook |
+| 5.5 | Dashboard: approved vs deferred framing | [x] Stats Graph Hygiene + eval open_work secondary copy |
 | 5.6 | **Identity-core merge protection** | [x] block bad merges; prefer identity_core survivor |
 | 5.7 | **Captain protect CLI** | [x] `engram captain protect "Decision name"` |
 
@@ -98,6 +98,8 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | Explicit recall budgets 4s / 1.5s search | config, budgets |
 | Durable-context process cache + 1s hard pack budget | `context_builder.py` |
 | Remember returns committed entity/relationship ids + identity_core | presenter + capture_surface |
+| Session-end sparse promote skill + SessionEnd nudge | `skills/engram-session-promote`, hooks |
+| Dashboard open_work framed as secondary hygiene | StatsPanel / EvaluationPanel / NerveCenter |
 
 ---
 

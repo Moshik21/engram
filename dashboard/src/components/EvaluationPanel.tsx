@@ -737,10 +737,39 @@ export function EvaluationPanel() {
           <Metric label="effect" value={pct(report.consolidate.effectRate)} accent="#34d399" />
           <Metric label="adjudication" value={pct(report.consolidate.adjudication.effectRate)} accent="#22d3ee" />
           <Metric label="unaffected" value={report.consolidate.adjudication.itemsUnaffected.toLocaleString()} />
+          <Metric
+            label="open work"
+            value={(report.consolidate.adjudication.openWorkCount ?? 0).toLocaleString()}
+            accent="#fb7185"
+          />
+          <Metric
+            label="approved"
+            value={(report.consolidate.adjudication.approvedEvidenceCount ?? 0).toLocaleString()}
+            accent="#34d399"
+          />
+          <Metric
+            label="deferred"
+            value={(report.consolidate.adjudication.deferredEvidenceCount ?? 0).toLocaleString()}
+            accent="#facc15"
+          />
           <Metric label="errors" value={report.consolidate.errorCount.toLocaleString()} accent="#fb7185" />
           <Metric label="snapshots" value={report.consolidate.calibration.snapshotCount.toLocaleString()} />
           <Metric label="accuracy" value={pct(topCalibrationPhase?.[1].accuracy)} accent="#34d399" />
           <Metric label="ECE" value={num(topCalibrationPhase?.[1].expectedCalibrationError, 3)} accent="#facc15" />
+          <div
+            style={{
+              gridColumn: "1 / -1",
+              minWidth: 0,
+              borderTop: "1px solid rgba(250, 204, 21, 0.18)",
+              paddingTop: 10,
+              color: "var(--text-muted)",
+              fontSize: 11,
+              lineHeight: 1.35,
+            }}
+          >
+            Open work / deferred evidence is graph hygiene. Product success is cold
+            session continuity (Decision recall), not a zero adjudication queue.
+          </div>
           {latestCycleIssue ? (
             <div
               style={{

@@ -666,6 +666,19 @@ describe("StatsPanel", () => {
               avgRelationshipsPerProjectedEpisode: 1.6,
             },
           },
+          adjudicationMetrics: {
+            evidenceStatusCounts: { pending: 1, deferred: 2, approved: 4 },
+            requestStatusCounts: { pending: 0, deferred: 1, error: 0 },
+            openEvidenceCount: 3,
+            pendingEvidenceCount: 1,
+            deferredEvidenceCount: 2,
+            approvedEvidenceCount: 4,
+            openRequestCount: 1,
+            pendingRequestCount: 0,
+            deferredRequestCount: 1,
+            errorRequestCount: 0,
+            openWorkCount: 3,
+          },
           topActivated: [],
           topConnected: [],
           growthTimeline: [],
@@ -714,6 +727,9 @@ describe("StatsPanel", () => {
     expect(screen.getByText("15")).toBeInTheDocument();
     expect(screen.getByText("Cue Layer")).toBeInTheDocument();
     expect(screen.getByText("Projection Health")).toBeInTheDocument();
+    expect(screen.getByText("Graph Hygiene")).toBeInTheDocument();
+    expect(screen.getByTestId("stats-hygiene-section")).toBeInTheDocument();
+    expect(screen.getByText("secondary hygiene metric")).toBeInTheDocument();
     expect(screen.getByText("Storage")).toBeInTheDocument();
     expect(screen.getByText("/tmp/engram-native")).toBeInTheDocument();
     expect(screen.getByText("80%")).toBeInTheDocument();
