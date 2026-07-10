@@ -678,44 +678,15 @@ async def _run_explicit_recall_with_budget(
                 fallback_status="fast_preflight_hit",
                 fallback_result_count=len(fallback_results),
             )
+        # Do NOT abort on context-packet fallback when preflight misses/timeouts.
+        # Session-recent observe packets are not a substitute for durable graph
+        # Decisions; continue into durable-entity rescue + deep recall.
         if (
             context_packet_count > 0
             and not fallback_results
             and fallback_status in {"miss", "filtered", "timeout"}
         ):
-            duration_ms = round((time.perf_counter() - started) * 1000, 4)
-            skip_reason = f"preflight_{fallback_status}_context_packet_fallback"
-            await record_manager_memory_operation(
-                manager,
-                group_id,
-                MemoryOperationSample(
-                    operation="recall",
-                    source=operation_source,
-                    mode=operation_source,
-                    status="ok",
-                    duration_ms=duration_ms,
-                    skip_reason=skip_reason,
-                    timeout=False,
-                    degraded=False,
-                    budget_miss=budget.exceeded(duration_ms),
-                    budget_ms=budget.budget_ms,
-                    budget_tokens=budget.budget_tokens,
-                    cache_hit=True,
-                    result_count=0,
-                    packet_count=context_packet_count,
-                ),
-            )
-            return [], _recall_budget_metadata(
-                budget,
-                status="ok",
-                duration_ms=duration_ms,
-                skip_reason=skip_reason,
-                timeout=False,
-                budget_miss=budget.exceeded(duration_ms),
-                stage_timings_ms=stage_timings,
-                fallback_status="context_packet_fallback",
-                fallback_result_count=0,
-            )
+            stage_timings["context_packet_soft_hold"] = float(context_packet_count)
         if (
             fallback_status == "timeout"
             and project_file_fallback_task is not None
