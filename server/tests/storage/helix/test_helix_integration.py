@@ -4,13 +4,12 @@ Exercises the full lifecycle: entity creation, episode creation, linking,
 entity search, and data round-trip verification.  Also runs the shared
 ``GraphStoreContractTests`` suite against HelixGraphStore.
 
-All tests require a running HelixDB instance on localhost:6969 and are
+All tests require Helix (native data-dir preferred, or HTTP :6969) and are
 marked with ``requires_helix``.
 """
 
 from __future__ import annotations
 
-import socket
 from uuid import uuid4
 
 import pytest
@@ -22,16 +21,14 @@ from tests.storage.contract import GraphStoreContractTests
 
 
 def helix_available() -> bool:
-    try:
-        socket.create_connection(("localhost", 6969), timeout=2)
-        return True
-    except Exception:
-        return False
+    from engram.storage.helix.availability import helix_available as _probe
+
+    return bool(_probe(prefer_native=True).get("available"))
 
 
 pytestmark = [
     pytest.mark.requires_helix,
-    pytest.mark.skipif(not helix_available(), reason="HelixDB not available"),
+    pytest.mark.skipif(not helix_available(), reason="Helix not available (native or HTTP)"),
 ]
 
 

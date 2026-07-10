@@ -134,11 +134,24 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 
 Ordered so continuity stays first:
 
-1. **Native CI hard gate** — promote `native-continuity` from soft to required once wheels install reliably
-2. **Multi-client default** — Claude/Grok/OpenClaw all get public surface + hooks without docs
-3. **Operator MCP profile polish** — remaining tools (timeline, route, artifacts) documented as opt-in only
-4. **Latency p95 on large native brains** — only if cold get_context feels skippable
-5. **Multi-device sync design** — after 2 weeks green continuity CI
+| # | Deliverable | Status |
+|---|-------------|--------|
+| A1 | Native CI hard gate when `helix_native` importable | [x] probe + hard fail; skip if missing |
+| A2 | `requires_helix` prefers native data-dir | [x] `availability.py` + helix conftest |
+| A3 | `engramctl doctor` helix path `--require-golden-loop` | [x] no permanent lifecycle skip |
+| A4 | Weekly north-star metric doc | [x] `docs/product/WEEKLY_NORTH_STAR.md` |
+| B5 | Multi-client verify matrix | [x] `docs/product/MULTI_CLIENT_VERIFY.md` |
+| B6 | Session-promote in client skill packs | [x] `skills/client-packs/` |
+| B7 | AXI mirrors public tools | [x] `PUBLIC_AXI_COMMANDS` + tests |
+| C8 | Operator polish: timeline/route/artifacts/media | [x] operator surface allowlist |
+| C9 | Structured MCP errors `{status:error}` | [x] `mcp/errors.py` + tool wrap |
+| C10 | Aliases `search_entities`/`search_facts` full-only | [x] `FULL_ONLY_TOOLS` |
+| C11 | Eval tools full-only | [x] same |
+| D12 | p95 cold context on large brain | [~] cache+1s budget shipped; live p95 dogfood |
+| D13 | identity_core auto-hint after remember | [x] presenter |
+| D14 | Dashboard continuity scorecard | [x] StatsPanel + EvaluationPanel |
+| E15 | Multi-device sync design | [x] design-only `MULTI_DEVICE_SYNC.md` |
+| E16 | Policy / federated intelligence | [x] vision only — no build |
 
 ## Non-goals (parked)
 
@@ -146,6 +159,7 @@ Ordered so continuity stays first:
 - [ ] LongMemEval as primary scoreboard
 - [ ] Expanding consolidation phase count without ROI
 - [ ] New public MCP tools before golden loop is habit
+- [ ] Multi-device sync implementation before A–C boring 14 days
 
 ---
 

@@ -297,7 +297,8 @@ def test_engramctl_start_honors_configured_api_port() -> None:
         'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" '
         '"${doctor_args[@]}"' in engramctl
     )
-    assert "doctor_args+=(--no-lifecycle)" in engramctl
+    assert "doctor_args+=(--require-golden-loop)" in engramctl
+    assert "ENGRAM_DOCTOR_NO_LIFECYCLE" in engramctl
     assert "return 1" in engramctl
     assert "Quickstart could not confirm Engram is ready." in engramctl
 

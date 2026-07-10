@@ -1611,8 +1611,14 @@ command_doctor() {
     local engram_cmd
     engram_cmd="$(find_engram_command)"
     local doctor_args=()
+    # Helix installs: require golden-loop (hooks + public surface + continuity).
+    # Do not permanently skip lifecycle — that hid broken native brains.
+    # Escape hatch for huge dogfood brains: ENGRAM_DOCTOR_NO_LIFECYCLE=1
     if [ "${ENGRAM_MODE:-lite}" = "helix" ]; then
-      doctor_args+=(--no-lifecycle)
+      doctor_args+=(--require-golden-loop)
+      if [ "${ENGRAM_DOCTOR_NO_LIFECYCLE:-0}" = "1" ]; then
+        doctor_args+=(--no-lifecycle)
+      fi
     fi
     "$engram_cmd" doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" "${doctor_args[@]}" "$@"
     return
@@ -1624,7 +1630,10 @@ command_doctor() {
     engram_cmd="$(find_engram_command)"
     local doctor_args=()
     if [ "${ENGRAM_MODE:-full}" = "helix" ]; then
-      doctor_args+=(--no-lifecycle)
+      doctor_args+=(--require-golden-loop)
+      if [ "${ENGRAM_DOCTOR_NO_LIFECYCLE:-0}" = "1" ]; then
+        doctor_args+=(--no-lifecycle)
+      fi
     fi
     "$engram_cmd" doctor --mode "${ENGRAM_MODE:-full}" --server-url "$(api_base_url)" "${doctor_args[@]}" "$@"
     return

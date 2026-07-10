@@ -97,11 +97,12 @@ jobs:
           ENGRAM_MCP_SURFACE: public
 
   native-continuity:
-    name: Native Helix continuity (when wheel available)
+    name: Native Helix continuity
     runs-on: ubuntu-latest
     needs: lint
-    # Soft product gate: skip if helix-native is not installable on the runner.
-    continue-on-error: true
+    # Job always reports honest outcome: skip (exit 0 with reason) when native
+    # is unavailable; hard-fail when native is available and continuity fails.
+    # No continue-on-error — that greened failed native runs after import success.
     defaults:
       run:
         working-directory: server
@@ -124,25 +125,37 @@ jobs:
         run: |
           if uv run python -c "import helix_native; print('ok')"; then
             echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "helix_native import OK"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "helix_native not installed; skipping native continuity"
+            echo "::notice::helix_native not installed; native continuity SKIP (not a green-wash of a broken native path)"
           fi
 
-      - name: Continuity smoke on native when available
+      - name: Continuity + doctor golden-loop on native (hard gate)
         if: steps.native.outputs.available == 'true'
         run: |
+          set -euo pipefail
           DATA_DIR="${RUNNER_TEMP}/engram-native-ci"
           mkdir -p "$DATA_DIR"
+          export ENGRAM_MODE=helix
+          export ENGRAM_HELIX__TRANSPORT=native
+          export ENGRAM_HELIX__DATA_DIR="$DATA_DIR"
+          export ENGRAM_MCP_SURFACE=public
+          # Continuity smoke uses disposable lite storage by design; still run
+          # as product metric. Doctor resolves helix mode against native data-dir.
           uv run engram continuity --smoke
-          # Doctor mode resolution for helix/native; smoke stays disposable.
           uv run engram doctor --mode helix --helix-data-dir "$DATA_DIR" \
-            --skip-server --no-lifecycle --require-golden-loop --format markdown || true
+            --skip-server --require-golden-loop --format markdown
         env:
           ENGRAM_MODE: helix
           ENGRAM_HELIX__TRANSPORT: native
           ENGRAM_MCP_SURFACE: public
 
+      - name: Record skip when native unavailable
+        if: steps.native.outputs.available != 'true'
+        run: |
+          echo "SKIP: helix_native unavailable on runner — native continuity not executed"
+          echo "Install helix-native wheel to hard-gate this job."
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

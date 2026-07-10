@@ -4,7 +4,7 @@ Verifies that HelixSearchIndex correctly indexes entities and episodes,
 performs vector search, BM25 search, hybrid (RRF fusion) search,
 similarity computation, and deletion.
 
-All tests require a running HelixDB instance on localhost:6969 and are
+All tests require Helix (native data-dir preferred, or HTTP :6969) and are
 marked with ``requires_helix``.  The conftest ``helix_search_index``
 fixture uses a NoopProvider (dimension=0), which disables vector search
 and exercises the BM25-only code paths.  Tests that need vector search
@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib.util
-import socket
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -35,14 +34,15 @@ from engram.storage.helix.search import (
 
 
 def helix_available() -> bool:
-    try:
-        socket.create_connection(("localhost", 6969), timeout=2)
-        return True
-    except Exception:
-        return False
+    from engram.storage.helix.availability import helix_available as _probe
+
+    return bool(_probe(prefer_native=True).get("available"))
 
 
-_helix_skip = pytest.mark.skipif(not helix_available(), reason="HelixDB not available")
+_helix_skip = pytest.mark.skipif(
+    not helix_available(),
+    reason="Helix not available (native or HTTP)",
+)
 
 
 def test_prepare_fast_bm25_query_drops_high_fanout_terms() -> None:

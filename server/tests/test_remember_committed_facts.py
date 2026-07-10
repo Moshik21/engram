@@ -77,3 +77,24 @@ async def test_load_remember_committed_facts_empty_without_graph():
     )
     assert entities == []
     assert relationships == []
+
+
+def test_present_mcp_memory_write_identity_protect_hint():
+    from engram.ingestion.presenter import memory_write_contract, present_mcp_memory_write
+
+    contract = memory_write_contract(
+        "remember",
+        "ep_1",
+        committed_entities=[
+            {
+                "id": "ent_1",
+                "name": "Prefer sparse promotion",
+                "entity_type": "Decision",
+                "identity_core": True,
+            }
+        ],
+    )
+    payload = present_mcp_memory_write(contract, message="ok")
+    assert "identity_protect_hint" in payload
+    assert "identity_core" in payload["identity_protect_hint"]
+    assert payload["committed_entities"][0]["identity_core"] is True

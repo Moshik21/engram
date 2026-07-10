@@ -39,6 +39,7 @@ PUBLIC_ONBOARD_TOOLS: frozenset[str] = frozenset(
 PUBLIC_TOOLS: frozenset[str] = PUBLIC_CORE_TOOLS | PUBLIC_ONBOARD_TOOLS
 
 # Operator / repair tools kept available on "operator" surface.
+# Includes polish tools (timeline, route, artifacts, media observe).
 OPERATOR_EXTRA_TOOLS: frozenset[str] = frozenset(
     {
         "mark_identity_core",
@@ -51,6 +52,7 @@ OPERATOR_EXTRA_TOOLS: frozenset[str] = frozenset(
         "get_lifecycle_summary",
         "get_graph_state",
         "adjudicate_evidence",
+        "timeline",
         "route_question",
         "search_artifacts",
         "observe_image",
@@ -59,6 +61,17 @@ OPERATOR_EXTRA_TOOLS: frozenset[str] = frozenset(
 )
 
 OPERATOR_TOOLS: frozenset[str] = PUBLIC_TOOLS | OPERATOR_EXTRA_TOOLS
+
+# Full-surface only: deprecated aliases + evaluation. Never public/operator.
+FULL_ONLY_TOOLS: frozenset[str] = frozenset(
+    {
+        "search_entities",
+        "search_facts",
+        "get_evaluation_report",
+        "record_session_continuity_evaluation",
+        "record_recall_evaluation",
+    }
+)
 
 
 def resolve_mcp_surface(raw: str | None = None) -> McpSurface:

@@ -197,6 +197,21 @@ def present_api_memory_write(
     )
     if committed_relationships:
         response["committedRelationships"] = committed_relationships
+    # Auto-hint when remember lands identity_core (protected) entities.
+    if operation == "remember":
+        protected = [
+            e
+            for e in committed_entities
+            if isinstance(e, Mapping) and e.get("identityCore")
+        ]
+        if protected:
+            names = ", ".join(
+                str(e.get("name") or e.get("id") or "entity") for e in protected[:5]
+            )
+            response["identityProtectHint"] = (
+                f"Protected identity_core ({len(protected)}): {names}. "
+                "Merge/prune will prefer these; use mark_identity_core to adjust."
+            )
     return response
 
 
@@ -282,4 +297,17 @@ def present_mcp_memory_write(
     )
     if committed_relationships:
         response["committed_relationships"] = committed_relationships
+    # Auto-hint when remember lands identity_core (protected) entities.
+    if contract.get("operation") == "remember" and committed_entities:
+        protected = [
+            e for e in committed_entities if isinstance(e, Mapping) and e.get("identity_core")
+        ]
+        if protected:
+            names = ", ".join(
+                str(e.get("name") or e.get("id") or "entity") for e in protected[:5]
+            )
+            response["identity_protect_hint"] = (
+                f"Protected identity_core ({len(protected)}): {names}. "
+                "Merge/prune will prefer these; use mark_identity_core to adjust."
+            )
     return response

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-import socket
+from pathlib import Path
 from uuid import uuid4
 
 # Tests exercise the full MCP registry (operator + eval tools). Product installs
@@ -22,17 +22,38 @@ from engram.config import ActivationConfig, EmbeddingConfig, EngramConfig, Helix
 from engram.extraction.extractor import EntityExtractor, ExtractionResult
 from engram.graph_manager import GraphManager
 from engram.security.encryption import FieldEncryptor
+from engram.storage.helix.availability import (
+    helix_available as _helix_probe,
+)
+from engram.storage.helix.availability import (
+    helix_native_available,
+)
 from engram.storage.memory.activation import MemoryActivationStore
 
 
 def _helix_available() -> bool:
-    """Return True if a HelixDB instance is listening on the default port."""
-    try:
-        socket.create_connection(("localhost", 6969), timeout=2)
-        return True
-    except Exception:
-        return False
+    """True when native PyO3 (preferred) or HTTP Helix is usable.
 
+    Product path is native data-dir; HTTP :6969 remains a secondary
+    compatibility probe for Docker/HTTP integration tests.
+    """
+    return bool(_helix_probe(prefer_native=True).get("available"))
+
+
+def _test_helix_config() -> HelixDBConfig:
+    """Prefer native data-dir fixtures; fall back to HTTP :6969.
+
+    Never point at the live product data-dir — tests use a disposable path.
+    """
+    if helix_native_available():
+        data_dir = os.environ.get("ENGRAM_TEST_HELIX_DATA_DIR")
+        if not data_dir:
+            data_dir = str(
+                Path(os.environ.get("TMPDIR", "/tmp")) / "engram-helix-pytest-native"
+            )
+        os.makedirs(data_dir, exist_ok=True)
+        return HelixDBConfig(transport="native", data_dir=data_dir, verbose=False)
+    return HelixDBConfig(host="localhost", port=6969, transport="http")
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -44,14 +65,14 @@ def event_loop():
 @pytest.fixture
 def config() -> EngramConfig:
     return EngramConfig(
-        helix=HelixDBConfig(host="localhost", port=6969),
+        helix=_test_helix_config(),
         _env_file=None,
     )
 
 
 @pytest.fixture
 def helix_config() -> HelixDBConfig:
-    return HelixDBConfig(host="localhost", port=6969)
+    return _test_helix_config()
 
 
 @pytest.fixture
@@ -63,7 +84,7 @@ def test_group_id() -> str:
 @pytest_asyncio.fixture
 async def graph_store(helix_config):
     if not _helix_available():
-        pytest.skip("HelixDB not available on localhost:6969")
+        pytest.skip("Helix not available (native data-dir or HTTP :6969)")
 
     from engram.storage.helix.graph import HelixGraphStore
 
@@ -71,7 +92,7 @@ async def graph_store(helix_config):
     try:
         await store.initialize()
     except Exception:
-        pytest.skip("HelixDB not available or helix package not installed")
+        pytest.skip("Helix not available or helix package not installed")
     yield store
     await store.close()
 
@@ -84,7 +105,7 @@ async def activation_store() -> MemoryActivationStore:
 @pytest_asyncio.fixture
 async def search_index(helix_config):
     if not _helix_available():
-        pytest.skip("HelixDB not available on localhost:6969")
+        pytest.skip("Helix not available (native data-dir or HTTP :6969)")
 
     from engram.embeddings.provider import NoopProvider
     from engram.storage.helix.search import HelixSearchIndex
@@ -102,7 +123,7 @@ async def search_index(helix_config):
     try:
         await index.initialize()
     except Exception:
-        pytest.skip("HelixDB not available or helix package not installed")
+        pytest.skip("Helix not available or helix package not installed")
     yield index
     await index.close()
 
@@ -120,7 +141,7 @@ class MockExtractor(EntityExtractor):
 @pytest_asyncio.fixture
 async def encrypted_graph_store(helix_config):
     if not _helix_available():
-        pytest.skip("HelixDB not available on localhost:6969")
+        pytest.skip("Helix not available (native data-dir or HTTP :6969)")
 
     from engram.storage.helix.graph import HelixGraphStore
 
@@ -130,7 +151,7 @@ async def encrypted_graph_store(helix_config):
     try:
         await store.initialize()
     except Exception:
-        pytest.skip("HelixDB not available or helix package not installed")
+        pytest.skip("Helix not available or helix package not installed")
     yield store
     await store.close()
 

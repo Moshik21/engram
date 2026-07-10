@@ -724,11 +724,26 @@ export function EvaluationPanel() {
           <Metric label="resonance" value={num(report.recall.control.thresholds.resonance, 2)} accent="#facc15" />
         </Section>
 
-        <Section title="Continuity" status={report.recall.continuity.status} accent="#22d3ee">
+        <Section title="Continuity Scorecard" status={report.recall.continuity.status} accent="#22d3ee">
           <Metric label="lift" value={num(report.recall.continuity.sessionContinuityLift, 3)} accent="#22d3ee" />
           <Metric label="open loops" value={pct(report.recall.continuity.openLoopRecoveryRate)} />
           <Metric label="temporal" value={pct(report.recall.continuity.temporalCorrectness)} />
           <Metric label="labels" value={report.recall.continuity.sampleCount.toLocaleString()} />
+          <div
+            style={{
+              gridColumn: "1 / -1",
+              minWidth: 0,
+              borderTop: "1px solid rgba(34, 211, 238, 0.18)",
+              paddingTop: 10,
+              color: "var(--text-muted)",
+              fontSize: 11,
+              lineHeight: 1.35,
+            }}
+          >
+            North star: cold Decision hit rate (fresh session surfaces ≥1 prior
+            Decision). This panel measures labeled continuity lift — open work
+            below is secondary hygiene, not product success.
+          </div>
         </Section>
 
         <Section title="Consolidate" status={report.consolidate.status} accent="#f97316">

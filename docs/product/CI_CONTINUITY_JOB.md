@@ -46,5 +46,12 @@ export ENGRAM_MCP_SURFACE=public
 export ENGRAM_MCP_SURFACE=full
 ```
 
-Native Helix CI job (`native-continuity`) is soft (`continue-on-error`) until
-`helix-native` wheels are always present on runners.
+Native Helix CI job (`native-continuity`) **probes** `import helix_native`:
+
+- If native is **unavailable** → job records SKIP (exit 0 with notice), not a
+  green-wash of a failed native path.
+- If native is **available** → continuity smoke + `doctor --require-golden-loop`
+  are a **hard gate** (no `continue-on-error`).
+
+Helix integration tests prefer native data-dir via
+`engram.storage.helix.availability` (HTTP :6969 is secondary).

@@ -1194,7 +1194,7 @@ describe("EvaluationPanel", () => {
 
     expect(await screen.findByText("Runtime quality signals")).toBeInTheDocument();
     expect(screen.getByText("Recall")).toBeInTheDocument();
-    expect(screen.getByText("Continuity")).toBeInTheDocument();
+    expect(screen.getByText("Continuity Scorecard")).toBeInTheDocument();
     expect(screen.getAllByText("50.0%").length).toBeGreaterThan(0);
     expect(screen.getByText("selected rate")).toBeInTheDocument();
     expect(screen.getByText("projection")).toBeInTheDocument();

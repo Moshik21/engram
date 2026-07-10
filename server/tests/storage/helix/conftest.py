@@ -1,33 +1,72 @@
 """Test fixtures for HelixDB storage tests.
 
-All tests require a running HelixDB instance on localhost:6969.
-They are marked with ``requires_helix`` and will be skipped when
-HelixDB is not reachable.
+Product path is **native PyO3 + data-dir**. HTTP :6969 remains a secondary
+compatibility path. Tests are marked ``requires_helix`` and skip when neither
+backend is available.
 """
 
 from __future__ import annotations
 
-import socket
+import os
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio  # noqa: F401  -- needed for async fixture decorator
 
 from engram.config import EmbeddingConfig, HelixDBConfig
+from engram.storage.helix.availability import (
+    helix_available as probe_helix,
+)
+from engram.storage.helix.availability import (
+    helix_http_available,
+    helix_native_available,
+)
 
 
 def helix_available() -> bool:
-    """Return True if a HelixDB instance is listening on the default port."""
-    try:
-        socket.create_connection(("localhost", 6969), timeout=2)
-        return True
-    except Exception:
-        return False
+    """True when native PyO3 (preferred) or HTTP Helix is usable."""
+    return bool(probe_helix(prefer_native=True).get("available"))
 
+
+def _native_data_dir() -> Path:
+    """Disposable native data dir for integration tests."""
+    env = os.environ.get("ENGRAM_TEST_HELIX_DATA_DIR")
+    if env:
+        path = Path(env).expanduser().resolve()
+    else:
+        path = Path(os.environ.get("TMPDIR", "/tmp")) / "engram-helix-pytest-native"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _build_helix_config() -> HelixDBConfig:
+    """Prefer native data-dir; fall back to HTTP localhost:6969."""
+    if helix_native_available():
+        return HelixDBConfig(
+            transport="native",
+            data_dir=str(_native_data_dir()),
+            verbose=False,
+        )
+    if helix_http_available():
+        return HelixDBConfig(
+            host="localhost",
+            port=6969,
+            transport="http",
+            verbose=False,
+        )
+    # Unreachable when pytestmark skipif works; keep for direct imports.
+    return HelixDBConfig(host="localhost", port=6969, verbose=False)
+
+
+_probe = probe_helix(prefer_native=True)
+_skip_reason = (
+    f"Helix not available (native={_probe.get('native')}, http={_probe.get('http')})"
+)
 
 pytestmark = [
     pytest.mark.requires_helix,
-    pytest.mark.skipif(not helix_available(), reason="HelixDB not available on localhost:6969"),
+    pytest.mark.skipif(not helix_available(), reason=_skip_reason),
 ]
 
 
@@ -38,12 +77,8 @@ pytestmark = [
 
 @pytest.fixture
 def helix_config() -> HelixDBConfig:
-    """HelixDB config pointing at the local instance."""
-    return HelixDBConfig(
-        host="localhost",
-        port=6969,
-        verbose=False,
-    )
+    """HelixDB config: native data-dir when available, else HTTP."""
+    return _build_helix_config()
 
 
 @pytest.fixture

@@ -46,6 +46,7 @@ from engram.ingestion.capture_surface import (
 )
 from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
+from engram.mcp.errors import McpToolError, format_tool_exception
 from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
 from engram.notifications.surface import build_mcp_notifications_surface
 from engram.retrieval.adoption_debt import build_adoption_debt
@@ -427,13 +428,13 @@ async def _shutdown() -> None:
 
 def _get_manager() -> GraphManager:
     if _manager is None:
-        raise RuntimeError("MCP server not initialized")
+        raise McpToolError("not_initialized", "MCP server not initialized")
     return _manager
 
 
 def _get_session() -> SessionState:
     if _session is None:
-        raise RuntimeError("MCP server not initialized")
+        raise McpToolError("not_initialized", "MCP server not initialized")
     return _session
 
 
@@ -448,7 +449,7 @@ async def _get_evaluation_store() -> SQLiteEvaluationStore:
     if _evaluation_store is not None:
         return _evaluation_store
     if _runtime_config is None or _runtime_mode is None or _runtime_graph_store is None:
-        raise RuntimeError("EvaluationStore not initialized")
+        raise McpToolError("not_initialized", "EvaluationStore not initialized")
     async with _get_lazy_store_lock():
         if _evaluation_store is None:
             started = time.perf_counter()
@@ -678,7 +679,7 @@ async def _recall_middleware(
                 query_text=content,
                 project_path=session.last_project_path,
             )
-        except RuntimeError:
+        except (RuntimeError, McpToolError):
             adoption_debt = None
     await run_mcp_recall_middleware(
         response,
@@ -1652,9 +1653,58 @@ async def list_intentions(enabled_only: bool = True) -> str:
     return json.dumps(payload)
 
 
+# ─── Structured MCP errors on tool handlers ─────────────────────────
+def _install_structured_tool_errors() -> None:
+    """Wrap registered tools so failures return {status:error} JSON."""
+    manager = getattr(mcp, "_tool_manager", None)
+    if manager is None:
+        return
+    tools = getattr(manager, "_tools", None)
+    if not isinstance(tools, dict):
+        return
+    for name, tool in list(tools.items()):
+        fn = getattr(tool, "fn", None)
+        if fn is None or getattr(fn, "_engram_structured_errors", False):
+            continue
+
+        if asyncio.iscoroutinefunction(fn):
+
+            async def _async_wrap(*args: Any, _fn=fn, **kwargs: Any) -> Any:
+                try:
+                    return await _fn(*args, **kwargs)
+                except McpToolError as exc:
+                    return exc.to_json()
+                except Exception as exc:
+                    logging.getLogger(__name__).exception(
+                        "MCP tool failed with unstructured error"
+                    )
+                    return format_tool_exception(exc)
+
+            _async_wrap._engram_structured_errors = True  # type: ignore[attr-defined]
+            tool.fn = _async_wrap
+        else:
+
+            def _sync_wrap(*args: Any, _fn=fn, **kwargs: Any) -> Any:
+                try:
+                    return _fn(*args, **kwargs)
+                except McpToolError as exc:
+                    return exc.to_json()
+                except Exception as exc:
+                    logging.getLogger(__name__).exception(
+                        "MCP tool failed with unstructured error"
+                    )
+                    return format_tool_exception(exc)
+
+            _sync_wrap._engram_structured_errors = True  # type: ignore[attr-defined]
+            tool.fn = _sync_wrap
+
+
+_install_structured_tool_errors()
+
+
 # ─── Surface freeze (public golden loop by default) ─────────────────
 # ENGRAM_MCP_SURFACE=public|operator|full (default public).
-from engram.mcp.surface import apply_mcp_surface
+from engram.mcp.surface import apply_mcp_surface  # noqa: E402
 
 _MCP_SURFACE_SUMMARY = apply_mcp_surface(mcp)
 

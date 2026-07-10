@@ -5,6 +5,8 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from engram.mcp.surface import (
+    FULL_ONLY_TOOLS,
+    OPERATOR_TOOLS,
     PUBLIC_CORE_TOOLS,
     PUBLIC_TOOLS,
     apply_mcp_surface,
@@ -25,7 +27,8 @@ def test_apply_mcp_surface_public_keeps_golden_loop_only(monkeypatch):
     monkeypatch.setenv("ENGRAM_MCP_SURFACE", "public")
     mcp = FastMCP("test-surface")
 
-    for name in sorted(PUBLIC_CORE_TOOLS | {"search_entities", "trigger_consolidation", "timeline"}):
+    extras = {"search_entities", "trigger_consolidation", "timeline"}
+    for name in sorted(PUBLIC_CORE_TOOLS | extras):
 
         def _make(tool_name: str = name):
             @mcp.tool(name=tool_name)
@@ -77,3 +80,48 @@ def test_public_tools_cover_golden_loop():
         "claim_authority",
     ):
         assert name in PUBLIC_TOOLS
+
+
+def test_operator_includes_polish_tools_not_aliases():
+    for name in (
+        "timeline",
+        "route_question",
+        "search_artifacts",
+        "observe_image",
+        "observe_file",
+    ):
+        assert name in OPERATOR_TOOLS
+    for name in FULL_ONLY_TOOLS:
+        assert name not in OPERATOR_TOOLS
+        assert name not in PUBLIC_TOOLS
+
+
+def test_apply_mcp_surface_operator_keeps_polish_drops_eval(monkeypatch):
+    monkeypatch.setenv("ENGRAM_MCP_SURFACE", "operator")
+    mcp = FastMCP("test-surface-operator")
+    for name in (
+        "get_context",
+        "timeline",
+        "search_entities",
+        "get_evaluation_report",
+        "route_question",
+    ):
+
+        def _make(tool_name: str = name):
+            @mcp.tool(name=tool_name)
+            def _tool() -> str:
+                """doc"""
+                return tool_name
+
+            return _tool
+
+        _make()
+
+    summary = apply_mcp_surface(mcp)
+    kept = set(summary["kept"])
+    assert summary["surface"] == "operator"
+    assert "get_context" in kept
+    assert "timeline" in kept
+    assert "route_question" in kept
+    assert "search_entities" not in kept
+    assert "get_evaluation_report" not in kept

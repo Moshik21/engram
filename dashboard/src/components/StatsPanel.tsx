@@ -501,6 +501,14 @@ export function StatsPanel() {
     ([, a], [, b]) => b - a,
   );
   const maxTypeCount = typeEntries.length > 0 ? typeEntries[0][1] : 1;
+  const typeCount = (name: string) =>
+    stats.entityTypeCounts[name] ??
+    stats.entityTypeCounts[name.toLowerCase()] ??
+    0;
+  const decisionCount = typeCount("Decision");
+  const preferenceCount = typeCount("Preference");
+  const personCount = typeCount("Person");
+  const continuityReady = decisionCount > 0;
 
   return (
     <div
@@ -514,6 +522,57 @@ export function StatsPanel() {
         gap: 12,
       }}
     >
+      <SectionCard
+        title="Continuity Scorecard"
+        subtitle="Product KPI: cold Decision hit rate — not open work. Fresh agent should surface ≥1 prior Decision."
+        testId="stats-continuity-scorecard"
+      >
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+            gap: 8,
+            marginBottom: 10,
+          }}
+        >
+          <MiniMetric
+            label="Decisions"
+            value={decisionCount.toLocaleString()}
+            accent="#67e8f9"
+            helper={continuityReady ? "portable high-signal" : "promote ≥1 Decision"}
+          />
+          <MiniMetric
+            label="Preferences"
+            value={preferenceCount.toLocaleString()}
+            accent="#34d399"
+            helper="identity-adjacent"
+          />
+          <MiniMetric
+            label="People"
+            value={personCount.toLocaleString()}
+            accent="#c084fc"
+            helper="named continuity"
+          />
+          <MiniMetric
+            label="Open work"
+            value={(adjudicationMetrics?.openWorkCount ?? 0).toLocaleString()}
+            accent="#94a3b8"
+            helper="hygiene only (not KPI)"
+          />
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            lineHeight: 1.4,
+            color: "var(--text-muted)",
+          }}
+        >
+          Weekly north star: cold{" "}
+          <span style={{ color: "#67e8f9" }}>Decision</span> hit rate on your
+          native brain. Open work can be high while continuity still succeeds.
+        </div>
+      </SectionCard>
+
       <div
         style={{
           display: "grid",
