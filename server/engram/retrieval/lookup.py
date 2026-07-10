@@ -363,9 +363,15 @@ class EntityFactLookupService:
                 limit=limit,
             )
 
+        from engram.extraction.promotion import is_decision_statement_noise
+
         states = await self._activation.batch_get([entity.id for entity in entities])
         result = []
         for entity in entities:
+            # Permanent product hygiene: bootstrap decision_statement scrap is not
+            # a first-class Decision for agent lookup surfaces.
+            if is_decision_statement_noise(entity.name):
+                continue
             state = states.get(entity.id)
             activation_score = 0.0
             access_count = 0
@@ -382,6 +388,7 @@ class EntityFactLookupService:
                     "lexical_regime": entity.lexical_regime,
                     "canonical_identifier": entity.canonical_identifier,
                     "identifier_label": entity.identifier_label,
+                    "identity_core": bool(getattr(entity, "identity_core", False)),
                     "activation_score": round(activation_score, 4),
                     "created_at": entity.created_at.isoformat() if entity.created_at else None,
                     "updated_at": entity.updated_at.isoformat() if entity.updated_at else None,

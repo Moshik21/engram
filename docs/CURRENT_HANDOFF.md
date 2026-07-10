@@ -62,6 +62,15 @@ agent promotion”, “Prefer markdown handoffs until proven”.
 explicit recall + type listing), before project-file fallback. Session-start
 continuity no longer requires the agent to call `recall` first for strategy facts.
 
+### Product plan + release gates
+
+- Plan / checkboxes: `docs/product/CONTINUITY_PRODUCT_PLAN.md`
+- Golden loop contract: `docs/GOLDEN_LOOP.md`
+- Continuity smoke: `uv run engram continuity --smoke` (CI job `continuity`)
+- Client-promoted high-signal entities → **identity_core**
+- `decision_statement` scrap filtered from rescue, context, and entity search
+- Operator note: **open_work_count is hygiene, not product success**
+
 ### Recall budget defaults (tuned 2026-07-09)
 
 | Knob | Old | New |

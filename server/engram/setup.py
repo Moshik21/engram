@@ -685,6 +685,7 @@ _HOOK_SCRIPTS = {
     "capture-response.sh": "capture-response.sh",
     "session-start.sh": "session-start.sh",
     "session-end.sh": "session-end.sh",
+    "pre-compact.sh": "pre-compact.sh",
 }
 
 
@@ -1111,12 +1112,34 @@ _HOOKS_CONFIG = {
             ],
         }
     ],
+    "PreCompact": [
+        {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": str(_HOOKS_DIR / "pre-compact.sh"),
+                    "async": True,
+                    "timeout": 5000,
+                }
+            ],
+        }
+    ],
 }
 
 
 def _get_hook_source_dir() -> Path:
     """Return the directory containing the hook script templates."""
     return Path.home() / ".engram" / "hooks"
+
+
+def _repo_hook_script(script_name: str) -> Path | None:
+    """Locate a first-party hook script from the Engram checkout when available."""
+    # server/engram/setup.py -> Engram/hooks/<name>
+    candidate = Path(__file__).resolve().parents[2] / "hooks" / script_name
+    if candidate.is_file():
+        return candidate
+    return None
 
 
 def install_hooks(
@@ -1130,6 +1153,8 @@ def install_hooks(
 
     Returns dict with 'scripts' and 'settings_updated' keys.
     """
+    import shutil
+
     hooks_dir = hooks_dir or _HOOKS_DIR
     settings_path = settings_path or _SETTINGS_PATH
 
@@ -1143,8 +1168,11 @@ def install_hooks(
     source_dir = _get_hook_source_dir()
     for script_name in _HOOK_SCRIPTS:
         src = source_dir / script_name
+        repo_src = _repo_hook_script(script_name)
         dst = hooks_dir / script_name
         template = _HOOK_SCRIPT_TEMPLATES.get(script_name)
+        if not template and repo_src is not None:
+            template = repo_src.read_text()
         if dst.exists() and template and _is_managed_hook_script(dst):
             dst.write_text(template + "\n")
             dst.chmod(0o755)
@@ -1157,9 +1185,11 @@ def install_hooks(
             dst.chmod(0o755)
             result["scripts"].append(str(dst))
         elif src.exists() and src != dst:
-            import shutil
-
             shutil.copy2(src, dst)
+            dst.chmod(0o755)
+            result["scripts"].append(str(dst))
+        elif repo_src is not None and repo_src != dst:
+            shutil.copy2(repo_src, dst)
             dst.chmod(0o755)
             result["scripts"].append(str(dst))
 

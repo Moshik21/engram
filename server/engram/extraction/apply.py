@@ -581,6 +581,15 @@ class ApplyEngine:
             attributes = _canonicalize_attribute_keys(candidate.attributes)
             pii_detected = candidate.pii_detected
             pii_categories = candidate.pii_categories
+            from engram.extraction.promotion import should_protect_as_identity_core
+
+            protect_identity = (
+                self._cfg.identity_core_enabled
+                and should_protect_as_identity_core(
+                    entity_type,
+                    client_proposal=is_client_proposal,
+                )
+            )
 
             if candidate.epistemic_mode == "meta":
                 logger.debug("Skipping meta-tagged entity %r (type=%s)", name, entity_type)
@@ -626,6 +635,8 @@ class ApplyEngine:
                     if span_end is None or ep_ts > span_end:
                         updates["evidence_span_end"] = ep_ts.isoformat()
 
+                if protect_identity and not getattr(existing_entity, "identity_core", False):
+                    updates["identity_core"] = 1
                 if updates:
                     await self._graph.update_entity(entity_id, updates, group_id=group_id)
 
@@ -687,6 +698,7 @@ class ApplyEngine:
                     group_id=group_id,
                     pii_detected=pii_detected,
                     pii_categories=pii_categories,
+                    identity_core=protect_identity,
                     source_episode_ids=[episode.id],
                     evidence_count=1,
                     evidence_span_start=episode.created_at,

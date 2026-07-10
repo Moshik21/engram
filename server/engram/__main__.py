@@ -40,6 +40,7 @@ def main():
         "  engram evaluate --require-evaluation-signals\n"
         "                            Fail unless all evaluation signals are measured\n"
         "  engram evaluate --smoke --mode helix\n"
+        "  engram continuity --smoke   Continuity golden path (product metric)\n"
         "                            Verify the native Helix brain loop end to end\n"
         "  engram axi --project $PWD\n"
         "                            Print compact agent-facing runtime/context packet\n"
@@ -165,6 +166,23 @@ def main():
     from engram.evaluation.dogfood import configure_dogfood_parser
 
     configure_dogfood_parser(dogfood_parser)
+
+    # --- continuity ---
+    continuity_parser = subparsers.add_parser(
+        "continuity",
+        help="Run continuity golden-path smoke (promote → cold get_context/recall)",
+    )
+    continuity_parser.add_argument(
+        "--smoke",
+        action="store_true",
+        default=True,
+        help="Run the lite continuity golden-path smoke (default)",
+    )
+    continuity_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON instead of markdown",
+    )
 
     # --- axi ---
     axi_parser = subparsers.add_parser(
@@ -350,6 +368,23 @@ def main():
         from engram.evaluation.dogfood import run_dogfood_command
 
         sys.exit(asyncio.run(run_dogfood_command(args)))
+
+    # --- continuity ---
+    if args.command == "continuity":
+        import asyncio
+        import json as _json
+
+        from engram.evaluation.continuity import (
+            format_continuity_report,
+            run_continuity_golden_path_smoke,
+        )
+
+        result = asyncio.run(run_continuity_golden_path_smoke())
+        if args.json:
+            print(_json.dumps(result, indent=2, default=str))
+        else:
+            print(format_continuity_report(result))
+        sys.exit(0 if result.get("passed") else 1)
 
     # --- axi ---
     if args.command == "axi":

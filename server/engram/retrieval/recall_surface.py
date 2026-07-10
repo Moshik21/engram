@@ -1142,10 +1142,6 @@ async def _run_fast_recall_fallback(
     return filtered, "hit" if filtered else "miss"
 
 
-# Bootstrap / Cadence scrap that floods Decision rescue with false positives.
-_DECISION_STATEMENT_NOISE = re.compile(
-    r"(?i)decision_statement|machineshopscheduler:decision|:decision_statement:"
-)
 _RESCUE_STOPWORDS = frozenset(
     {
         "that",
@@ -1188,7 +1184,9 @@ _RESCUE_STOPWORDS = frozenset(
 
 def _is_decision_statement_noise(name: str) -> bool:
     """True for bootstrap/Cadence decision_statement scrap entities."""
-    return bool(_DECISION_STATEMENT_NOISE.search(name or ""))
+    from engram.extraction.promotion import is_decision_statement_noise
+
+    return is_decision_statement_noise(name)
 
 
 def _rescue_query_tokens(query: str) -> list[str]:

@@ -1860,11 +1860,32 @@ async def _durable_context_payload_from_manager(
         },
     }
     if format == "briefing":
-        # Still structured facts; mark as non-LLM briefing when that format was requested.
-        payload["briefing_degraded"] = True
-        payload["briefing_degraded_reason"] = "durable_context_fast_path"
-        payload["context"] = context
+        payload["format"] = "briefing"
+        payload["context"] = _render_durable_briefing(packet_payloads)
+        payload["token_estimate"] = MemoryContextBuilder.estimate_tokens(
+            str(payload["context"])
+        )
     return payload
+
+
+def _render_durable_briefing(packets: Sequence[Mapping[str, Any]]) -> str:
+    """Deterministic 2–3 sentence briefing from durable graph packets (no LLM)."""
+    facts: list[str] = []
+    for packet in list(packets)[:3]:
+        title = str(packet.get("title") or "").removeprefix("Fact: ").strip()
+        summary = str(packet.get("summary") or "").strip()
+        if title and summary and summary.casefold() not in title.casefold():
+            facts.append(f"{title} — {summary}")
+        elif title:
+            facts.append(title)
+        elif summary:
+            facts.append(summary)
+    if not facts:
+        return ""
+    if len(facts) == 1:
+        return f"Key memory to carry forward: {facts[0]}."
+    numbered = " ".join(f"({i}) {fact}." for i, fact in enumerate(facts, start=1))
+    return f"Key memories to carry forward: {numbered}"
 
 
 async def _list_durable_entities_by_type(
@@ -1882,8 +1903,9 @@ async def _list_durable_entities_by_type(
     if not callable(search):
         return []
 
-    hits: list[dict[str, Any]] = []
-    for entity_type in ("Decision", "Preference", "Goal", "Commitment", "Correction", "Person"):
+    types = ("Decision", "Preference", "Goal", "Commitment", "Correction", "Person")
+
+    async def _fetch_type(entity_type: str) -> list[Any]:
         try:
             value = search(
                 group_id=group_id,
@@ -1892,10 +1914,14 @@ async def _list_durable_entities_by_type(
             )
             if inspect.isawaitable(value):
                 value = await asyncio.wait_for(value, timeout=timeout_seconds)
+            return value if isinstance(value, list) else []
         except Exception:
-            continue
-        if not isinstance(value, list):
-            continue
+            return []
+
+    # Parallel type probes keep session-start get_context under ~1s on loaded brains.
+    typed_rows = await asyncio.gather(*(_fetch_type(entity_type) for entity_type in types))
+    hits: list[dict[str, Any]] = []
+    for entity_type, value in zip(types, typed_rows):
         for row in value:
             if not isinstance(row, Mapping):
                 continue
@@ -1910,6 +1936,9 @@ async def _list_durable_entities_by_type(
                 continue
             activation = float(row.get("activation_score") or 0.0)
             score = 0.55 + durable_result_boost(et) * 0.08 + min(0.2, activation * 0.2)
+            # Prefer identity-core promoted facts when the store exposes the flag.
+            if row.get("identity_core") in (True, 1, "1"):
+                score += 0.1
             hits.append(
                 {
                     "result_type": "entity",

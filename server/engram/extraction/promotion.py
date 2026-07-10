@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from re import Pattern
 
 # Durable types agents should promote. Everything else is optional noise.
 HIGH_SIGNAL_ENTITY_TYPES: frozenset[str] = frozenset(
@@ -81,6 +82,22 @@ AUTO_CAPTURE_SOURCES: frozenset[str] = frozenset(
         "auto:warmup",
     }
 )
+
+# Bootstrap / Cadence scrap that floods Decision retrieval with false positives.
+_DECISION_STATEMENT_NOISE: Pattern[str] = re.compile(
+    r"(?i)decision_statement|machineshopscheduler:decision|:decision_statement:"
+)
+
+
+def is_decision_statement_noise(name: str | None) -> bool:
+    """True for bootstrap/Cadence decision_statement scrap entity names."""
+    return bool(name and _DECISION_STATEMENT_NOISE.search(name))
+
+
+def should_protect_as_identity_core(entity_type: str | None, *, client_proposal: bool) -> bool:
+    """High-signal client-promoted facts should survive prune/merge pressure."""
+    return bool(client_proposal and is_high_signal_entity_type(entity_type))
+
 
 
 @dataclass

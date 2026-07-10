@@ -297,10 +297,11 @@ class SQLiteGraphStore:
                (id, name, entity_type, summary, attributes, group_id,
                 created_at, updated_at,
                 access_count, last_accessed, pii_detected, pii_categories,
+                identity_core,
                 lexical_regime, canonical_identifier, identifier_label,
                 source_episode_ids, evidence_count,
                 evidence_span_start, evidence_span_end)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 entity.id,
                 entity.name,
@@ -314,6 +315,7 @@ class SQLiteGraphStore:
                 entity.last_accessed.isoformat() if entity.last_accessed else None,
                 1 if entity.pii_detected else 0,
                 json.dumps(entity.pii_categories) if entity.pii_categories else None,
+                1 if entity.identity_core else 0,
                 entity.lexical_regime,
                 entity.canonical_identifier,
                 1 if entity.identifier_label else 0,

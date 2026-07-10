@@ -107,37 +107,41 @@ Content-Type: application/json
 {"project_path": "<absolute project path>", "session_id": "<optional session id>", "include_patterns": ["docs/**/*.md", "memory/**/*.md", "exports/**/*.json"]}
 ```
 
-## MCP Core Tools (use these six)
+## Golden loop (product contract)
 
-When MCP tools are visible, use **only** these six as the primary agent surface:
+Full guide: `docs/GOLDEN_LOOP.md`. Success metric is **not LongMemEval**:
+
+> Fresh agent surfaces ≥1 high-signal prior Decision without a handoff doc.
+
+Three layers:
+1. **Passive capture** — harness auto-observe / `observe` (cheap, complete)
+2. **Sparse promotion** — `remember` with proposals, **0–5 per compaction window**
+3. **Deliberate consolidation** — offline hygiene only
+
+## MCP Core Tools (use these as the primary agent surface)
 
 | Tool | When |
 |------|------|
-| `claim_authority` | Session start when project-local file memory is present — decides Engram vs file ownership |
-| `get_context` | Start of each conversation; broad briefing before answering |
+| `claim_authority` | Session start when project-local file memory is present |
+| `get_context` | Start of each conversation — durable Decisions/Preferences first |
 | `recall` | Before answering when prior context could change the response |
-| `observe` | Default capture for most content (cheap, background processing) |
-| `remember` | High-signal facts: identity, preferences, corrections, durable decisions |
-| `route_question` | Install/config/current-truth questions — follow `answerContract` and `requiredNextSources` |
+| `observe` | Only when harness cannot see high-value context (or user asks to store) |
+| `remember` | High-signal facts **with** `proposed_entities` + `proposed_relationships` |
+| `intend` | Prospective memory / pinned context |
 
-Do **not** treat `search_entities`, `search_facts`, `search_artifacts`, or maintenance/eval tools as primary entry points. Prefer `recall` for retrieval and `route_question` for project-truth routing. Other MCP tools exist for operators and advanced workflows.
+Do **not** treat `search_entities`, `search_facts`, or eval tools as primary entry points.
 
 ## When to Observe vs Remember
 
-**Default to observe for most content.** Use remember only for high-signal items.
+Harness auto-capture handles routine turns — **do not re-observe every turn**.
 
-Use **observe** when:
-- General conversation context or topics discussed
-- Information that might be useful later but is not critical
-- Bulk context from a long conversation
-- You are uncertain whether something is worth a full remember
+Use **remember** (max 5 per compaction window) when:
+- Durable **Decision**, **Preference**, **Person**, **Correction**, **Goal**, **Commitment**
+- You can cite a verbatim `source_span` in the content
+- Pass `model_tier` and structured proposals (you are the extractor)
 
-Use **remember** when:
-- The user explicitly asks you to remember something
-- Personal identity facts (name, location, job title)
-- Explicit preferences or corrections to prior knowledge
-- Key decisions that will affect future interactions
-- Goals, plans, or deadlines with concrete details
+Use **observe** only for harness-invisible context or explicit store requests.  
+Reject session recaps (“what we did today”).
 
 ## How to Store Memories
 
@@ -149,12 +153,28 @@ Content-Type: application/json
 {"content": "<text to store>", "source": "openclaw"}
 ```
 
-To remember (full extraction with entities and relationships):
+To remember (agent-promoted atomic facts):
 ```
 POST http://localhost:8100/api/knowledge/remember
 Content-Type: application/json
 
-{"content": "<important text>", "source": "openclaw"}
+{
+  "content": "LongMemEval is not Engram north star. Continuity is the metric.",
+  "source": "openclaw",
+  "model_tier": "sonnet",
+  "proposed_entities": [{
+    "name": "LongMemEval is not Engram north star",
+    "entity_type": "Decision",
+    "source_span": "LongMemEval is not Engram north star",
+    "summary": "Product metric is multi-agent continuity."
+  }],
+  "proposed_relationships": [{
+    "subject": "Engram",
+    "predicate": "DECIDED",
+    "object": "LongMemEval is not Engram north star",
+    "source_span": "LongMemEval is not Engram north star"
+  }]
+}
 ```
 
 To forget (soft delete outdated information):
