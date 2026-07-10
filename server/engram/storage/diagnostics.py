@@ -345,10 +345,11 @@ class StorageDiagnostics:
         return "running" if self._active_count_refresh_task(group_id) is not None else "idle"
 
     def _count_refresh_skip_reason(self, live: bool) -> str | None:
+        # Native write-through is a growth delta only when seeded. Never block
+        # live/operator count refresh — that produced AXI "2 episodes" while
+        # lifecycle reported 8500+ on the same data-dir.
         if not live:
             return None
-        if self.mode == "helix" and self.config.helix.transport in {"native", "auto"}:
-            return "helix_native_counts_use_cached_write_through"
         return None
 
     async def _paths_snapshot(
@@ -486,7 +487,11 @@ def _backend_label(config: EngramConfig, mode: str) -> str:
 
 
 async def _read_counts(graph_store: Any, group_id: str) -> dict[str, int]:
-    stats = await graph_store.get_stats(group_id)
+    # Prefer fast exact=False path on native Helix (full exact can hang large brains).
+    try:
+        stats = await graph_store.get_stats(group_id, exact=False)
+    except TypeError:
+        stats = await graph_store.get_stats(group_id)
     cue_metrics = stats.get("cue_metrics") or {}
     return {
         "episodes": _int_stat(stats, "episodes", "episode_count", "total_episodes"),

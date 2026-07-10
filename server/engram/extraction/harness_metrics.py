@@ -1,18 +1,35 @@
-"""Process-local harness-as-extractor scoreboard counters.
+"""Harness-as-extractor scoreboard counters (process + durable file).
 
 Product metric: client proposals are the primary meaning path. External LLM
-extractors must not be the default. These counters are intentionally local
-(in-memory) so unit tests and doctor can read them without a second DB.
+extractors must not be the default.
 
-Persist later via evaluation samples if needed; process counters are enough
-for CI and operator spot-checks.
+Process counters support unit tests; a JSON file under the Engram home dir
+lets operators read promote_rate / client_proposal_share from CLI after
+remembers ran in the MCP/server process.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
+
+_METRIC_KEYS = (
+    "remember_with_proposals",
+    "remember_without_proposals",
+    "client_proposal_commits",
+    "client_proposal_defers",
+    "client_proposal_rejects",
+    "span_unverified_defers",
+    "predicate_not_allowed_rejects",
+    "identity_core_conflicts",
+    "narrow_extractions",
+    "external_extractor_skipped",
+    "external_extractor_invoked",
+)
 
 
 @dataclass
@@ -71,46 +88,82 @@ class _Counters:
 _COUNTERS = _Counters()
 
 
-def reset_harness_metrics() -> None:
-    """Reset process counters (tests only)."""
+def harness_metrics_path() -> Path:
+    """Durable scoreboard path (server + CLI share this file)."""
+    override = os.environ.get("ENGRAM_HARNESS_METRICS_PATH")
+    if override:
+        return Path(override).expanduser()
+    home = os.environ.get("ENGRAM_HOME") or str(Path.home() / ".engram")
+    return Path(home).expanduser() / "harness-metrics.json"
+
+
+def _load_persistent() -> dict[str, int]:
+    path = harness_metrics_path()
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {k: 0 for k in _METRIC_KEYS}
+    if not isinstance(raw, dict):
+        return {k: 0 for k in _METRIC_KEYS}
+    return {k: int(raw.get(k, 0) or 0) for k in _METRIC_KEYS}
+
+
+def _persist_add(deltas: dict[str, int]) -> None:
+    """Add deltas into the durable JSON scoreboard (best-effort)."""
+    if not any(deltas.values()):
+        return
+    path = harness_metrics_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        current = _load_persistent()
+        for key, delta in deltas.items():
+            if key in current and delta:
+                current[key] = max(0, current[key] + int(delta))
+        path.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
+    except OSError:
+        return
+
+
+def reset_harness_metrics(*, clear_persistent: bool = False) -> None:
+    """Reset process counters (tests only). Optionally wipe durable file."""
     with _COUNTERS._lock:
-        for name in (
-            "remember_with_proposals",
-            "remember_without_proposals",
-            "client_proposal_commits",
-            "client_proposal_defers",
-            "client_proposal_rejects",
-            "span_unverified_defers",
-            "predicate_not_allowed_rejects",
-            "identity_core_conflicts",
-            "narrow_extractions",
-            "external_extractor_skipped",
-            "external_extractor_invoked",
-        ):
+        for name in _METRIC_KEYS:
             setattr(_COUNTERS, name, 0)
+    if clear_persistent:
+        path = harness_metrics_path()
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            pass
 
 
 def record_remember_call(*, has_proposals: bool) -> None:
     with _COUNTERS._lock:
         if has_proposals:
             _COUNTERS.remember_with_proposals += 1
+            _persist_add({"remember_with_proposals": 1})
         else:
             _COUNTERS.remember_without_proposals += 1
+            _persist_add({"remember_without_proposals": 1})
 
 
 def record_external_extractor_skipped() -> None:
     with _COUNTERS._lock:
         _COUNTERS.external_extractor_skipped += 1
+        _persist_add({"external_extractor_skipped": 1})
 
 
 def record_external_extractor_invoked() -> None:
     with _COUNTERS._lock:
         _COUNTERS.external_extractor_invoked += 1
+        _persist_add({"external_extractor_invoked": 1})
 
 
 def record_narrow_extraction() -> None:
     with _COUNTERS._lock:
         _COUNTERS.narrow_extractions += 1
+        _persist_add({"narrow_extractions": 1})
 
 
 def record_client_proposal_outcomes(
@@ -129,11 +182,22 @@ def record_client_proposal_outcomes(
         _COUNTERS.span_unverified_defers += span_unverified_defers
         _COUNTERS.predicate_not_allowed_rejects += predicate_rejects
         _COUNTERS.identity_core_conflicts += identity_conflicts
+        _persist_add(
+            {
+                "client_proposal_commits": commits,
+                "client_proposal_defers": defers,
+                "client_proposal_rejects": rejects,
+                "span_unverified_defers": span_unverified_defers,
+                "predicate_not_allowed_rejects": predicate_rejects,
+                "identity_core_conflicts": identity_conflicts,
+            }
+        )
 
 
-def get_harness_metrics() -> HarnessMetricsSnapshot:
+def get_harness_metrics(*, prefer_persistent: bool = True) -> HarnessMetricsSnapshot:
+    """Return process snapshot, or durable file when process counters are empty."""
     with _COUNTERS._lock:
-        return HarnessMetricsSnapshot(
+        process = HarnessMetricsSnapshot(
             remember_with_proposals=_COUNTERS.remember_with_proposals,
             remember_without_proposals=_COUNTERS.remember_without_proposals,
             client_proposal_commits=_COUNTERS.client_proposal_commits,
@@ -146,19 +210,26 @@ def get_harness_metrics() -> HarnessMetricsSnapshot:
             external_extractor_skipped=_COUNTERS.external_extractor_skipped,
             external_extractor_invoked=_COUNTERS.external_extractor_invoked,
         )
+    process_total = process.remember_with_proposals + process.remember_without_proposals
+    if not prefer_persistent or process_total > 0 or process.client_proposal_commits > 0:
+        return process
+    persistent = _load_persistent()
+    return HarnessMetricsSnapshot(**persistent)
 
 
 def harness_scoreboard_payload() -> dict[str, Any]:
     """Operator-facing scoreboard JSON (client_proposal share + promote rate)."""
-    snap = get_harness_metrics()
+    snap = get_harness_metrics(prefer_persistent=True)
     return {
         "status": "ok",
         "scoreboard": "harness_extractor",
         "metrics": snap.to_dict(),
-        "north_star": "cold Decision hit rate (engram continuity --smoke)",
+        "path": str(harness_metrics_path()),
+        "north_star": "cold Decision hit rate (engram continuity --against-live)",
         "notes": [
             "client_proposal_share = proposal commits / (proposal commits + narrow extractions)",
             "promote_rate = remember_with_proposals / all remember calls",
             "external_extractor_skipped should rise with good harness habit",
+            "metrics persist under ~/.engram/harness-metrics.json for cross-process reads",
         ],
     }

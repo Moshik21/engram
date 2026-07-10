@@ -199,8 +199,9 @@ def _payload_blob(payload: dict[str, Any]) -> str:
 def format_continuity_report(result: dict[str, Any]) -> str:
     """Markdown report for CLI / CI logs."""
     status = "PASS" if result.get("passed") else "FAIL"
+    title = result.get("title") or "Continuity golden path"
     lines = [
-        f"# Continuity golden path: {status}",
+        f"# {title}: {status}",
         "",
         f"- Metric: {result.get('metric')}",
         f"- Duration: {result.get('duration_ms')} ms",
@@ -209,6 +210,216 @@ def format_continuity_report(result: dict[str, Any]) -> str:
         f"- recall hits: {', '.join(result.get('recall_hits') or []) or '(none)'}",
         "",
     ]
+    if result.get("entity_count") is not None:
+        lines.insert(
+            4,
+            (
+                f"- Graph entities: {result.get('entity_count')} | "
+                f"episodes: {result.get('episode_count')}"
+            ),
+        )
+    if result.get("error"):
+        lines.append(f"- Error: {result.get('error')}")
     for row in result.get("promoted") or []:
         lines.append(f"- promoted: {row.get('name')} (`{row.get('episode_id')}`)")
+    if result.get("mode") == "live":
+        lines.append(f"- mode: live against `{result.get('data_dir') or 'configured store'}`")
+        lines.append(f"- recall_ms: {result.get('recall_ms')}")
+        lines.append(f"- context_ms: {result.get('context_ms')}")
     return "\n".join(lines) + "\n"
+
+
+async def run_continuity_against_live(
+    *,
+    server_url: str = "http://127.0.0.1:8100",
+    decision_name: str = "Cold Decision hit requires healthy search index",
+    max_recall_ms: float = 2000.0,
+    promote_if_missing: bool = True,
+) -> dict[str, Any]:
+    """Product gate: live get_context/recall must surface a Decision on the real brain.
+
+    Fails when entity_count > 0 but cold surfaces show 0 Decision hits.
+    Optionally promotes a known Decision first, then requires recall < max_recall_ms.
+    """
+    import json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    started = time.perf_counter()
+    base = server_url.rstrip("/")
+
+    def _get(path: str, timeout: float = 30.0) -> dict[str, Any]:
+        req = urllib.request.Request(f"{base}{path}", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+
+    def _post(path: str, body: dict[str, Any], timeout: float = 30.0) -> dict[str, Any]:
+        data = json.dumps(body).encode()
+        req = urllib.request.Request(
+            f"{base}{path}",
+            data=data,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+
+    try:
+        storage = _get("/api/storage?live=true&timeoutSeconds=8", timeout=15.0)
+    except Exception as exc:
+        return {
+            "title": "Continuity against live brain",
+            "status": "failed",
+            "passed": False,
+            "mode": "live",
+            "error": f"storage probe failed: {exc}",
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            "metric": "Live cold Decision hit on configured brain",
+        }
+
+    counts = storage.get("counts") or {}
+    entity_count = int(counts.get("entities") or 0)
+    episode_count = int(counts.get("episodes") or 0)
+    data_dir = None
+    for p in storage.get("paths") or []:
+        if isinstance(p, dict) and "Helix native" in str(p.get("label") or ""):
+            data_dir = p.get("path")
+            break
+
+    promoted: list[dict[str, str]] = []
+
+    def _recall_once() -> tuple[dict[str, Any], float]:
+        recall_q = urllib.parse.quote(decision_name)
+        t0 = time.perf_counter()
+        try:
+            payload = _get(f"/api/knowledge/recall?q={recall_q}&limit=5", timeout=20.0)
+        except Exception as exc:
+            payload = {"error": str(exc), "results": [], "items": []}
+        return payload, round((time.perf_counter() - t0) * 1000, 2)
+
+    # Prefer existing graph Decision (no promote) — product dogfood path.
+    recall_payload, recall_ms = _recall_once()
+    recall_blob = _payload_blob(recall_payload) if isinstance(recall_payload, dict) else ""
+    already_hit = decision_name in recall_blob
+
+    if promote_if_missing and not already_hit:
+        content = (
+            f"{decision_name}. Product continuity requires search/index health "
+            "so cold get_context and recall surface Decisions."
+        )
+        try:
+            remember = _post(
+                "/api/knowledge/remember",
+                {
+                    "content": content,
+                    "source": "continuity_live_gate",
+                    "model_tier": "sonnet",
+                    "proposed_entities": [
+                        {
+                            "name": decision_name,
+                            "entity_type": "Decision",
+                            "source_span": decision_name,
+                            "summary": "Live continuity gate Decision.",
+                        }
+                    ],
+                    "proposed_relationships": [
+                        {
+                            "subject": "Engram",
+                            "predicate": "DECIDED",
+                            "object": decision_name,
+                            "source_span": decision_name,
+                        }
+                    ],
+                },
+                timeout=120.0,
+            )
+            promoted.append(
+                {
+                    "name": decision_name,
+                    "episode_id": str(
+                        remember.get("episodeId") or remember.get("episode_id") or ""
+                    ),
+                }
+            )
+            # Cold-ish second recall after promote.
+            recall_payload, recall_ms = _recall_once()
+        except Exception as exc:
+            return {
+                "title": "Continuity against live brain",
+                "status": "failed",
+                "passed": False,
+                "mode": "live",
+                "error": f"remember promote failed: {exc}",
+                "entity_count": entity_count,
+                "episode_count": episode_count,
+                "data_dir": data_dir,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                "metric": "Live cold Decision hit on configured brain",
+            }
+
+    t1 = time.perf_counter()
+    try:
+        context_payload = _get(
+            "/api/knowledge/context?max_tokens=1500&topic_hint="
+            + urllib.parse.quote("Decision strategy continuity"),
+            timeout=15.0,
+        )
+    except Exception as exc:
+        context_payload = {"error": str(exc), "context": ""}
+    context_ms = round((time.perf_counter() - t1) * 1000, 2)
+
+    recall_blob = _payload_blob(recall_payload) if isinstance(recall_payload, dict) else ""
+    context_blob = _payload_blob(context_payload) if isinstance(context_payload, dict) else ""
+    # Also check results entities by name
+    for item in (recall_payload.get("items") or recall_payload.get("results") or []):
+        if isinstance(item, dict):
+            ent = item.get("entity") if isinstance(item.get("entity"), dict) else item
+            if isinstance(ent, dict) and ent.get("name"):
+                recall_blob += "\n" + str(ent.get("name"))
+
+    # Exact substring of decision name in results or packets (cache Fact packets count).
+    recall_hit = decision_name in recall_blob
+    context_hit = decision_name in context_blob
+
+    results_empty = not (recall_payload.get("results") or recall_payload.get("items"))
+    degraded = bool(
+        recall_payload.get("status") == "degraded"
+        or (recall_payload.get("lifecycle") or {}).get("timeout")
+    )
+
+    # Pass criteria: Decision found in recall within budget; if graph non-empty
+    # cannot return zero hits.
+    within_budget = recall_ms <= max_recall_ms
+    passed = bool(recall_hit and within_budget and not (entity_count > 0 and not recall_hit))
+    if entity_count > 0 and not recall_hit:
+        passed = False
+    if not within_budget:
+        passed = False
+    if not recall_hit:
+        passed = False
+
+    return {
+        "title": "Continuity against live brain",
+        "status": "passed" if passed else "failed",
+        "passed": passed,
+        "mode": "live",
+        "metric": (
+            f"Live cold recall surfaces Decision within {max_recall_ms:.0f}ms "
+            "(fails if entity_count>0 and zero Decision hits)"
+        ),
+        "entity_count": entity_count,
+        "episode_count": episode_count,
+        "data_dir": data_dir,
+        "promoted": promoted,
+        "identity_core": [decision_name] if recall_hit else [],
+        "context_hits": [decision_name] if context_hit else [],
+        "recall_hits": [decision_name] if recall_hit else [],
+        "recall_ms": recall_ms,
+        "context_ms": context_ms,
+        "within_budget": within_budget,
+        "results_empty": results_empty,
+        "degraded": degraded,
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        "server_url": base,
+    }

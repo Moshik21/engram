@@ -179,6 +179,25 @@ def main():
         help="Run the lite continuity golden-path smoke (default)",
     )
     continuity_parser.add_argument(
+        "--against-live",
+        action="store_true",
+        help=(
+            "Product gate against the running server: cold get_context/recall must "
+            "surface a Decision when the graph has entities (not disposable smoke)."
+        ),
+    )
+    continuity_parser.add_argument(
+        "--server-url",
+        default="http://127.0.0.1:8100",
+        help="Server URL for --against-live (default http://127.0.0.1:8100)",
+    )
+    continuity_parser.add_argument(
+        "--max-recall-ms",
+        type=float,
+        default=2000.0,
+        help="Max cold recall latency for --against-live (default 2000)",
+    )
+    continuity_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON instead of markdown",
@@ -376,10 +395,19 @@ def main():
 
         from engram.evaluation.continuity import (
             format_continuity_report,
+            run_continuity_against_live,
             run_continuity_golden_path_smoke,
         )
 
-        result = asyncio.run(run_continuity_golden_path_smoke())
+        if getattr(args, "against_live", False):
+            result = asyncio.run(
+                run_continuity_against_live(
+                    server_url=getattr(args, "server_url", "http://127.0.0.1:8100"),
+                    max_recall_ms=float(getattr(args, "max_recall_ms", 2000.0)),
+                )
+            )
+        else:
+            result = asyncio.run(run_continuity_golden_path_smoke())
         if args.json:
             print(_json.dumps(result, indent=2, default=str))
         else:

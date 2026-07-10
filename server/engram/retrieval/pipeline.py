@@ -265,26 +265,12 @@ def _primary_search_timeout_seconds(
     cfg: ActivationConfig,
     stage_timings_ms: dict[str, float] | None = None,
 ) -> float | None:
-    timeout_ms = int(getattr(cfg, "retrieval_primary_search_timeout_ms", 0) or 0)
-    if timeout_ms <= 0:
-        return None
-    probe_timed_out = bool(
-        stage_timings_ms
-        and (
-            "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
-        )
+    """Mirror candidate_pool: never poison primary search after probe timeouts."""
+    from engram.retrieval.candidate_pool import (
+        _primary_search_timeout_seconds as _shared_primary_search_timeout,
     )
-    adaptive_cap_ms = int(
-        getattr(cfg, "retrieval_primary_search_timeout_after_probe_timeout_ms", 0) or 0
-    )
-    if probe_timed_out and adaptive_cap_ms > 0:
-        timeout_ms = min(timeout_ms, adaptive_cap_ms)
-    _set_stage_metric(
-        stage_timings_ms,
-        "recall_primary_search_effective_timeout_ms",
-        timeout_ms,
-    )
-    return timeout_ms / 1000.0
+
+    return _shared_primary_search_timeout(cfg, stage_timings_ms)
 
 
 def _optional_recall_capability(

@@ -83,14 +83,20 @@ class AxiRestClient:
     def storage(
         self,
         *,
-        live: bool = False,
-        timeout_seconds: float | None = None,
+        live: bool = True,
+        timeout_seconds: float | None = 8.0,
     ) -> dict[str, Any]:
-        query: dict[str, Any] | None = None
-        if live or timeout_seconds is not None:
-            query = {"live": live, "timeoutSeconds": timeout_seconds}
-        return self.request_json("GET", "/api/storage", query=query)
+        """Fetch storage report.
 
+        Default live=True so AXI counts match lifecycle graph truth (not
+        write-through deltas since process start).
+        """
+        query: dict[str, Any] = {
+            "live": bool(live),
+        }
+        if timeout_seconds is not None:
+            query["timeoutSeconds"] = timeout_seconds
+        return self.request_json("GET", "/api/storage", query=query)
     def context(
         self,
         *,

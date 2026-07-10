@@ -1248,7 +1248,11 @@ async def _durable_entity_name_rescue(
         probes: list[Any] = []
         try:
             if callable(find):
-                value = find(name, group_id)
+                # Pass limit=5 so BM25/contain phases stop early after exact hits.
+                try:
+                    value = find(name, group_id, limit=5)
+                except TypeError:
+                    value = find(name, group_id)
                 if inspect.isawaitable(value):
                     value = await asyncio.wait_for(value, timeout=timeout_seconds)
                 if isinstance(value, list):
@@ -1272,7 +1276,15 @@ async def _durable_entity_name_rescue(
             pass
         return probes
 
-    for token in tokens:
+    # Full-query first (exact Decision/Preference names). Early-exit when we
+    # already have enough high-signal hits — probing every token costs ~1s each
+    # on large native brains and blew the 2s product budget.
+    probe_names = tokens[:3]
+    full_query = " ".join((query or "").split())
+    if full_query and full_query not in probe_names:
+        probe_names = [full_query[:200], *probe_names]
+
+    for token in probe_names:
         candidates = await _probe(token)
         for entity in candidates:
             if isinstance(entity, Mapping):
@@ -1330,6 +1342,16 @@ async def _durable_entity_name_rescue(
                     "source": "durable_entity_rescue",
                 }
             )
+        # Early exit: enough durable hits after full-query / first probes.
+        durable_hits = [
+            h
+            for h in hits
+            if is_durable_recall_entity_type(
+                str((h.get("entity") or {}).get("type") or "")
+            )
+        ]
+        if len(durable_hits) >= max(1, limit):
+            break
 
     hits.sort(
         key=lambda item: (
@@ -1649,7 +1671,22 @@ async def attach_mcp_explicit_recall_enrichment(
     if inspect.isawaitable(surprises):
         surprises = await surprises
     if isinstance(surprises, list) and surprises:
-        response["surprise_connections"] = surprises
+        results = response.get("results") or response.get("items") or []
+        degraded = bool(
+            response.get("status") == "degraded"
+            or (response.get("lifecycle") or {}).get("timeout")
+            or (response.get("lifecycle") or {}).get("degraded")
+        )
+        if not results and degraded:
+            # Do not present surprise edges as a soft success when primary
+            # recall failed — agents treat them as memory hits.
+            response["surprise_connections_suppressed"] = True
+            response["surprise_connections_note"] = (
+                "Surprise edges omitted because primary recall returned no results "
+                "(timeout/degraded). Graph edges may still exist; search failed."
+            )
+        else:
+            response["surprise_connections"] = surprises
 
 
 async def assemble_explicit_recall_packet_payloads(

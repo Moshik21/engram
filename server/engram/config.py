@@ -158,21 +158,22 @@ class ActivationConfig(BaseModel):
     retrieval_top_k: int = Field(default=50, ge=5, le=500)
     retrieval_top_n: int = Field(default=10, ge=1, le=100)
     retrieval_primary_search_timeout_ms: int = Field(
-        default=300,
+        default=1500,
         ge=0,
-        le=5000,
+        le=15000,
         description=(
             "Substage timeout for the initial deep entity search during recall. "
-            "0 disables the substage timeout."
+            "0 disables the substage timeout. Raised for large native brains."
         ),
     )
     retrieval_primary_search_timeout_after_probe_timeout_ms: int = Field(
-        default=100,
+        default=1500,
         ge=0,
-        le=5000,
+        le=15000,
         description=(
-            "Cap for primary search after graph preflight probes already timed out. "
-            "0 disables this adaptive cap."
+            "Minimum primary-search budget after graph preflight probes timed out. "
+            "Must not shrink below a product-usable BM25/name search window. "
+            "0 disables the adaptive floor."
         ),
     )
     retrieval_skip_secondary_graph_after_probe_timeout: bool = Field(
@@ -182,12 +183,12 @@ class ActivationConfig(BaseModel):
         ),
     )
     retrieval_stats_timeout_ms: int = Field(
-        default=25,
+        default=250,
         ge=0,
         le=5000,
         description=(
             "Substage timeout for recall corpus stats used only to scale pool sizes. "
-            "0 disables the substage timeout."
+            "0 disables the substage timeout. 25ms was too low for large native brains."
         ),
     )
     retrieval_activation_pool_timeout_ms: int = Field(

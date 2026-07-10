@@ -354,6 +354,7 @@ def _extract_entity_names_from_query(query: str) -> list[str]:
     """Extract potential entity names from a query using simple heuristics.
 
     Returns deduplicated candidate names ordered by extraction confidence:
+    0. Full query (exact Decision-name lookup — product continuity path)
     1. Quoted strings (highest confidence)
     2. Title-case phrases (multi-word capitalized sequences)
     3. Single capitalized words (not sentence-initial)
@@ -373,6 +374,13 @@ def _extract_entity_names_from_query(query: str) -> list[str]:
             return
         seen.add(key)
         candidates.append(cleaned)
+
+    # 0. Full query as name candidate (exact Decision / Preference recall).
+    # Without this, multi-word Decision names never hit find_entity_candidates
+    # when title-case heuristics miss lowercase content words.
+    stripped = " ".join((query or "").split())
+    if 3 <= len(stripped) <= 200:
+        _add(stripped)
 
     # 1. Quoted strings (highest confidence)
     for match in _QUOTED_STRING.finditer(query):
@@ -522,6 +530,13 @@ def _primary_search_timeout_seconds(
     cfg: ActivationConfig,
     stage_timings_ms: dict[str, float] | None = None,
 ) -> float | None:
+    """Timeout for primary hybrid search.
+
+    Product rule: stats/graph preflight timeouts must **not** poison explicit
+    search into a 100ms no-op on large native brains. Prefer the configured
+    primary timeout, and when probes already timed out allow at least the
+    explicit search budget so name/BM25 can still return candidates.
+    """
     timeout_ms = int(getattr(cfg, "retrieval_primary_search_timeout_ms", 0) or 0)
     if timeout_ms <= 0:
         return None
@@ -531,11 +546,18 @@ def _primary_search_timeout_seconds(
             "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
         )
     )
-    adaptive_cap_ms = int(
-        getattr(cfg, "retrieval_primary_search_timeout_after_probe_timeout_ms", 0) or 0
-    )
-    if probe_timed_out and adaptive_cap_ms > 0:
-        timeout_ms = min(timeout_ms, adaptive_cap_ms)
+    if probe_timed_out:
+        # Floor (not ceiling): after a failed stats probe, give search at least
+        # the explicit search budget so large brains can still hit BM25/name.
+        explicit_floor_ms = int(
+            getattr(cfg, "recall_budget_explicit_search_ms", 1500) or 1500
+        )
+        adaptive_ms = int(
+            getattr(cfg, "retrieval_primary_search_timeout_after_probe_timeout_ms", 0) or 0
+        )
+        # Use the max of primary, explicit floor, and (if set) adaptive value —
+        # never shrink primary below a workable product search budget.
+        timeout_ms = max(timeout_ms, explicit_floor_ms, adaptive_ms)
     _set_stage_metric(
         stage_timings_ms,
         "recall_primary_search_effective_timeout_ms",

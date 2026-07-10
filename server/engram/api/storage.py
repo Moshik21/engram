@@ -15,11 +15,14 @@ router = APIRouter(prefix="/api/storage", tags=["storage"])
 async def storage_summary(
     request: Request,
     live: bool = Query(
-        False,
-        description="Refresh graph counts and disk paths before returning the report.",
+        True,
+        description=(
+            "Refresh graph counts and disk paths before returning the report. "
+            "Default true so operator counts match lifecycle (not write-through deltas)."
+        ),
     ),
     timeout_seconds: float | None = Query(
-        None,
+        8.0,
         alias="timeoutSeconds",
         ge=0,
         le=30,
