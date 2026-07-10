@@ -1142,6 +1142,107 @@ async def _run_fast_recall_fallback(
     return filtered, "hit" if filtered else "miss"
 
 
+# Bootstrap / Cadence scrap that floods Decision rescue with false positives.
+_DECISION_STATEMENT_NOISE = re.compile(
+    r"(?i)decision_statement|machineshopscheduler:decision|:decision_statement:"
+)
+_RESCUE_STOPWORDS = frozenset(
+    {
+        "that",
+        "this",
+        "with",
+        "from",
+        "about",
+        "what",
+        "when",
+        "where",
+        "which",
+        "product",
+        "memory",
+        "project",
+        "north",
+        "star",
+        "make",
+        "made",
+        "making",
+        "decision",
+        "decisions",
+        "strategy",
+        "strategies",
+        "about",
+        "ingestion",
+        "prefer",
+        "we",
+        "did",
+        "the",
+        "and",
+        "for",
+        "not",
+        "our",
+        "are",
+        "was",
+        "were",
+    }
+)
+
+
+def _is_decision_statement_noise(name: str) -> bool:
+    """True for bootstrap/Cadence decision_statement scrap entities."""
+    return bool(_DECISION_STATEMENT_NOISE.search(name or ""))
+
+
+def _rescue_query_tokens(query: str) -> list[str]:
+    """Distinctive tokens for name probes (exclude generic decision/strategy words)."""
+    tokens = [
+        token
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{3,}", query)
+        if token.casefold() not in _RESCUE_STOPWORDS
+    ]
+    # Longest first — more specific probes.
+    tokens = sorted(set(tokens), key=len, reverse=True)[:6]
+    head = query.strip().split(".")[0].strip()
+    if head and len(head) >= 8:
+        tokens = [head[:120], *tokens]
+    if not tokens:
+        tokens = [query.strip()[:80]] if query.strip() else []
+    return tokens
+
+
+def _name_query_overlap_score(name: str, query: str, probe_token: str) -> float:
+    """Score how well an entity name matches the query (0..1+).
+
+    Requires real content overlap — not merely sharing the word "decision".
+    """
+    name_l = (name or "").casefold()
+    query_l = (query or "").casefold()
+    probe_l = (probe_token or "").casefold()
+    if not name_l or not query_l:
+        return 0.0
+
+    score = 0.0
+    # Exact / near-exact name containment.
+    if name_l == query_l or name_l in query_l or query_l in name_l:
+        score += 1.0
+    if probe_l and len(probe_l) >= 5 and probe_l in name_l:
+        score += 0.45 if len(probe_l) >= 8 else 0.25
+
+    query_parts = {
+        p
+        for p in re.findall(r"[a-z0-9]{4,}", query_l)
+        if p not in _RESCUE_STOPWORDS
+    }
+    name_parts = set(re.findall(r"[a-z0-9]{4,}", name_l))
+    if query_parts and name_parts:
+        overlap = query_parts & name_parts
+        # Need at least one distinctive shared token beyond noise.
+        if overlap:
+            score += min(0.5, 0.15 * len(overlap))
+            score += 0.2 * (len(overlap) / max(1, len(query_parts)))
+        else:
+            return 0.0
+    return score
+
+
 async def _durable_entity_name_rescue(
     manager: Any,
     *,
@@ -1155,6 +1256,11 @@ async def _durable_entity_name_rescue(
     Explicit golden-path success: a freshly remembered Decision/Preference must
     still surface even when episode/cue preflight and deep hybrid search blow
     the budget on a loaded brain.
+
+    Hard rules:
+    - Drop ``*:decision_statement:*`` bootstrap/Cadence noise.
+    - Require real name↔query overlap (not generic "decision"/"strategy" alone).
+    - Prefer high-overlap durable types over weak Decision scrap.
     """
     from engram.extraction.promotion import (
         durable_result_boost,
@@ -1167,34 +1273,7 @@ async def _durable_entity_name_rescue(
     if not callable(find) and not callable(search_entities):
         return []
 
-    # Prefer distinctive tokens (length/underscore/hyphen) that look like decision names.
-    tokens = [
-        token
-        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{3,}", query)
-        if token.lower()
-        not in {
-            "that",
-            "this",
-            "with",
-            "from",
-            "about",
-            "what",
-            "when",
-            "where",
-            "product",
-            "memory",
-            "project",
-            "north",
-            "star",
-        }
-    ]
-    # Longest first — more specific probes. Also try a short query head (decision titles).
-    tokens = sorted(set(tokens), key=len, reverse=True)[:5]
-    head = query.strip().split(".")[0].strip()
-    if head and len(head) >= 8:
-        tokens = [head[:120], *tokens]
-    if not tokens:
-        tokens = [query.strip()[:80]] if query.strip() else []
+    tokens = _rescue_query_tokens(query)
     if not tokens:
         return []
 
@@ -1214,7 +1293,11 @@ async def _durable_entity_name_rescue(
             pass
         try:
             if callable(search_entities) and not probes:
-                value = search_entities(name=name, limit=limit, group_id=group_id)
+                value = search_entities(
+                    name=name,
+                    limit=max(limit * 3, 10),
+                    group_id=group_id,
+                )
                 if inspect.isawaitable(value):
                     value = await asyncio.wait_for(value, timeout=timeout_seconds)
                 if isinstance(value, dict):
@@ -1240,27 +1323,29 @@ async def _durable_entity_name_rescue(
                 summary = str(entity.get("summary") or "")
             else:
                 entity_id = str(getattr(entity, "id", "") or "")
-                entity_type = str(getattr(entity, "entity_type", "") or getattr(entity, "type", "") or "")
+                entity_type = str(
+                    getattr(entity, "entity_type", "") or getattr(entity, "type", "") or ""
+                )
                 name = str(getattr(entity, "name", "") or "")
                 summary = str(getattr(entity, "summary", "") or "")
             if not entity_id or entity_id in seen_ids:
                 continue
-            # Prefer durable types; still accept strong name substring matches.
-            name_l = name.casefold()
-            query_l = query.casefold()
-            token_l = token.casefold()
-            durable = is_durable_recall_entity_type(entity_type)
-            name_hit = token_l in name_l or any(
-                part in name_l
-                for part in re.findall(r"[a-z0-9]{5,}", query_l)
-                if len(part) >= 5
-            )
-            if not durable and not name_hit:
+            if _is_decision_statement_noise(name):
                 continue
+
+            overlap = _name_query_overlap_score(name, query, token)
+            # Require real content overlap — durable type alone is not enough.
+            if overlap < 0.35:
+                continue
+
+            durable = is_durable_recall_entity_type(entity_type)
+            if not durable and overlap < 0.7:
+                continue
+
             seen_ids.add(entity_id)
-            score = 0.55 + durable_result_boost(entity_type) * 0.1
-            if token_l in name_l:
-                score += 0.2
+            score = 0.4 + overlap
+            if durable:
+                score += durable_result_boost(entity_type) * 0.08
             hits.append(
                 {
                     "result_type": "entity",
@@ -1276,16 +1361,19 @@ async def _durable_entity_name_rescue(
                         "relevance_confidence": min(0.99, score),
                         "planner_support": 0.0,
                         "rescue": "durable_entity_name",
+                        "name_overlap": round(overlap, 4),
                     },
                     "source": "durable_entity_rescue",
                 }
             )
-            if len(hits) >= max(1, limit):
-                break
-        if len(hits) >= max(1, limit):
-            break
 
-    hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    hits.sort(
+        key=lambda item: (
+            float(item.get("score") or 0.0),
+            float((item.get("score_breakdown") or {}).get("name_overlap") or 0.0),
+        ),
+        reverse=True,
+    )
     return hits[: max(1, limit)]
 
 
@@ -2244,7 +2332,13 @@ def _packets_satisfy_explicit_query(
     *,
     query: str,
 ) -> bool:
-    """Return true when cached packets are specific enough to skip deep search."""
+    """Return true when cached packets are specific enough to skip deep search.
+
+    Project-file-only packets never satisfy explicit recall on their own. Explicit
+    recall's product job is graph memory (Decisions, Preferences, people). Docs
+    remain a last-resort fallback after graph search/rescue miss — not a
+    short-circuit success that hides missing graph hits.
+    """
     if not packets:
         return False
     tokens = _query_tokens(query)
@@ -2253,28 +2347,33 @@ def _packets_satisfy_explicit_query(
     best_score = 0
     covered_tokens: set[str] = set()
     for packet in packets:
-        if not (
-            _packet_has_loaded_store_source(packet)
-            or _packet_has_project_file_fallback_source(packet)
-        ):
+        is_graph = _packet_has_loaded_store_source(packet)
+        is_project_file = _packet_has_project_file_fallback_source(packet)
+        if not is_graph and not is_project_file:
             continue
-        if _project_file_packet_matches_query(packet, query=query):
+        # Project-file alone never short-circuits explicit recall.
+        if is_project_file and not is_graph:
+            continue
+        if _project_file_packet_matches_query(packet, query=query) and is_graph:
             return True
         matches = _packet_query_matches(packet, tokens)
-        if (
-            _packet_has_project_file_fallback_source(packet)
-            and not _project_file_packet_covers_required_query_tokens(
-                packet,
-                tokens=tokens,
-                matches=matches,
-            )
-        ):
-            continue
         if not matches:
+            continue
+        # Session-recent observe recap also must not skip graph rescue alone.
+        if _packet_is_session_recent_only(packet) and not is_graph:
             continue
         covered_tokens.update(matches)
         best_score = max(best_score, len(matches))
     return best_score >= 3 or (best_score >= 2 and len(covered_tokens) >= 4)
+
+
+def _packet_is_session_recent_only(packet: Mapping[str, Any]) -> bool:
+    scope = str(packet.get("_cache_scope") or "")
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    return scope == SESSION_RECENT_PACKET_SCOPE or packet_type in {
+        "recent_observation",
+        "recentObservation",
+    }
 
 
 def _packet_has_loaded_store_source(packet: Mapping[str, Any]) -> bool:
