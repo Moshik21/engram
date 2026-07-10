@@ -31,5 +31,11 @@ async def open_showcase_manager(
         cfg=cfg,
         runtime_mode="showcase_run",
     )
-    manager._showcase_group_id = group_id  # type: ignore[attr-defined]
+    # Showcase runs pin a group via runtime_mode metadata when available; fall
+    # back to attributes bag without private GraphManager fields.
+    attrs = getattr(manager, "runtime_attributes", None)
+    if isinstance(attrs, dict):
+        attrs["showcase_group_id"] = group_id
+    else:
+        object.__setattr__(manager, "showcase_group_id", group_id)
     return manager, graph_store

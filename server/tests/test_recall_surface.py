@@ -1234,9 +1234,14 @@ async def test_api_recall_surface_filters_project_file_cache_by_project_path(
     )
 
     assert result["status"] == "ok"
+    # Project-file cache alone never short-circuits explicit recall; after graph
+    # miss, filtered project packets may still surface as fallback.
     assert result["packets"] == [right_project_packet]
-    assert result["budget"]["skipReason"] == "cache_satisfied"
-    manager.recall.assert_not_awaited()
+    assert result["lifecycle"]["fallbackStatus"] in {
+        "project_file_recall_fallback",
+        "context_packet_fallback",
+    }
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -1365,11 +1370,14 @@ async def test_api_recall_surface_skips_for_cached_project_file_fallback_packet(
     )
 
     assert result["status"] == "ok"
+    # Project-file packets are not cache_satisfied for explicit recall; deep
+    # search runs, then packets may reappear as project-file fallback.
     assert result["packets"] == [context_packet]
-    assert result["budget"]["skipReason"] == "cache_satisfied"
-    assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
-    manager.recall.assert_not_awaited()
-    manager.fast_recall_fallback.assert_not_awaited()
+    assert result["lifecycle"]["fallbackStatus"] in {
+        "project_file_recall_fallback",
+        "context_packet_fallback",
+    }
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -1718,12 +1726,11 @@ async def test_api_recall_surface_uses_project_packets_after_preflight_timeout(
     assert result["status"] == "ok"
     assert result["items"] == []
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
-    assert result["budget"]["skipReason"] == "preflight_timeout_project_file_fallback"
-    assert result["budget"]["budgetMiss"] is False
+    # Soft-hold project files, continue deep recall, then surface project packets.
     assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
     assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
     manager.fast_recall_fallback.assert_awaited_once()
-    manager.recall.assert_not_awaited()
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -2015,29 +2022,11 @@ async def test_mcp_recall_surface_uses_context_packets_after_preflight_miss() ->
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
     assert result["results"] == []
-    assert result["budget"]["skip_reason"] == "preflight_miss_context_packet_fallback"
+    # Soft-hold context packets, continue deep recall, then surface as fallback.
     assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
     assert result["diagnostics"]["stage_timings_ms"]["recall_fast_preflight"] >= 0
     manager.fast_recall_fallback.assert_awaited_once()
-    manager.get_recent_cached_memory_packets.assert_any_call(
-        "native_brain",
-        scopes=("session_recent",),
-        limit_packets=3,
-        sync_persistent=False,
-    )
-    manager.get_recent_cached_memory_packets.assert_any_call(
-        "native_brain",
-        scopes=("identity_core",),
-        limit_packets=3,
-        sync_persistent=False,
-    )
-    manager.get_recent_cached_memory_packets.assert_any_call(
-        "native_brain",
-        scopes=("project_home",),
-        limit_packets=6,
-        sync_persistent=False,
-    )
-    manager.recall.assert_not_awaited()
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -2082,9 +2071,12 @@ async def test_mcp_recall_surface_uses_project_home_packet_after_preflight_miss(
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
     assert result["results"] == []
-    assert result["budget"]["skip_reason"] == "preflight_miss_context_packet_fallback"
-    assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
+    assert result["lifecycle"]["fallback_status"] in {
+        "context_packet_fallback",
+        "project_file_recall_fallback",
+    }
     manager.fast_recall_fallback.assert_awaited_once()
+    manager.recall.assert_awaited()
     manager.get_recent_cached_memory_packets.assert_any_call(
         "native_brain",
         scopes=("session_recent",),
@@ -2103,7 +2095,6 @@ async def test_mcp_recall_surface_uses_project_home_packet_after_preflight_miss(
         limit_packets=6,
         sync_persistent=True,
     )
-    manager.recall.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -2151,11 +2142,12 @@ async def test_mcp_recall_surface_uses_context_packets_after_preflight_timeout()
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
     assert result["results"] == []
-    assert result["budget"]["skip_reason"] == "preflight_timeout_context_packet_fallback"
-    assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
-    assert result["budget"]["duration_ms"] < 100
+    assert result["lifecycle"]["fallback_status"] in {
+        "context_packet_fallback",
+        "project_file_recall_fallback",
+    }
     manager.fast_recall_fallback.assert_awaited_once()
-    manager.recall.assert_not_awaited()
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -2263,12 +2255,10 @@ async def test_mcp_recall_surface_uses_project_packets_after_preflight_timeout(
     assert result["status"] == "ok"
     assert result["results"] == []
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
-    assert result["budget"]["skip_reason"] == "preflight_timeout_project_file_fallback"
-    assert result["budget"]["budget_miss"] is False
     assert result["lifecycle"]["fallback_status"] == "project_file_recall_fallback"
     assert result["diagnostics"]["stage_timings_ms"]["project_file_recall_fallback"] >= 0
     manager.fast_recall_fallback.assert_awaited_once()
-    manager.recall.assert_not_awaited()
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio

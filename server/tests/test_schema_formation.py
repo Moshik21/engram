@@ -188,10 +188,17 @@ def test_config_conservative_does_not_enable_schema():
 
 
 def test_config_graph_auto_create_endpoints_profile_wiring():
-    # D1 (Option A): off by default, enabled in the standard profile so graph-ON
-    # has structure to traverse without requiring a consolidation pass.
+    # D1 (Option A): off by default; standard profile enables auto-create so
+    # graph-ON has structure without a consolidation pass. Explicit kwargs win.
     assert ActivationConfig().graph_auto_create_endpoints is False
     assert ActivationConfig(consolidation_profile="standard").graph_auto_create_endpoints is True
+    assert (
+        ActivationConfig(
+            consolidation_profile="standard",
+            graph_auto_create_endpoints=False,
+        ).graph_auto_create_endpoints
+        is False
+    )
 
 
 def test_config_defaults():

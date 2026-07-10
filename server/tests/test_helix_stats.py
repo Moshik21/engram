@@ -1150,20 +1150,18 @@ async def test_helix_update_evidence_normalizes_null_optional_strings(monkeypatc
         group_id="native_brain",
     )
 
-    assert calls == [
-        (
-            "update_evidence",
-            {
-                "id": "h_ev_deferred",
-                "status": "committed",
-                "resolved_at": calls[0][1]["resolved_at"],
-                "commit_reason": "",
-                "committed_id": "",
-                "deferred_cycles": 0,
-                "confidence": 0.0,
-            },
-        ),
-    ]
+    assert calls[0][0] == "get_evidence"
+    assert calls[0][1] == {"id": "h_ev_deferred"}
+    assert calls[1][0] == "update_evidence"
+    payload = calls[1][1]
+    assert payload["id"] == "h_ev_deferred"
+    assert payload["status"] == "committed"
+    assert payload["commit_reason"] == ""
+    assert payload["committed_id"] == ""
+    # Preserve existing deferred_cycles/confidence when not in updates.
+    assert payload["deferred_cycles"] == 2
+    assert payload["confidence"] == 0.61
+    assert payload["resolved_at"]
 
 
 @pytest.mark.asyncio

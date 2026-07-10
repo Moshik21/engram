@@ -161,6 +161,11 @@ async def knowledge_client(tmp_path):
 @pytest_asyncio.fixture
 async def empty_knowledge_client(tmp_path):
     """Client with an empty graph."""
+    from engram.retrieval.context_builder import invalidate_durable_context_cache
+
+    # Process-level durable packs are keyed by group_id; clear so prior tests
+    # in this process cannot leak entityCount into an empty store.
+    invalidate_durable_context_cache()
     config = EngramConfig(
         mode="lite",
         sqlite={"path": str(tmp_path / "empty_knowledge.db")},
@@ -174,6 +179,7 @@ async def empty_knowledge_client(tmp_path):
 
     await _shutdown()
     _app_state.clear()
+    invalidate_durable_context_cache()
 
 
 # ─── Observe ─────────────────────────────────────────────────────
@@ -368,17 +374,15 @@ class TestRemember:
         response = await remember_handler(request, body)
 
         assert response.status_code == 200
-        manager.ingest_episode.assert_awaited_once_with(
-            content="Alice works at Google",
-            group_id="default",
-            source="dashboard",
-            conversation_date=None,
-            proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
-            proposed_relationships=[
-                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
-            ],
-            model_tier="opus",
-        )
+        manager.ingest_episode.assert_awaited_once()
+        kwargs = manager.ingest_episode.await_args.kwargs
+        assert kwargs["content"] == "Alice works at Google"
+        assert kwargs["group_id"] == "default"
+        assert kwargs["source"] == "dashboard"
+        assert kwargs["model_tier"] == "opus"
+        assert kwargs["proposed_entities"][0]["name"] == "Alice"
+        assert kwargs["proposed_entities"][0]["entity_type"] == "Person"
+        assert kwargs["proposed_relationships"][0]["predicate"] == "WORKS_AT"
 
     @pytest.mark.asyncio
     async def test_remember_returns_adjudication_requests(self, monkeypatch):

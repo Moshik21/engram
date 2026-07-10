@@ -68,21 +68,19 @@ class TestConsolidationProfiles:
         assert cfg.consolidation_merge_llm_enabled is False
         assert cfg.consolidation_merge_escalation_enabled is False
 
-    def test_default_is_standard_wave2(self):
+    def test_default_is_off_off(self):
+        """Safe defaults: no consolidation/recall profile until configured."""
         cfg = ActivationConfig()
-        assert cfg.consolidation_profile == "standard"
-        assert cfg.recall_profile == "wave2"
+        assert cfg.consolidation_profile == "off"
+        assert cfg.recall_profile == "off"
         assert cfg.integration_profile == "off"
         assert cfg.passage_first_entity_budget == 0
-        assert cfg.consolidation_enabled is True
-        assert cfg.triage_enabled is True
-        assert cfg.worker_enabled is True
-        assert cfg.consolidation_dream_associations_enabled is True
-        assert cfg.auto_recall_enabled is True
-        assert cfg.conv_context_enabled is True
-        assert cfg.recall_planner_enabled is True
-        assert cfg.cue_layer_enabled is True
-        assert cfg.cue_recall_enabled is True
+        assert cfg.consolidation_enabled is False
+        assert cfg.triage_enabled is False
+        assert cfg.worker_enabled is False
+        assert cfg.auto_recall_enabled is False
+        assert cfg.cue_layer_enabled is False
+        assert cfg.cue_recall_enabled is False
         assert cfg.observer_reflect_enabled is False
 
     def test_invalid_profile_rejected(self):
@@ -90,15 +88,12 @@ class TestConsolidationProfiles:
             ActivationConfig(consolidation_profile="invalid")
 
     def test_explicit_override_after_profile(self):
-        """Explicit field values set after profile init should stick."""
+        """Explicit constructor kwargs win over profile presets."""
         cfg = ActivationConfig(
             consolidation_profile="observe",
             consolidation_dream_enabled=False,
         )
-        # Profile sets dream_enabled=True, but explicit kwarg should override...
-        # Actually model_post_init runs after __init__, so profile wins.
-        # This tests the current behavior — profile overrides explicit kwargs.
-        assert cfg.consolidation_dream_enabled is True
+        assert cfg.consolidation_dream_enabled is False
 
 
 class TestIntegrationProfiles:
@@ -349,8 +344,8 @@ class TestAuditFollowUpDefaults:
 
 
 def _quiet_sqlite_recall_config() -> ActivationConfig:
-    """Default wave2 config with noisy recall stages disabled for SQLite FTS."""
-    cfg = ActivationConfig()
+    """Wave2 cue recall with noisy stages disabled for SQLite FTS."""
+    cfg = ActivationConfig(recall_profile="wave2")
     cfg.multi_pool_enabled = False
     cfg.graph_query_expansion_enabled = False
     cfg.template_reformulation_enabled = False

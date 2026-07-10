@@ -733,11 +733,13 @@ async def _run_explicit_recall_with_budget(
                 )
 
     try:
-        # Shrink deep-search budget by preflight spend so we stay under wall.
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        remaining_search_ms = max(50.0, float(budget.max_search_ms) - elapsed_ms)
-        timeout_seconds = max(0.05, remaining_search_ms / 1000.0)
+        # Honor BOTH search stage budget and overall wall budget. Previously only
+        # max_search_ms was applied here, so a tight explicit wall (e.g. 100ms)
+        # could still wait the full 1.5s search budget and never degrade.
+        timeout_seconds = budget.stage_timeout_seconds(budget.max_search_ms)
         recall_started = time.perf_counter()
+        if timeout_seconds <= 0:
+            raise asyncio.TimeoutError()
         results = await asyncio.wait_for(
             manager.recall(
                 query=_recall_query_with_project_context(query, project_path),

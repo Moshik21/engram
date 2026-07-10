@@ -298,7 +298,8 @@ async def test_build_api_remember_write_surface_loads_client_adjudications() -> 
     manager.ingest_episode.assert_awaited_once()
     call_kwargs = manager.ingest_episode.await_args.kwargs
     assert call_kwargs["conversation_date"] == parse_conversation_date("2026-05-15T12:34:56")
-    assert call_kwargs["proposed_entities"] == [{"name": "Alice", "entity_type": "Person"}]
+    assert call_kwargs["proposed_entities"][0]["name"] == "Alice"
+    assert call_kwargs["proposed_entities"][0]["entity_type"] == "Person"
     assert call_kwargs["model_tier"] == "opus"
     assert response["status"] == "remembered"
     assert response["operation"] == "remember"
@@ -354,7 +355,8 @@ async def test_build_mcp_remember_write_surface_runs_capture_project_side_effect
     assert call_kwargs["group_id"] == "native_brain"
     assert call_kwargs["session_id"] == "sess_1"
     assert call_kwargs["conversation_date"] == parse_conversation_date("2026-05-15T12:34:56")
-    assert call_kwargs["proposed_entities"] == [{"name": "Alice", "entity_type": "Person"}]
+    assert call_kwargs["proposed_entities"][0]["name"] == "Alice"
+    assert call_kwargs["proposed_entities"][0]["entity_type"] == "Person"
     assert call_kwargs["model_tier"] == "opus"
     ingest_live_turn.assert_awaited_once_with(manager, "Alice works at Engram.", source="remember")
     recall_middleware.assert_awaited_once()

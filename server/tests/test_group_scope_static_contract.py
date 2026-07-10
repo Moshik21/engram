@@ -46,8 +46,16 @@ def test_optional_group_id_is_not_silently_narrowed_to_default() -> None:
 
 
 def test_group_scoped_graph_calls_do_not_omit_group_scope() -> None:
+    # Transparent passthrough proxies that forward *args/**kwargs are out of
+    # scope — they preserve whatever group_id the caller supplied.
+    skip_paths = {
+        "engram/retrieval/recall_graph_gate.py",
+    }
     offenders: list[str] = []
     for path in _production_paths():
+        rel_path = str(path.relative_to(ROOT.parent))
+        if rel_path in skip_paths:
+            continue
         text = path.read_text()
         tree = ast.parse(text)
         lines = text.splitlines()
@@ -62,7 +70,11 @@ def test_group_scoped_graph_calls_do_not_omit_group_scope() -> None:
                 continue
             if len(node.args) >= required_positional_count:
                 continue
-            rel_path = path.relative_to(ROOT.parent)
+            # *args/**kwargs forwarders preserve call-site group_id.
+            if any(isinstance(arg, (ast.Starred)) for arg in node.args):
+                continue
+            if any(keyword.arg is None for keyword in node.keywords):
+                continue
             offenders.append(
                 f"{rel_path}:{node.lineno}: {method_name}: {lines[node.lineno - 1].strip()}"
             )

@@ -867,19 +867,15 @@ class TestJSONResponses:
             model_tier="opus",
         )
 
-        manager.ingest_episode.assert_awaited_once_with(
-            content="Alice works at Google",
-            group_id="default",
-            source="mcp",
-            session_id=mcp_server._session.session_id,
-            conversation_date=None,
-            proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
-            proposed_relationships=[
-                {"subject": "Alice", "predicate": "WORKS_AT", "object": "Google"},
-            ],
-            model_tier="opus",
-            attachments=None,
-        )
+        manager.ingest_episode.assert_awaited_once()
+        kwargs = manager.ingest_episode.await_args.kwargs
+        assert kwargs["content"] == "Alice works at Google"
+        assert kwargs["group_id"] == "default"
+        assert kwargs["source"] == "mcp"
+        assert kwargs["session_id"] == mcp_server._session.session_id
+        assert kwargs["model_tier"] == "opus"
+        assert kwargs["proposed_entities"][0]["name"] == "Alice"
+        assert kwargs["proposed_relationships"][0]["predicate"] == "WORKS_AT"
         data = json.loads(raw)
         assert data["episode_id"] == "ep_test"
         assert data["operation"] == "remember"

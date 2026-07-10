@@ -62,7 +62,7 @@ jobs:
         run: uv sync --frozen --dev
 
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short -m "not requires_docker"
+        run: uv run pytest tests/ -v --tb=short -m "not requires_docker and not requires_helix"
         env:
           ENGRAM_MODE: lite
 

@@ -322,7 +322,8 @@ def test_engramctl_exposes_release_startup_commands() -> None:
     assert "[--axi-hooks] [--capture]" in engramctl
     assert "doctor                         Run the installed-user readiness gate" in engramctl
     assert "connect <client>" in engramctl
-    assert "Codex/Claude Code auto-install AXI hooks" in engramctl
+    assert "Codex/Claude Code auto-install" in engramctl
+    assert "AXI hooks" in engramctl
     assert "codex|claude-code|cursor|windsurf|grok-build|claude-desktop|openclaw" in engramctl
     assert "bootstrap [--include GLOB] <project-dir> [...]" in engramctl
     assert "storage                        Show resolved storage paths and disk growth" in engramctl

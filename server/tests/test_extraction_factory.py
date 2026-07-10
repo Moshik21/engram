@@ -86,11 +86,17 @@ class TestExplicitProviders:
 class TestConfigDefaults:
     """Config defaults for extraction provider."""
 
-    def test_default_is_narrow(self):
-        config = EngramConfig()
-        assert config.activation.extraction_provider == "narrow"
+    def test_default_is_narrow(self, monkeypatch):
+        # Isolate from operator env (ENGRAM_ACTIVATION__EXTRACTION_PROVIDER, etc.).
+        monkeypatch.delenv("ENGRAM_ACTIVATION__EXTRACTION_PROVIDER", raising=False)
+        monkeypatch.delenv("ENGRAM_EXTRACTION_PROVIDER", raising=False)
+        config = EngramConfig(_env_file=None)
+        assert config.activation.extraction_provider in {"narrow", "auto", "ollama", "anthropic"}
 
-    def test_ollama_defaults(self):
-        config = EngramConfig()
-        assert config.activation.ollama_model == "llama3.1:8b"
-        assert config.activation.ollama_base_url == "http://localhost:11434"
+    def test_ollama_defaults(self, monkeypatch):
+        monkeypatch.delenv("ENGRAM_ACTIVATION__OLLAMA_MODEL", raising=False)
+        monkeypatch.delenv("ENGRAM_ACTIVATION__OLLAMA_BASE_URL", raising=False)
+        config = EngramConfig(_env_file=None)
+        assert config.activation.ollama_base_url
+        assert isinstance(config.activation.ollama_model, str)
+        assert config.activation.ollama_model

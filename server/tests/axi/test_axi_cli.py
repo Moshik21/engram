@@ -4,6 +4,10 @@ import argparse
 import io
 import json
 import os
+import sys
+from pathlib import Path
+
+import pytest
 
 from engram.axi.cli import _normalize_project_path, configure_axi_parser, run_axi_command
 
@@ -77,6 +81,18 @@ def _parse_axi_args(*argv: str) -> argparse.Namespace:
     return parser.parse_args(["axi", *argv])
 
 
+def test_normalize_project_path_is_stable() -> None:
+    path = "/tmp/engram-followup-test"
+    once = _normalize_project_path(path)
+    twice = _normalize_project_path(path)
+    assert once == twice
+    assert once is not None
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or not Path("/private/tmp").exists(),
+    reason="macOS /tmp -> /private/tmp symlink only",
+)
 def test_normalize_project_path_resolves_tmp_symlink() -> None:
     left = _normalize_project_path("/tmp/engram-followup-test")
     right = _normalize_project_path("/private/tmp/engram-followup-test")

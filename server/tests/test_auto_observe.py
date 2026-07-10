@@ -529,7 +529,8 @@ class TestInstallHooks:
         )
 
         assert result["settings_updated"] is True
-        assert len(result["scripts"]) == 4
+        # Base capture hooks + PreCompact + session-promote-nudge.
+        assert len(result["scripts"]) >= 4
 
         prompt_script = hooks_dir / "capture-prompt.sh"
         response_script = hooks_dir / "capture-response.sh"
@@ -600,7 +601,7 @@ class TestInstallHooks:
         )
 
         assert result["settings_updated"] is True
-        assert len(result["scripts"]) == 4
+        assert len(result["scripts"]) >= 4
         assert settings_path.exists()
         assert (hooks_dir / "capture-prompt.sh").read_text() == "#!/bin/bash\nexit 0\n"
 

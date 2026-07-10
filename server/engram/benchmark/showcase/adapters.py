@@ -1959,6 +1959,15 @@ class EngramAdapter(BaselineAdapter):
         evidence = []
         for result in results:
             evidence.append(await self._result_to_evidence(result))
+        # Prefer probe-required/expected types before budget trim so cue packets
+        # are not truncated after ambient episode noise fills the token budget.
+        preferred_types = set(probe.required_evidence_result_types or []) | set(
+            probe.expected_result_types or []
+        )
+        if preferred_types:
+            preferred = [item for item in evidence if item.result_type in preferred_types]
+            other = [item for item in evidence if item.result_type not in preferred_types]
+            evidence = preferred + other
         return _trim_evidence(evidence, probe.max_tokens)
 
     def budget_contract(self) -> dict[str, object]:

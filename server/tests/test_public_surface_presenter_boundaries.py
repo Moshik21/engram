@@ -1033,6 +1033,13 @@ def test_public_api_route_handlers_only_keep_known_transport_branching() -> None
 def test_public_routes_do_not_dispatch_manager_methods_directly() -> None:
     allowed = {
         ("engram/mcp/server.py", "_shutdown", "_manager", "close_runtime_resources"),
+        # Lightweight adoption-debt metrics snapshot on session middleware.
+        (
+            "engram/mcp/server.py",
+            "_session_adoption_debt",
+            "manager",
+            "get_memory_operation_metrics",
+        ),
     }
     assert (
         _direct_runtime_method_calls(

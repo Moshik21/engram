@@ -3604,10 +3604,11 @@ class HelixGraphStore:
         if status in {"committed", "rejected", "expired", "superseded"}:
             resolved_at = utc_now_iso()
 
-        needs_current = "deferred_cycles" in updates or "confidence" in updates
+        # Always preserve deferred_cycles/confidence when the update does not
+        # set them explicitly — Helix update_evidence rewrites both fields.
         current_cycles = 0
         current_confidence = 0.0
-        if needs_current:
+        if "deferred_cycles" not in updates or "confidence" not in updates:
             try:
                 current_rows = await self._query("get_evidence", {"id": hid})
             except Exception:
@@ -3617,16 +3618,8 @@ class HelixGraphStore:
                 current_cycles = int(current.get("deferred_cycles") or 0)
                 current_confidence = float(current.get("confidence") or 0.0)
 
-        deferred_cycles = int(
-            updates.get("deferred_cycles", current_cycles)
-            if "deferred_cycles" in updates
-            else current_cycles
-        )
-        confidence = float(
-            updates.get("confidence", current_confidence)
-            if "confidence" in updates
-            else current_confidence
-        )
+        deferred_cycles = int(updates.get("deferred_cycles", current_cycles))
+        confidence = float(updates.get("confidence", current_confidence))
 
         await self._query(
             "update_evidence",

@@ -772,7 +772,7 @@ class ActivationConfig(BaseModel):
 
     # --- Memory consolidation ---
     consolidation_profile: str = Field(
-        default="standard",
+        default="off",
         pattern="^(off|observe|conservative|standard)$",
     )
     integration_profile: str = Field(
@@ -1622,7 +1622,7 @@ class ActivationConfig(BaseModel):
 
     # --- Recall profile (enables Wave 1-4 features) ---
     recall_profile: str = Field(
-        default="wave2",
+        default="off",
         pattern="^(off|wave1|wave2|wave3|wave4|all)$",
     )
 
@@ -2533,14 +2533,17 @@ class ActivationConfig(BaseModel):
         recall_profile = self.recall_profile
         integration_profile = self.integration_profile
 
-        def _set(field: str, value: object) -> None:
+        def _set(field: str, value: object, *, force: bool = False) -> None:
+            # Explicit constructor kwargs win over profile presets (tests and ops).
+            if not force and field in self.model_fields_set:
+                return
             object.__setattr__(self, field, value)
 
         if integration_profile == "rework":
             profile = "standard"
             recall_profile = "all"
-            _set("consolidation_profile", profile)
-            _set("recall_profile", recall_profile)
+            _set("consolidation_profile", profile, force=True)
+            _set("recall_profile", recall_profile, force=True)
 
         if profile == "observe":
             _set("consolidation_enabled", True)

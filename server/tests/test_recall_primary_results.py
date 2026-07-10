@@ -147,12 +147,12 @@ async def test_materializes_cue_episode_and_records_cue_feedback() -> None:
     assert result.results[0]["episode"]["id"] == episode.id
     assert result.seen_episode_ids == {episode.id}
     assert working_memory.size == 1
-    deps["cue_feedback"].record_cue_feedback.assert_awaited_once_with(
-        episode,
-        0.8,
-        "React",
-        interaction_type="surfaced",
-    )
+    deps["cue_feedback"].record_cue_feedback.assert_awaited_once()
+    call = deps["cue_feedback"].record_cue_feedback.await_args
+    assert call.args[0] == episode
+    assert call.args[1] == 0.8
+    assert call.args[2] == "React"
+    assert call.kwargs.get("interaction_type") == "surfaced"
 
 
 @pytest.mark.asyncio

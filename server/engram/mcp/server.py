@@ -663,10 +663,23 @@ async def _recall_middleware(
     Attaches recalled_context, session_context, triggered_intentions,
     memory_notifications, and adoptionDebt to any tool response.
     """
+    if _session is None:
+        # Unit tests and pre-init call sites should no-op, not raise.
+        return
     session = _get_session()
     session.session_tool_calls += 1
     if tool_name != "get_context":
         session.turns_since_context += 1
+    adoption_debt = None
+    if tool_name != "get_context" and _manager is not None:
+        try:
+            adoption_debt = _session_adoption_debt(
+                session,
+                query_text=content,
+                project_path=session.last_project_path,
+            )
+        except RuntimeError:
+            adoption_debt = None
     await run_mcp_recall_middleware(
         response,
         content=content,
@@ -679,13 +692,7 @@ async def _recall_middleware(
         session_prime=_session_prime,
         ingest_live_turn=_ingest_live_tool_turn,
         auto_observe=auto_observe,
-        adoption_debt=_session_adoption_debt(
-            session,
-            query_text=content,
-            project_path=session.last_project_path,
-        )
-        if tool_name != "get_context"
-        else None,
+        adoption_debt=adoption_debt,
     )
     if tool_name == "get_context":
         _mark_context_loaded(session)

@@ -93,11 +93,17 @@ async def test_evaluate_memory_need_fixtures_supports_graph_probe_cases():
     )
     fixtures = [
         MemoryNeedFixture(
-            text="Will scored",
+            # Low linguistic signal + anaphora so graph probe can lift.
+            text="him again",
             expect_recall=True,
-            expected_need_type="fact_lookup",
+            expected_need_type="open_loop",
             expected_family="pragmatic",
-            cfg_overrides={"recall_need_graph_probe_enabled": True},
+            session_entity_names=["Will"],
+            cfg_overrides={
+                "recall_need_graph_probe_enabled": True,
+                "consolidation_profile": "off",
+                "recall_profile": "off",
+            },
             graph_probe=graph_probe,
         )
     ]

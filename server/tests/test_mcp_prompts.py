@@ -11,7 +11,8 @@ def test_system_prompt_requires_lookup_before_answer():
     assert "You will not know much on day one" in ENGRAM_SYSTEM_PROMPT
     assert "Skipping Engram today steals from future sessions" in ENGRAM_SYSTEM_PROMPT
     assert "BEFORE answering" in ENGRAM_SYSTEM_PROMPT or "before your" in ENGRAM_SYSTEM_PROMPT
-    assert "observe(user_message)" in ENGRAM_SYSTEM_PROMPT
+    assert "observe" in ENGRAM_SYSTEM_PROMPT
+    assert "get_context" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_system_prompt_names_brain_loop_contract():
@@ -45,8 +46,9 @@ def test_system_prompt_treats_empty_runtime_as_onboarding_state():
 
 
 def test_system_prompt_observe_guidance():
-    assert "new information worth" in ENGRAM_SYSTEM_PROMPT
-    assert "returns recalled" in ENGRAM_SYSTEM_PROMPT
+    assert "observe" in ENGRAM_SYSTEM_PROMPT
+    assert "remember" in ENGRAM_SYSTEM_PROMPT
+    assert "cueable latent memory" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_system_prompt_tells_recall_to_carry_project_path():
