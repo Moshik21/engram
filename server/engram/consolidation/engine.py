@@ -194,9 +194,7 @@ class ConsolidationEngine:
         try:
             self._capabilities.validate(
                 tuple(
-                    phase
-                    for phase in self._phases
-                    if phase.name in cycle_plan.selected_phase_names
+                    phase for phase in self._phases if phase.name in cycle_plan.selected_phase_names
                 ),
                 cfg=self._cfg,
             )

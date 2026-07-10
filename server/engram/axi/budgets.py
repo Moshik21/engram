@@ -54,4 +54,3 @@ def first_present(mapping: dict[str, Any] | None, *keys: str) -> Any:
         if value not in (None, "", [], {}):
             return value
     return None
-

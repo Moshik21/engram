@@ -153,9 +153,7 @@ async def test_durable_context_payload_surfaces_strategy_decisions():
     blob = payload["context"] + json_packets(payload)
     assert "LongMemEval is not Engram north star" in blob or "Prefer sparse" in blob
     assert "decision_statement" not in blob
-    scopes = {
-        p.get("_cache_scope") for p in (payload.get("cached_packets") or [])
-    }
+    scopes = {p.get("_cache_scope") for p in (payload.get("cached_packets") or [])}
     assert DURABLE_CONTEXT_PACKET_SCOPE in scopes
 
 

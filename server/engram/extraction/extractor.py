@@ -186,8 +186,7 @@ class EntityExtractor:
             # keeping the error string + a WARNING log so a systematic extraction
             # defect stays observable rather than silently aborting.
             logger.warning(
-                "Unparseable extraction response (%s); treating as EMPTY. "
-                "Response head: %r",
+                "Unparseable extraction response (%s); treating as EMPTY. Response head: %r",
                 e,
                 (response_text or "")[:120],
             )

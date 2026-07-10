@@ -16,6 +16,7 @@ def test_neuroplasticity_feedback_loop():
     # For now, it's a pass/fail on execution
     assert True
 
+
 def test_neuroplasticity_disabled():
     cfg = ActivationConfig()
     cfg.neuroplasticity_enabled = False

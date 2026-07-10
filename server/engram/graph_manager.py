@@ -619,9 +619,7 @@ class GraphManager:
         # legacy projection path. Only the narrow adapter legitimately feeds v2. Client
         # proposals still route to v2 via the has_client_proposals OR below, so the
         # evidence/adjudication enrichment path is preserved.
-        extractor_supports_v2 = isinstance(
-            self._extractor, (NarrowExtractorAdapter,)
-        )
+        extractor_supports_v2 = isinstance(self._extractor, (NarrowExtractorAdapter,))
         if not extractor_supports_v2:
             canned_result = getattr(self._extractor, "_result", None)
             if (
@@ -2033,9 +2031,7 @@ class GraphManager:
                 memory_need=memory_need,
             )
         except asyncio.CancelledError:
-            self._last_recall_stage_timings_ms = (
-                self._recall_service.last_stage_timings()
-            )
+            self._last_recall_stage_timings_ms = self._recall_service.last_stage_timings()
             raise
         except Exception:
             duration_ms = round((time.perf_counter() - started) * 1000, 4)
@@ -2423,8 +2419,7 @@ class GraphManager:
             return None
         if (
             episode is None
-            or self._episode_projection_state_value(episode)
-            == EpisodeProjectionState.MERGED.value
+            or self._episode_projection_state_value(episode) == EpisodeProjectionState.MERGED.value
         ):
             return None
         try:

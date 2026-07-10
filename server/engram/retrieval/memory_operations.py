@@ -61,9 +61,7 @@ def memory_operation_sample_from_mapping(
         status=str(_get(payload, "status", default="ok")),
         duration_ms=_float(_get(payload, "duration_ms", "durationMs")),
         budget_ms=_optional_float(_get(payload, "budget_ms", "budgetMs", default=None)),
-        budget_tokens=_optional_int(
-            _get(payload, "budget_tokens", "budgetTokens", default=None)
-        ),
+        budget_tokens=_optional_int(_get(payload, "budget_tokens", "budgetTokens", default=None)),
         skip_reason=_optional_str(_get(payload, "skip_reason", "skipReason", default=None)),
         timeout=bool(_get(payload, "timeout", default=False)),
         degraded=bool(_get(payload, "degraded", default=False)),
@@ -170,12 +168,8 @@ def _operation_summary(samples: list[MemoryOperationSample]) -> dict[str, Any]:
     ]
     cache_hits = [sample.cache_hit for sample in samples if sample.cache_hit is not None]
     status_counts = _status_counts(samples)
-    timeout_count = sum(
-        1 for sample in samples if sample.timeout or sample.status == "timeout"
-    )
-    degraded_count = sum(
-        1 for sample in samples if sample.degraded or sample.status == "degraded"
-    )
+    timeout_count = sum(1 for sample in samples if sample.timeout or sample.status == "timeout")
+    degraded_count = sum(1 for sample in samples if sample.degraded or sample.status == "degraded")
     return {
         "operation_count": len(samples),
         "duration_ms": _latency_summary(durations),

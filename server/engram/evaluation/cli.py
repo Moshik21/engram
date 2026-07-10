@@ -175,8 +175,7 @@ def configure_evaluate_parser(parser: argparse.ArgumentParser) -> None:
         "--require-memory-value",
         action="store_true",
         help=(
-            "Exit non-zero unless the report has measured memory value cost and "
-            "benefit evidence."
+            "Exit non-zero unless the report has measured memory value cost and benefit evidence."
         ),
     )
     parser.add_argument(
@@ -507,9 +506,7 @@ async def run_evaluate_command(args: argparse.Namespace) -> None:
                     required_client=getattr(args, "require_adoption_client", None),
                 )
             except (OSError, json.JSONDecodeError, ValueError) as exc:
-                raise SystemExit(
-                    f"Invalid adoption report {args.adoption_report}: {exc}"
-                ) from exc
+                raise SystemExit(f"Invalid adoption report {args.adoption_report}: {exc}") from exc
             failure_message = adoption_evidence_failure_message(
                 adoption_evidence,
                 prefix="Adoption evidence failed gates",
@@ -786,9 +783,7 @@ def build_evidence_bundle(
     sources = {
         "report_json": _optional_path_str(getattr(args, "from_json", None)),
         "benchmark_artifact": _optional_path_str(getattr(args, "benchmark_artifact", None)),
-        "human_label_artifact": _optional_path_str(
-            getattr(args, "human_label_artifact", None)
-        ),
+        "human_label_artifact": _optional_path_str(getattr(args, "human_label_artifact", None)),
         "adoption_report": _optional_path_str(getattr(args, "adoption_report", None)),
         "additional_adoption_reports": _optional_paths(
             getattr(args, "additional_adoption_report", None)
@@ -814,20 +809,14 @@ def build_evidence_bundle(
         "sources": sources,
         "source_sha256": _source_sha256_map(sources),
         "gates": {
-            "require_evaluation_signals": bool(
-                getattr(args, "require_evaluation_signals", False)
-            ),
-            "require_release_evidence": bool(
-                getattr(args, "require_release_evidence", False)
-            ),
+            "require_evaluation_signals": bool(getattr(args, "require_evaluation_signals", False)),
+            "require_release_evidence": bool(getattr(args, "require_release_evidence", False)),
             "require_memory_value": bool(getattr(args, "require_memory_value", False)),
             "min_evaluation_signal_evidence": max(
                 1,
                 getattr(args, "min_evaluation_signal_evidence", 1),
             ),
-            "require_benchmark_evidence": bool(
-                getattr(args, "require_benchmark_evidence", False)
-            ),
+            "require_benchmark_evidence": bool(getattr(args, "require_benchmark_evidence", False)),
             "benchmark_baseline": getattr(args, "benchmark_baseline", "engram_full"),
             "min_benchmark_scenarios": max(
                 1,
@@ -840,9 +829,7 @@ def build_evidence_bundle(
             "require_human_label_evidence": bool(
                 getattr(args, "require_human_label_evidence", False)
             ),
-            "require_adoption_evidence": bool(
-                getattr(args, "require_adoption_evidence", False)
-            ),
+            "require_adoption_evidence": bool(getattr(args, "require_adoption_evidence", False)),
             "require_adoption_client": getattr(args, "require_adoption_client", None),
             "require_adoption_clients": _required_adoption_clients(args),
             "min_human_recall_samples": max(
@@ -1060,7 +1047,7 @@ async def _load_live_report(
         for cycle in recent_cycles:
             calibration_snapshots.extend(
                 await consolidation_store.get_calibration_snapshots(cycle.id, group_id)
-        )
+            )
         recall_samples: list[Any] = []
         session_samples: list[Any] = []
         if not args.no_saved_samples:

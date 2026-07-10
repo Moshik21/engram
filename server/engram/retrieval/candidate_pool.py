@@ -231,9 +231,7 @@ async def _working_memory_pool(
 # ---------------------------------------------------------------------------
 
 # Consecutive capitalized words (e.g., "Kansas City Masterpiece", "Dell XPS 13")
-_TITLE_CASE_PHRASE = re.compile(
-    r"\b[A-Z][a-z]+(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,}|\d+)){1,4}\b"
-)
+_TITLE_CASE_PHRASE = re.compile(r"\b[A-Z][a-z]+(?:\s+(?:[A-Z][a-z]+|[A-Z]{2,}|\d+)){1,4}\b")
 # Single capitalized word that isn't sentence-initial (e.g., "Instagram")
 _SINGLE_CAP_WORD = re.compile(r"(?<!\.\s)(?<!^)\b[A-Z][a-z]{2,}\b")
 # Quoted strings
@@ -246,20 +244,110 @@ _POSSESSIVE_NOUN = re.compile(
     re.IGNORECASE,
 )
 # Common stop words to filter out
-_STOP_WORDS = frozenset({
-    "a", "an", "the", "my", "your", "his", "her", "its", "our", "their",
-    "is", "was", "are", "were", "be", "been", "being",
-    "do", "does", "did", "have", "has", "had",
-    "will", "would", "shall", "should", "can", "could", "may", "might",
-    "what", "which", "who", "whom", "whose", "where", "when", "why", "how",
-    "that", "this", "these", "those", "it", "they", "them", "we", "you",
-    "i", "me", "he", "she", "and", "or", "but", "not", "no", "if",
-    "about", "with", "from", "for", "on", "in", "at", "to", "of", "by",
-    "all", "some", "any", "most", "many", "much", "few", "more", "less",
-    "very", "just", "also", "too", "so", "than", "then", "now",
-    "like", "know", "think", "want", "need", "use", "tell", "say",
-    "favorite", "favourite", "prefer", "preferred", "best", "worst",
-})
+_STOP_WORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "is",
+        "was",
+        "are",
+        "were",
+        "be",
+        "been",
+        "being",
+        "do",
+        "does",
+        "did",
+        "have",
+        "has",
+        "had",
+        "will",
+        "would",
+        "shall",
+        "should",
+        "can",
+        "could",
+        "may",
+        "might",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "whose",
+        "where",
+        "when",
+        "why",
+        "how",
+        "that",
+        "this",
+        "these",
+        "those",
+        "it",
+        "they",
+        "them",
+        "we",
+        "you",
+        "i",
+        "me",
+        "he",
+        "she",
+        "and",
+        "or",
+        "but",
+        "not",
+        "no",
+        "if",
+        "about",
+        "with",
+        "from",
+        "for",
+        "on",
+        "in",
+        "at",
+        "to",
+        "of",
+        "by",
+        "all",
+        "some",
+        "any",
+        "most",
+        "many",
+        "much",
+        "few",
+        "more",
+        "less",
+        "very",
+        "just",
+        "also",
+        "too",
+        "so",
+        "than",
+        "then",
+        "now",
+        "like",
+        "know",
+        "think",
+        "want",
+        "need",
+        "use",
+        "tell",
+        "say",
+        "favorite",
+        "favourite",
+        "prefer",
+        "preferred",
+        "best",
+        "worst",
+    }
+)
 
 
 def _extract_entity_names_from_query(query: str) -> list[str]:
@@ -364,7 +452,9 @@ async def _entity_query_pool(
         for name in candidate_names:
             try:
                 entities = await graph_store.find_entity_candidates(
-                    name, group_id, limit=5,
+                    name,
+                    group_id,
+                    limit=5,
                 )
             except Exception:
                 continue
@@ -438,8 +528,7 @@ def _primary_search_timeout_seconds(
     probe_timed_out = bool(
         stage_timings_ms
         and (
-            "recall_stats_timeout" in stage_timings_ms
-            or "graph_expand_timeout" in stage_timings_ms
+            "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
         )
     )
     adaptive_cap_ms = int(
@@ -459,8 +548,7 @@ def _graph_probe_timed_out(stage_timings_ms: dict[str, float] | None) -> bool:
     return bool(
         stage_timings_ms
         and (
-            "recall_stats_timeout" in stage_timings_ms
-            or "graph_expand_timeout" in stage_timings_ms
+            "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
         )
     )
 
@@ -674,8 +762,7 @@ async def generate_candidates(
         and not entity_query_results
         and not graph_results
         and not wm_results
-        and (query_type or QueryType.DEFAULT)
-        not in {QueryType.TEMPORAL, QueryType.FREQUENCY}
+        and (query_type or QueryType.DEFAULT) not in {QueryType.TEMPORAL, QueryType.FREQUENCY}
         and cfg.retrieval_activation_only_primary_timeout_short_circuit
     )
     if activation_only_after_primary_timeout:
@@ -744,10 +831,7 @@ async def generate_candidates(
         stage_timings_ms,
         "recall_candidate_max_score",
         max(
-            (
-                search_scores.get(eid, backfilled.get(eid, 0.0))
-                for eid in merged_ids
-            ),
+            (search_scores.get(eid, backfilled.get(eid, 0.0)) for eid in merged_ids),
             default=0.0,
         ),
     )

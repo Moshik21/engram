@@ -107,9 +107,7 @@ class TestEntityCRUD:
             Entity(id=eid, name="Test", entity_type="Test", group_id=test_group_id)
         )
         with pytest.raises(ValueError, match="Disallowed"):
-            await helix_graph_store.update_entity(
-                eid, {"id": "hacked"}, group_id=test_group_id
-            )
+            await helix_graph_store.update_entity(eid, {"id": "hacked"}, group_id=test_group_id)
 
     async def test_soft_delete_entity(self, helix_graph_store, test_group_id):
         eid = f"ent_{_uid()}"
@@ -231,9 +229,7 @@ class TestRelationshipCRUD:
         assert len(rels) >= 1
         assert any(r.predicate == "CONNECTS" for r in rels)
 
-    async def test_get_entity_relationships_both_directions(
-        self, helix_graph_store, test_group_id
-    ):
+    async def test_get_entity_relationships_both_directions(self, helix_graph_store, test_group_id):
         src, tgt = await self._create_pair(helix_graph_store, test_group_id)
         rel = Relationship(
             id=f"rel_{_uid()}",
@@ -315,9 +311,7 @@ class TestRelationshipCRUD:
             )
         )
 
-        found = await helix_graph_store.find_existing_relationship(
-            src, tgt, "KNOWS", test_group_id
-        )
+        found = await helix_graph_store.find_existing_relationship(src, tgt, "KNOWS", test_group_id)
         assert found is not None
         assert found.predicate == "KNOWS"
 
@@ -394,9 +388,7 @@ class TestEpisodeCRUD:
             Episode(id=ep_id, content="Content", group_id=test_group_id)
         )
         with pytest.raises(ValueError, match="Disallowed"):
-            await helix_graph_store.update_episode(
-                ep_id, {"id": "hacked"}, group_id=test_group_id
-            )
+            await helix_graph_store.update_episode(ep_id, {"id": "hacked"}, group_id=test_group_id)
 
     async def test_link_episode_entity(self, helix_graph_store, test_group_id):
         ent_id = f"ent_{_uid()}"
@@ -446,9 +438,7 @@ class TestEpisodeCues:
 class TestStats:
     async def test_get_stats(self, helix_graph_store, test_group_id):
         await helix_graph_store.create_entity(
-            Entity(
-                id=f"ent_{_uid()}", name="Stat", entity_type="Test", group_id=test_group_id
-            )
+            Entity(id=f"ent_{_uid()}", name="Stat", entity_type="Test", group_id=test_group_id)
         )
         stats = await helix_graph_store.get_stats(group_id=test_group_id)
         assert stats["entities"] >= 1
@@ -457,28 +447,20 @@ class TestStats:
 
     async def test_get_entity_count(self, helix_graph_store, test_group_id):
         await helix_graph_store.create_entity(
-            Entity(
-                id=f"ent_{_uid()}", name="Counter", entity_type="Test", group_id=test_group_id
-            )
+            Entity(id=f"ent_{_uid()}", name="Counter", entity_type="Test", group_id=test_group_id)
         )
         count = await helix_graph_store.get_entity_count(group_id=test_group_id)
         assert count >= 1
 
     async def test_get_entity_type_counts(self, helix_graph_store, test_group_id):
         await helix_graph_store.create_entity(
-            Entity(
-                id=f"ent_{_uid()}", name="A", entity_type="Person", group_id=test_group_id
-            )
+            Entity(id=f"ent_{_uid()}", name="A", entity_type="Person", group_id=test_group_id)
         )
         await helix_graph_store.create_entity(
-            Entity(
-                id=f"ent_{_uid()}", name="B", entity_type="Person", group_id=test_group_id
-            )
+            Entity(id=f"ent_{_uid()}", name="B", entity_type="Person", group_id=test_group_id)
         )
         await helix_graph_store.create_entity(
-            Entity(
-                id=f"ent_{_uid()}", name="C", entity_type="Technology", group_id=test_group_id
-            )
+            Entity(id=f"ent_{_uid()}", name="C", entity_type="Technology", group_id=test_group_id)
         )
         counts = await helix_graph_store.get_entity_type_counts(group_id=test_group_id)
         assert counts.get("Person", 0) >= 2

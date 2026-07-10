@@ -48,6 +48,7 @@ async def resolve_mode(requested_mode: str = "auto") -> EngineMode:
         if not transport:
             try:
                 from engram.config import EngramConfig
+
                 transport = EngramConfig().helix.transport.lower()
             except Exception:
                 transport = "http"

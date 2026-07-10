@@ -164,6 +164,7 @@ async def test_sqlite_integration_returns_3tuple(tmp_path):
     """SQLiteGraphStore.get_active_neighbors_with_weights returns 3-tuple."""
     from engram.models.entity import Entity
     from engram.models.relationship import Relationship
+
     store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
 

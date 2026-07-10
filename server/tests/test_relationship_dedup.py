@@ -32,6 +32,7 @@ GROUP = "default"
 async def store(tmp_path):
     from engram.config import HelixDBConfig
     from engram.storage.helix.graph import HelixGraphStore
+
     s = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await s.initialize()
     yield s

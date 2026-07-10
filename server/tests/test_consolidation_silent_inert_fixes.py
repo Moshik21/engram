@@ -84,9 +84,7 @@ def _make_contaminated_graph():
     graph.update_entity = AsyncMock()
     graph.update_relationship_weight = AsyncMock()
     graph.get_active_neighbors_with_weights = AsyncMock(return_value=[])
-    graph.get_entity = AsyncMock(
-        side_effect=lambda eid, gid: person if eid == "e1" else software
-    )
+    graph.get_entity = AsyncMock(side_effect=lambda eid, gid: person if eid == "e1" else software)
     activation = AsyncMock()
     search = AsyncMock()
     search.get_entity_embeddings = AsyncMock(return_value={})

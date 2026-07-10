@@ -177,12 +177,14 @@ async def test_evaluate_cli_writes_evidence_bundle_after_gates_pass(
     assert bundle["sources"]["human_label_artifact"] is None
     assert bundle["sources"]["adoption_report"] is None
     assert bundle["sources"]["additional_adoption_reports"] == []
-    assert bundle["source_sha256"]["report_json"] == hashlib.sha256(
-        report_path.read_bytes()
-    ).hexdigest()
-    assert bundle["source_sha256"]["benchmark_artifact"] == hashlib.sha256(
-        benchmark_path.read_bytes()
-    ).hexdigest()
+    assert (
+        bundle["source_sha256"]["report_json"]
+        == hashlib.sha256(report_path.read_bytes()).hexdigest()
+    )
+    assert (
+        bundle["source_sha256"]["benchmark_artifact"]
+        == hashlib.sha256(benchmark_path.read_bytes()).hexdigest()
+    )
     assert bundle["source_sha256"]["human_label_artifact"] is None
     assert bundle["source_sha256"]["adoption_report"] is None
     assert bundle["source_sha256"]["additional_adoption_reports"] == []
@@ -294,8 +296,7 @@ def _showcase_artifact(*, pass_rate: float, scenario_count: int) -> dict:
             "strict_fairness": True,
             "baseline_contracts": {"engram_full": {"answer_prompt_id": "showcase_answer_v2"}},
             "transcript_hashes": {
-                f"scenario_{index}": f"hash_{index}"
-                for index in range(scenario_count)
+                f"scenario_{index}": f"hash_{index}" for index in range(scenario_count)
             },
         },
         "baseline_summaries": [

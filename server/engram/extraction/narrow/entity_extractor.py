@@ -108,52 +108,147 @@ _IDENTITY_CAPTURES: list[tuple[re.Pattern[str], str, str]] = [
 _TECH_KEYWORDS = frozenset(
     {
         # Original
-        "api", "sdk", "cli", "mcp", "llm", "sql", "fts5",
-        "redis", "sqlite", "falkordb", "fastapi", "react",
-        "next.js", "typescript", "python", "javascript", "node",
-        "docker", "kubernetes", "aws", "gcp", "azure",
+        "api",
+        "sdk",
+        "cli",
+        "mcp",
+        "llm",
+        "sql",
+        "fts5",
+        "redis",
+        "sqlite",
+        "falkordb",
+        "fastapi",
+        "react",
+        "next.js",
+        "typescript",
+        "python",
+        "javascript",
+        "node",
+        "docker",
+        "kubernetes",
+        "aws",
+        "gcp",
+        "azure",
         # Languages / runtimes
-        "rust", "golang", "go", "java", "swift", "kotlin",
-        "ruby", "php", "dart", "elixir", "haskell", "scala",
-        "deno", "bun",
+        "rust",
+        "golang",
+        "go",
+        "java",
+        "swift",
+        "kotlin",
+        "ruby",
+        "php",
+        "dart",
+        "elixir",
+        "haskell",
+        "scala",
+        "deno",
+        "bun",
         # Frontend frameworks
-        "vue", "angular", "svelte", "tailwind", "remix", "astro",
+        "vue",
+        "angular",
+        "svelte",
+        "tailwind",
+        "remix",
+        "astro",
         # Build tools / package managers
-        "webpack", "vite", "esbuild", "rollup", "turbopack",
-        "npm", "pnpm", "yarn", "pip", "cargo", "maven", "gradle",
+        "webpack",
+        "vite",
+        "esbuild",
+        "rollup",
+        "turbopack",
+        "npm",
+        "pnpm",
+        "yarn",
+        "pip",
+        "cargo",
+        "maven",
+        "gradle",
         # Cloud / infra
-        "vercel", "heroku", "netlify", "cloudflare", "digitalocean",
-        "terraform", "ansible", "pulumi", "nginx", "caddy",
+        "vercel",
+        "heroku",
+        "netlify",
+        "cloudflare",
+        "digitalocean",
+        "terraform",
+        "ansible",
+        "pulumi",
+        "nginx",
+        "caddy",
         # Databases / search
-        "postgres", "postgresql", "mongodb", "mysql", "mariadb",
-        "elasticsearch", "opensearch", "kafka", "rabbitmq",
-        "dynamodb", "cassandra", "neo4j", "dgraph",
+        "postgres",
+        "postgresql",
+        "mongodb",
+        "mysql",
+        "mariadb",
+        "elasticsearch",
+        "opensearch",
+        "kafka",
+        "rabbitmq",
+        "dynamodb",
+        "cassandra",
+        "neo4j",
+        "dgraph",
         # AI / ML
-        "pytorch", "tensorflow", "numpy", "pandas", "scikit-learn",
-        "langchain", "openai", "anthropic", "gemini", "ollama",
-        "huggingface", "transformers",
+        "pytorch",
+        "tensorflow",
+        "numpy",
+        "pandas",
+        "scikit-learn",
+        "langchain",
+        "openai",
+        "anthropic",
+        "gemini",
+        "ollama",
+        "huggingface",
+        "transformers",
         # Vector DBs / tools
-        "chromadb", "pinecone", "weaviate", "qdrant", "milvus",
+        "chromadb",
+        "pinecone",
+        "weaviate",
+        "qdrant",
+        "milvus",
         # ORMs / data
-        "prisma", "drizzle", "sqlalchemy", "sequelize", "typeorm",
-        "graphql", "grpc", "protobuf",
+        "prisma",
+        "drizzle",
+        "sqlalchemy",
+        "sequelize",
+        "typeorm",
+        "graphql",
+        "grpc",
+        "protobuf",
         # DevOps / CI
-        "github", "gitlab", "bitbucket", "jenkins", "circleci",
+        "github",
+        "gitlab",
+        "bitbucket",
+        "jenkins",
+        "circleci",
         # Other common tech
-        "supabase", "firebase", "stripe", "twilio", "auth0",
-        "storybook", "cypress", "playwright", "jest", "vitest",
-        "recharts", "threejs", "three.js", "zustand", "redux",
-        "electron", "tauri", "flutter",
+        "supabase",
+        "firebase",
+        "stripe",
+        "twilio",
+        "auth0",
+        "storybook",
+        "cypress",
+        "playwright",
+        "jest",
+        "vitest",
+        "recharts",
+        "threejs",
+        "three.js",
+        "zustand",
+        "redux",
+        "electron",
+        "tauri",
+        "flutter",
     }
 )
 
-_COMPANY_SUFFIXES = frozenset(
-    {"inc", "llc", "corp", "ltd", "co", "gmbh", "labs", "ai", "io"}
-)
+_COMPANY_SUFFIXES = frozenset({"inc", "llc", "corp", "ltd", "co", "gmbh", "labs", "ai", "io"})
 
-_PRODUCT_SUFFIXES = frozenset(
-    {"app", "pro", "studio", "cloud", "hub", "kit", "os"}
-)
+_PRODUCT_SUFFIXES = frozenset({"app", "pro", "studio", "cloud", "hub", "kit", "os"})
 
 _LOCATION_SUFFIXES = frozenset(
     {
@@ -397,10 +492,8 @@ class IdentityEntityExtractor:
                 continue
             # Skip single-word sentence-initial candidates unless they also appear mid-sentence
             if " " not in name and _is_sentence_initial(match, text):
-                mid_pattern = re.compile(
-                    r"(?<![.!?\n]\s)" + re.escape(name) + r"\b"
-                )
-                if not mid_pattern.search(text[match.end():]):
+                mid_pattern = re.compile(r"(?<![.!?\n]\s)" + re.escape(name) + r"\b")
+                if not mid_pattern.search(text[match.end() :]):
                     continue
             seen_names.add(name.lower())
             entity_type = _infer_entity_type(name)

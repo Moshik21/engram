@@ -104,16 +104,12 @@ class HelixConversationStore:
     # Helix ID resolution
     # ------------------------------------------------------------------
 
-    async def _resolve_conv_helix_id(
-        self, conversation_id: str, group_id: str
-    ) -> int | None:
+    async def _resolve_conv_helix_id(self, conversation_id: str, group_id: str) -> int | None:
         """Resolve a conversation UUID to a Helix internal ID via cache or query."""
         if conversation_id in self._conv_id_cache:
             return self._conv_id_cache[conversation_id]
         # Scan conversations for the group and populate cache
-        results = await self._query(
-            "find_conversations_by_group", {"gid": group_id}
-        )
+        results = await self._query("find_conversations_by_group", {"gid": group_id})
         for item in results:
             cid = _safe_get(item, "conversation_id", "")
             hid = self._extract_helix_id(item)
@@ -123,15 +119,11 @@ class HelixConversationStore:
                 return hid
         return None
 
-    async def _resolve_msg_helix_id(
-        self, message_id: str, conversation_id: str
-    ) -> int | None:
+    async def _resolve_msg_helix_id(self, message_id: str, conversation_id: str) -> int | None:
         """Resolve a message UUID to a Helix internal ID via cache or query."""
         if message_id in self._msg_id_cache:
             return self._msg_id_cache[message_id]
-        results = await self._query(
-            "find_messages_by_conversation", {"conv_id": conversation_id}
-        )
+        results = await self._query("find_messages_by_conversation", {"conv_id": conversation_id})
         for item in results:
             mid = _safe_get(item, "message_id", "")
             hid = self._extract_helix_id(item)
@@ -218,9 +210,7 @@ class HelixConversationStore:
     # Internal guards
     # ------------------------------------------------------------------
 
-    async def _require_conversation(
-        self, conversation_id: str, group_id: str
-    ) -> int:
+    async def _require_conversation(self, conversation_id: str, group_id: str) -> int:
         """Ensure a conversation exists and return its Helix internal ID.
 
         Raises ConversationNotFoundError if not found or not owned by group.
@@ -288,9 +278,7 @@ class HelixConversationStore:
         group_id: str,
         limit: int = 50,
     ) -> list[dict]:
-        results = await self._query(
-            "find_conversations_by_group", {"gid": group_id}
-        )
+        results = await self._query("find_conversations_by_group", {"gid": group_id})
 
         conversations: list[dict] = []
         for item in results[:limit]:
@@ -302,9 +290,7 @@ class HelixConversationStore:
             entity_ids: list[str] = []
             if hid is not None:
                 try:
-                    ent_results = await self._query(
-                        "find_conversation_entities", {"conv_id": hid}
-                    )
+                    ent_results = await self._query("find_conversation_entities", {"conv_id": hid})
                     entity_ids = [
                         _safe_get(e, "entity_id", "")
                         for e in ent_results
@@ -323,14 +309,10 @@ class HelixConversationStore:
 
         return conversations
 
-    async def get_messages(
-        self, conversation_id: str, group_id: str
-    ) -> list[dict]:
+    async def get_messages(self, conversation_id: str, group_id: str) -> list[dict]:
         await self._require_conversation(conversation_id, group_id)
 
-        results = await self._query(
-            "find_messages_by_conversation", {"conv_id": conversation_id}
-        )
+        results = await self._query("find_messages_by_conversation", {"conv_id": conversation_id})
 
         messages: list[dict] = []
         for item in results:
@@ -433,15 +415,11 @@ class HelixConversationStore:
 
         return ids
 
-    async def tag_entity(
-        self, conversation_id: str, entity_id: str, group_id: str
-    ) -> None:
+    async def tag_entity(self, conversation_id: str, entity_id: str, group_id: str) -> None:
         conv_helix_id = await self._require_conversation(conversation_id, group_id)
 
         # Resolve entity UUID to Helix internal ID for the edge link
-        entity_helix_id = await self._resolve_entity_helix_id_for_tag(
-            entity_id, group_id
-        )
+        entity_helix_id = await self._resolve_entity_helix_id_for_tag(entity_id, group_id)
         if entity_helix_id is None:
             logger.warning(
                 "Cannot tag entity %s on conversation %s: entity not found",
@@ -463,18 +441,14 @@ class HelixConversationStore:
                 exc_info=True,
             )
 
-    async def _resolve_entity_helix_id_for_tag(
-        self, entity_id: str, group_id: str
-    ) -> int | None:
+    async def _resolve_entity_helix_id_for_tag(self, entity_id: str, group_id: str) -> int | None:
         """Resolve an entity UUID to a Helix internal ID by scanning the group.
 
         This is a lightweight version of the graph store's resolver,
         scoped to conversation tagging.
         """
         try:
-            results = await self._query(
-                "find_entities_by_group", {"gid": group_id}
-            )
+            results = await self._query("find_entities_by_group", {"gid": group_id})
         except Exception:
             return None
         for item in results:
@@ -514,9 +488,7 @@ class HelixConversationStore:
             )
         return True
 
-    async def delete_conversation(
-        self, conversation_id: str, group_id: str
-    ) -> bool:
+    async def delete_conversation(self, conversation_id: str, group_id: str) -> bool:
         helix_id = await self._resolve_conv_helix_id(conversation_id, group_id)
         if helix_id is None:
             return False

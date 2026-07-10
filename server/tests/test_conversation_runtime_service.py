@@ -90,11 +90,9 @@ def test_manager_conversation_facade_helpers_filter_expected_shapes() -> None:
         get_conversation_context=lambda: ctx,
         get_conversation_embed_fn=lambda: embed,
         get_conversation_turn_count=lambda: 3,
-        get_conversation_top_entity_names=lambda limit=None: ["Alpha", 123, "Beta"][
-            :limit
-        ]
-        if limit
-        else ["Alpha", 123, "Beta"],
+        get_conversation_top_entity_names=lambda limit=None: (
+            ["Alpha", 123, "Beta"][:limit] if limit else ["Alpha", 123, "Beta"]
+        ),
         get_conversation_recent_turns=lambda limit: ["one", None, "two"][:limit],
     )
 

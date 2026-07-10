@@ -174,8 +174,10 @@ async def resolve_entity_fast(
         # then keep the lowest entity id. This removes the dependence on the
         # (unsorted) candidate query order returned by the backend.
         cand_key = (score, type_match)
-        if best_match is None or cand_key > best_key or (
-            cand_key == best_key and entity.id < best_match.id
+        if (
+            best_match is None
+            or cand_key > best_key
+            or (cand_key == best_key and entity.id < best_match.id)
         ):
             best_key = cand_key
             best_score = score

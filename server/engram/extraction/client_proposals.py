@@ -97,9 +97,7 @@ def _effective_proposal_confidence(
     """
     if span_verified:
         floor = (
-            HIGH_SIGNAL_VERIFIED_CONFIDENCE
-            if high_signal
-            else SPAN_VERIFIED_PROPOSAL_CONFIDENCE
+            HIGH_SIGNAL_VERIFIED_CONFIDENCE if high_signal else SPAN_VERIFIED_PROPOSAL_CONFIDENCE
         )
         # Floor verified claims at a commit-worthy confidence; keep higher tiers.
         return max(base_confidence, floor)

@@ -557,8 +557,7 @@ async def _assert_native_rest_notification_surfaces(client: httpx.AsyncClient) -
     pending_after = await client.get("/api/knowledge/notifications")
     assert pending_after.status_code == 200
     assert all(
-        item["id"] != native_notification.id
-        for item in pending_after.json()["notifications"]
+        item["id"] != native_notification.id for item in pending_after.json()["notifications"]
     )
 
     since_after = await client.get(
@@ -974,9 +973,7 @@ async def _assert_native_mcp_intention_surfaces(mcp_server) -> None:
         )
     )
     hard_id = hard_created["intention_id"]
-    hard_dismissed = json.loads(
-        await mcp_server.dismiss_intention(intention_id=hard_id, hard=True)
-    )
+    hard_dismissed = json.loads(await mcp_server.dismiss_intention(intention_id=hard_id, hard=True))
     assert hard_dismissed["status"] == "dismissed"
     assert hard_dismissed["intention_id"] == hard_id
     assert hard_dismissed["hard"] is True
@@ -1316,10 +1313,7 @@ async def _assert_native_conversation_surfaces(client: httpx.AsyncClient) -> Non
 
     deleted_list_resp = await client.get("/api/conversations/", params={"limit": 10})
     assert deleted_list_resp.status_code == 200
-    assert all(
-        item["id"] != conversation_id
-        for item in deleted_list_resp.json()["conversations"]
-    )
+    assert all(item["id"] != conversation_id for item in deleted_list_resp.json()["conversations"])
 
     raw_messages = await _app_state["conversation_store"]._query(
         "find_messages_by_conversation", {"conv_id": conversation_id}
@@ -1468,9 +1462,7 @@ async def _assert_native_mcp_notification_surface(mcp_server) -> None:
 
 
 async def _assert_native_mcp_write_surfaces(mcp_server) -> None:
-    remember_content = (
-        "Native MCP remember surface records that PyO3 writes stay in native_brain."
-    )
+    remember_content = "Native MCP remember surface records that PyO3 writes stay in native_brain."
     remember_payload = json.loads(
         await mcp_server.remember(
             content=remember_content,
@@ -1684,9 +1676,7 @@ async def _assert_native_rest_entity_fact_lookup_surface(client: httpx.AsyncClie
     assert neighbors["centerId"] == subject_id
     assert {node["id"] for node in neighbors["nodes"]} >= {subject_id, object_id}
     assert any(
-        edge["source"] == subject_id
-        and edge["target"] == object_id
-        and edge["predicate"] == "USES"
+        edge["source"] == subject_id and edge["target"] == object_id and edge["predicate"] == "USES"
         for edge in neighbors["edges"]
     )
 
@@ -1754,9 +1744,7 @@ async def _assert_native_mcp_entity_fact_lookup_surface(mcp_server) -> None:
 
 
 async def _assert_native_rest_dashboard_read_surfaces(client: httpx.AsyncClient) -> None:
-    subject_id, object_id, subject_name, _object_name = await _create_native_test_fact(
-        "dashboard"
-    )
+    subject_id, object_id, subject_name, _object_name = await _create_native_test_fact("dashboard")
 
     stats_resp = await client.get("/api/stats", params={"days": 7})
     assert stats_resp.status_code == 200
@@ -1800,9 +1788,7 @@ async def _assert_native_rest_dashboard_read_surfaces(client: httpx.AsyncClient)
     assert neighborhood["representation"]["scope"] == "neighborhood"
     assert {node["id"] for node in neighborhood["nodes"]} >= {subject_id, object_id}
     assert any(
-        edge["source"] == subject_id
-        and edge["target"] == object_id
-        and edge["predicate"] == "USES"
+        edge["source"] == subject_id and edge["target"] == object_id and edge["predicate"] == "USES"
         for edge in neighborhood["edges"]
     )
 
@@ -1821,9 +1807,7 @@ async def _assert_native_rest_dashboard_read_surfaces(client: httpx.AsyncClient)
     assert temporal["representation"]["scope"] == "temporal"
     assert {node["id"] for node in temporal["nodes"]} >= {subject_id, object_id}
     assert any(
-        edge["source"] == subject_id
-        and edge["target"] == object_id
-        and edge["predicate"] == "USES"
+        edge["source"] == subject_id and edge["target"] == object_id and edge["predicate"] == "USES"
         for edge in temporal["edges"]
     )
 
@@ -1999,10 +1983,7 @@ async def _assert_native_atlas_store_upsert_surface() -> None:
     assert [region.id for region in loaded_second.regions] == ["region_new"]
     assert loaded_second.regions[0].label == "New native atlas region"
     assert loaded_second.region_members == {"region_new": ["ent_native_atlas_new"]}
-    assert (
-        await store.get_region_members(snapshot_id, "region_old", NATIVE_GROUP_ID)
-        == []
-    )
+    assert await store.get_region_members(snapshot_id, "region_old", NATIVE_GROUP_ID) == []
 
 
 async def _assert_native_rest_entity_mutation_surface(client: httpx.AsyncClient) -> None:
@@ -2291,10 +2272,9 @@ async def test_native_helix_populated_brain_reaches_rest_and_mcp_surfaces(
         assert mcp_report["recall"]["evaluation"]["status"] == "measured"
         assert mcp_report["recall"]["evaluation"]["sample_count"] >= 3
         assert mcp_report["recall"]["continuity"]["sample_count"] >= 3
-        assert {
-            signal["status"]
-            for signal in mcp_report["evaluation_signals"].values()
-        } == {"measured"}
+        assert {signal["status"] for signal in mcp_report["evaluation_signals"].values()} == {
+            "measured"
+        }
 
         mcp_recall = json.loads(await mcp_server.recall("Engram brain loop", limit=5))
         assert mcp_recall["total_candidates"] > 0
@@ -2409,9 +2389,7 @@ def test_native_helix_dashboard_websocket_uses_native_group(tmp_path) -> None:
                     item["seq"] == seq and item["group_id"] == NATIVE_GROUP_ID
                     for item in resync["events"]
                 )
-                assert all(
-                    item["group_id"] == NATIVE_GROUP_ID for item in resync["events"]
-                )
+                assert all(item["group_id"] == NATIVE_GROUP_ID for item in resync["events"])
     finally:
         _app_state.clear()
 

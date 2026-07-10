@@ -54,12 +54,15 @@ async def test_helix_update_cycle_resolves_from_active_group_only(monkeypatch) -
     cycle = ConsolidationCycle(id="cyc_shared", group_id="brain_b", status="completed")
     await store.update_cycle(cycle)
 
-    assert ("update_consol_cycle", {
-        "id": 202,
-        "status": "completed",
-        "phase_results_json": "[]",
-        "completed_at": 0.0,
-        "total_duration_ms": 0.0,
-        "error": "",
-    }) in calls
+    assert (
+        "update_consol_cycle",
+        {
+            "id": 202,
+            "status": "completed",
+            "phase_results_json": "[]",
+            "completed_at": 0.0,
+            "total_duration_ms": 0.0,
+            "error": "",
+        },
+    ) in calls
     assert store._cycle_group_id_cache[("brain_b", "cyc_shared")] == 202

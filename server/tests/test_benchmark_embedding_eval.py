@@ -14,6 +14,7 @@ from engram.benchmark.longmemeval.evaluator import (
 
 # ── is_abstention_answer ─────────────────────────────────────────────
 
+
 def test_abstention_phrases_detected():
     assert is_abstention_answer("I don't know the answer.")
     assert is_abstention_answer("I cannot recall that information.")
@@ -28,6 +29,7 @@ def test_non_abstention():
 
 
 # ── judge_by_containment ─────────────────────────────────────────────
+
 
 def test_factual_correct():
     verdict = judge_by_containment(
@@ -112,9 +114,11 @@ def test_exact_threshold():
 
 # ── compute_containment_score ─────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_containment_score_high():
     """Matching evidence should give high containment."""
+
     async def embed(texts: list[str]) -> list[list[float]]:
         # Return similar vectors for gold and evidence
         return [[1.0, 0.0, 0.0, 0.0]] * len(texts)
@@ -148,6 +152,7 @@ async def test_containment_score_empty_gold():
 @pytest.mark.asyncio
 async def test_containment_score_embed_failure():
     """Embedding failure should return 0.0, not raise."""
+
     async def embed(texts: list[str]) -> list[list[float]]:
         raise RuntimeError("API error")
 
@@ -158,6 +163,7 @@ async def test_containment_score_embed_failure():
 @pytest.mark.asyncio
 async def test_containment_picks_best_evidence():
     """Should pick the evidence with highest similarity."""
+
     async def embed(texts: list[str]) -> list[list[float]]:
         # gold=[1,0,0,0], bad=[0,1,0,0], good=[0.95,0.05,0,0]
         vecs = [
@@ -165,7 +171,7 @@ async def test_containment_picks_best_evidence():
             [0.0, 1.0, 0.0, 0.0],  # bad evidence
             [0.95, 0.05, 0.0, 0.0],  # good evidence
         ]
-        return vecs[:len(texts)]
+        return vecs[: len(texts)]
 
     score = await compute_containment_score(
         gold_answer="exact match",
@@ -177,6 +183,7 @@ async def test_containment_picks_best_evidence():
 
 
 # ── compute_retrieval_metrics (unchanged) ────────────────────────────
+
 
 def test_retrieval_metrics_perfect():
     metrics = compute_retrieval_metrics(
@@ -208,16 +215,18 @@ def test_retrieval_metrics_empty_answer():
 
 # ── Full flow integration ────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_full_evaluation_flow():
     """Simulate the full benchmark evaluation flow."""
+
     # 1. Embed gold answer + evidence
     async def embed(texts: list[str]) -> list[list[float]]:
         # Gold answer similar to first evidence, different from second
         vecs = {
-            0: [1.0, 0.0, 0.0, 0.0],   # gold
-            1: [0.9, 0.1, 0.0, 0.0],    # good evidence
-            2: [0.0, 0.0, 1.0, 0.0],    # irrelevant evidence
+            0: [1.0, 0.0, 0.0, 0.0],  # gold
+            1: [0.9, 0.1, 0.0, 0.0],  # good evidence
+            2: [0.0, 0.0, 1.0, 0.0],  # irrelevant evidence
         }
         return [vecs.get(i, [0.0] * 4) for i in range(len(texts))]
 

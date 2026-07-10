@@ -313,9 +313,7 @@ class GraphEmbedPhase(ConsolidationPhase):
             # stored above; HelixDB needs an explicit push via AddV.
             if not dry_run and hasattr(search_index, "sync_graph_embeddings"):
                 try:
-                    if method_full_retrain and hasattr(
-                        search_index, "clear_graph_embed_vectors"
-                    ):
+                    if method_full_retrain and hasattr(search_index, "clear_graph_embed_vectors"):
                         cleared = await search_index.clear_graph_embed_vectors(
                             group_id=group_id, method=method
                         )

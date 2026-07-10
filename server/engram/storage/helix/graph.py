@@ -478,9 +478,7 @@ class HelixGraphStore:
             self._episode_id_cache[episode_id] = None
         return None
 
-    async def _resolve_rel_helix_id(
-        self, rel_id: str, source_helix_id: int
-    ) -> int | None:
+    async def _resolve_rel_helix_id(self, rel_id: str, source_helix_id: int) -> int | None:
         """Resolve a relationship UUID to a Helix internal edge ID."""
         if rel_id in self._rel_id_cache:
             return self._rel_id_cache[rel_id]
@@ -590,9 +588,7 @@ class HelixGraphStore:
 
         raw_status = d.get("status", "pending")
         status = (
-            raw_status
-            if isinstance(raw_status, EpisodeStatus)
-            else EpisodeStatus(str(raw_status))
+            raw_status if isinstance(raw_status, EpisodeStatus) else EpisodeStatus(str(raw_status))
         )
         raw_proj = d.get("projection_state", "queued") or "queued"
         projection_state = (
@@ -622,8 +618,7 @@ class HelixGraphStore:
             last_projection_reason=d.get("last_projection_reason"),
             last_projected_at=_parse_dt(d.get("last_projected_at")),
             attachments=[
-                Attachment(**a)
-                for a in json.loads(d.get("attachments_json", "[]") or "[]")
+                Attachment(**a) for a in json.loads(d.get("attachments_json", "[]") or "[]")
             ],
         )
 
@@ -681,9 +676,7 @@ class HelixGraphStore:
             entity_mentions=_json_list(d.get("supporting_spans_json")),
             temporal_markers=[str(item) for item in _json_list(d.get("temporal_markers_json"))],
             quote_spans=[str(item) for item in _json_list(d.get("quote_spans_json"))],
-            contradiction_keys=[
-                str(item) for item in _json_list(d.get("contradiction_keys_json"))
-            ],
+            contradiction_keys=[str(item) for item in _json_list(d.get("contradiction_keys_json"))],
             first_spans=[str(item) for item in _json_list(d.get("first_spans_json"))],
             hit_count=_as_int(d.get("hit_count")),
             surfaced_count=_as_int(d.get("surfaced_count")),
@@ -850,20 +843,14 @@ class HelixGraphStore:
                     json.dumps(entity.pii_categories) if entity.pii_categories else "[]"
                 ),
                 "access_count": entity.access_count,
-                "last_accessed": (
-                    entity.last_accessed.isoformat() if entity.last_accessed else ""
-                ),
+                "last_accessed": (entity.last_accessed.isoformat() if entity.last_accessed else ""),
                 "source_episode_ids": json.dumps(entity.source_episode_ids),
                 "evidence_count": entity.evidence_count,
                 "evidence_span_start": (
-                    entity.evidence_span_start.isoformat()
-                    if entity.evidence_span_start
-                    else ""
+                    entity.evidence_span_start.isoformat() if entity.evidence_span_start else ""
                 ),
                 "evidence_span_end": (
-                    entity.evidence_span_end.isoformat()
-                    if entity.evidence_span_end
-                    else ""
+                    entity.evidence_span_end.isoformat() if entity.evidence_span_end else ""
                 ),
             },
         )
@@ -986,10 +973,12 @@ class HelixGraphStore:
         else:
             # Delete connected edges first
             if self._helix_client is not None:
-                out_edges, in_edges = await self._helix_client.query_concurrent([
-                    ("get_outgoing_edges", {"id": helix_id}),
-                    ("get_incoming_edges", {"id": helix_id}),
-                ])
+                out_edges, in_edges = await self._helix_client.query_concurrent(
+                    [
+                        ("get_outgoing_edges", {"id": helix_id}),
+                        ("get_incoming_edges", {"id": helix_id}),
+                    ]
+                )
             else:
                 out_edges = await self._query("get_outgoing_edges", {"id": helix_id})
                 in_edges = await self._query("get_incoming_edges", {"id": helix_id})
@@ -1296,15 +1285,19 @@ class HelixGraphStore:
         if direction == "both" and self._helix_client is not None:
             # Fire outgoing + incoming queries concurrently
             if predicate:
-                out_results, in_results = await self._helix_client.query_concurrent([
-                    ("get_outgoing_edges_by_predicate", {"id": helix_id, "pred": predicate}),
-                    ("get_incoming_edges_by_predicate", {"id": helix_id, "pred": predicate}),
-                ])
+                out_results, in_results = await self._helix_client.query_concurrent(
+                    [
+                        ("get_outgoing_edges_by_predicate", {"id": helix_id, "pred": predicate}),
+                        ("get_incoming_edges_by_predicate", {"id": helix_id, "pred": predicate}),
+                    ]
+                )
             else:
-                out_results, in_results = await self._helix_client.query_concurrent([
-                    ("get_outgoing_edges", {"id": helix_id}),
-                    ("get_incoming_edges", {"id": helix_id}),
-                ])
+                out_results, in_results = await self._helix_client.query_concurrent(
+                    [
+                        ("get_outgoing_edges", {"id": helix_id}),
+                        ("get_incoming_edges", {"id": helix_id}),
+                    ]
+                )
             edges.extend(out_results)
             edges.extend(in_results)
         else:
@@ -1342,9 +1335,7 @@ class HelixGraphStore:
                 rels.append(rel)
         return rels
 
-    async def invalidate_relationship(
-        self, rel_id: str, valid_to: datetime, group_id: str
-    ) -> None:
+    async def invalidate_relationship(self, rel_id: str, valid_to: datetime, group_id: str) -> None:
         # We need the Helix edge ID. Try to find it.
         helix_id = self._rel_id_cache.get(rel_id)
         if helix_id is None:
@@ -1434,10 +1425,12 @@ class HelixGraphStore:
 
         edges: list[dict] = []
         if direction == "both" and self._helix_client is not None:
-            out_results, in_results = await self._helix_client.query_concurrent([
-                ("get_outgoing_edges", {"id": helix_id}),
-                ("get_incoming_edges", {"id": helix_id}),
-            ])
+            out_results, in_results = await self._helix_client.query_concurrent(
+                [
+                    ("get_outgoing_edges", {"id": helix_id}),
+                    ("get_incoming_edges", {"id": helix_id}),
+                ]
+            )
             edges.extend(out_results)
             edges.extend(in_results)
         else:
@@ -1490,13 +1483,18 @@ class HelixGraphStore:
             for hid in frontier_helix_ids:
                 # Fetch all four queries concurrently when shared client available
                 if self._helix_client is not None:
-                    out_edges, out_neighbors, in_edges, in_neighbors = (
-                        await self._helix_client.query_concurrent([
+                    (
+                        out_edges,
+                        out_neighbors,
+                        in_edges,
+                        in_neighbors,
+                    ) = await self._helix_client.query_concurrent(
+                        [
                             ("get_outgoing_edges", {"id": hid}),
                             ("get_outgoing_neighbors", {"id": hid}),
                             ("get_incoming_edges", {"id": hid}),
                             ("get_incoming_neighbors", {"id": hid}),
-                        ])
+                        ]
                     )
                 else:
                     out_edges = await self._query("get_outgoing_edges", {"id": hid})
@@ -1609,13 +1607,18 @@ class HelixGraphStore:
 
         # Fetch all four queries concurrently when shared client available
         if self._helix_client is not None:
-            out_edges, out_neighbors, in_edges, in_neighbors = (
-                await self._helix_client.query_concurrent([
+            (
+                out_edges,
+                out_neighbors,
+                in_edges,
+                in_neighbors,
+            ) = await self._helix_client.query_concurrent(
+                [
                     ("get_outgoing_edges", {"id": helix_id}),
                     ("get_outgoing_neighbors", {"id": helix_id}),
                     ("get_incoming_edges", {"id": helix_id}),
                     ("get_incoming_neighbors", {"id": helix_id}),
-                ])
+                ]
             )
             all_pairs = list(zip(out_edges, out_neighbors)) + list(zip(in_edges, in_neighbors))
         else:
@@ -1648,12 +1651,14 @@ class HelixGraphStore:
             if polarity == "uncertain":
                 weight *= 0.5
 
-            results.append((
-                nbr_id,
-                weight,
-                edge.get("predicate", ""),
-                nbr.get("entity_type", ""),
-            ))
+            results.append(
+                (
+                    nbr_id,
+                    weight,
+                    edge.get("predicate", ""),
+                    nbr.get("entity_type", ""),
+                )
+            )
 
         return results
 
@@ -1854,9 +1859,7 @@ class HelixGraphStore:
         ep = await self.get_episode_by_id(episode_id, group_id)
         if not ep or not ep.session_id:
             return []
-        results = await self._query(
-            "find_episodes_by_session", {"sid": ep.session_id}
-        )
+        results = await self._query("find_episodes_by_session", {"sid": ep.session_id})
         episodes = []
         for d in results:
             if d.get("episode_id") == episode_id:
@@ -2012,15 +2015,10 @@ class HelixGraphStore:
             "projection_priority": _as_float(
                 updates.get("projection_priority", current.get("projection_priority"))
             ),
-            "route_reason": updates.get("route_reason", current.get("route_reason") or "")
-            or "",
+            "route_reason": updates.get("route_reason", current.get("route_reason") or "") or "",
             "hit_count": _as_int(updates.get("hit_count", current.get("hit_count"))),
-            "surfaced_count": _as_int(
-                updates.get("surfaced_count", current.get("surfaced_count"))
-            ),
-            "selected_count": _as_int(
-                updates.get("selected_count", current.get("selected_count"))
-            ),
+            "surfaced_count": _as_int(updates.get("surfaced_count", current.get("surfaced_count"))),
+            "selected_count": _as_int(updates.get("selected_count", current.get("selected_count"))),
             "used_count": _as_int(updates.get("used_count", current.get("used_count"))),
             "near_miss_count": _as_int(
                 updates.get("near_miss_count", current.get("near_miss_count"))
@@ -2057,14 +2055,10 @@ class HelixGraphStore:
                 return fast_stats
 
         entity_query = (
-            ("find_entities_by_group", {"gid": group_id})
-            if group_id
-            else ("find_entities_all", {})
+            ("find_entities_by_group", {"gid": group_id}) if group_id else ("find_entities_all", {})
         )
         episode_query = (
-            ("find_episodes_by_group", {"gid": group_id})
-            if group_id
-            else ("find_episodes_all", {})
+            ("find_episodes_by_group", {"gid": group_id}) if group_id else ("find_episodes_all", {})
         )
 
         # Fetch entities and episodes concurrently
@@ -2086,9 +2080,9 @@ class HelixGraphStore:
 
         relationship_count = 0
         if sample_hids and self._helix_client is not None:
-            edge_results = await self._helix_client.query_concurrent([
-                ("get_outgoing_edges", {"id": hid}) for hid in sample_hids
-            ])
+            edge_results = await self._helix_client.query_concurrent(
+                [("get_outgoing_edges", {"id": hid}) for hid in sample_hids]
+            )
             for edges in edge_results:
                 relationship_count += len(edges)
         else:
@@ -2128,23 +2122,15 @@ class HelixGraphStore:
         cues = await self._fetch_episode_cues(episodes, group_id)
         cue_count = sum(1 for cue in cues if cue.get("cue_text"))
         projected_cue_count = sum(
-            1
-            for cue in cues
-            if cue.get("cue_text") and cue.get("projection_state") == "projected"
+            1 for cue in cues if cue.get("cue_text") and cue.get("projection_state") == "projected"
         )
         active_cues = [cue for cue in cues if cue.get("cue_text")]
         cue_hit_count = sum(_as_int(cue.get("hit_count")) for cue in active_cues)
-        cue_hit_episode_count = sum(
-            1 for cue in active_cues if _as_int(cue.get("hit_count")) > 0
-        )
-        cue_surfaced_count = sum(
-            _as_int(cue.get("surfaced_count")) for cue in active_cues
-        )
+        cue_hit_episode_count = sum(1 for cue in active_cues if _as_int(cue.get("hit_count")) > 0)
+        cue_surfaced_count = sum(_as_int(cue.get("surfaced_count")) for cue in active_cues)
         cue_selected_count = sum(_as_int(cue.get("selected_count")) for cue in active_cues)
         cue_used_count = sum(_as_int(cue.get("used_count")) for cue in active_cues)
-        cue_near_miss_count = sum(
-            _as_int(cue.get("near_miss_count")) for cue in active_cues
-        )
+        cue_near_miss_count = sum(_as_int(cue.get("near_miss_count")) for cue in active_cues)
         total_policy_score = sum(_as_float(cue.get("policy_score")) for cue in active_cues)
         total_projection_attempts = sum(
             _as_int(cue.get("projection_attempts")) for cue in active_cues
@@ -2176,9 +2162,7 @@ class HelixGraphStore:
             "cue_selected_count": cue_selected_count,
             "cue_used_count": cue_used_count,
             "cue_near_miss_count": cue_near_miss_count,
-            "avg_policy_score": (
-                round(total_policy_score / cue_count, 4) if cue_count else 0.0
-            ),
+            "avg_policy_score": (round(total_policy_score / cue_count, 4) if cue_count else 0.0),
             "avg_projection_attempts": (
                 round(total_projection_attempts / cue_count, 4) if cue_count else 0.0
             ),
@@ -2247,8 +2231,7 @@ class HelixGraphStore:
             rows_by_query = await self._helix_client.query_concurrent(count_queries)
         else:
             rows_by_query = [
-                await self._query(endpoint, payload)
-                for endpoint, payload in count_queries
+                await self._query(endpoint, payload) for endpoint, payload in count_queries
             ]
 
         if not all(_has_count_row(rows) for rows in rows_by_query):
@@ -2265,9 +2248,7 @@ class HelixGraphStore:
             "cue_metrics": {
                 "cue_count": cue_count,
                 "episodes_without_cues": max(episode_count - cue_count, 0),
-                "cue_coverage": round(cue_count / episode_count, 4)
-                if episode_count
-                else 0.0,
+                "cue_coverage": round(cue_count / episode_count, 4) if episode_count else 0.0,
             },
             "projection_metrics": {
                 "state_counts": {},
@@ -2438,16 +2419,14 @@ class HelixGraphStore:
         if cursor:
             episodes = [e for e in episodes if e.created_at.isoformat() < cursor]
 
-        result_eps = episodes[: limit]
+        result_eps = episodes[:limit]
         next_cursor = None
         if len(episodes) > limit:
             next_cursor = result_eps[-1].created_at.isoformat() if result_eps else None
 
         return result_eps, next_cursor
 
-    async def get_top_connected(
-        self, group_id: str | None = None, limit: int = 10
-    ) -> list[dict]:
+    async def get_top_connected(self, group_id: str | None = None, limit: int = 10) -> list[dict]:
         all_entities = (
             await self._query("find_entities_by_group", {"gid": group_id})
             if group_id
@@ -2478,12 +2457,14 @@ class HelixGraphStore:
                         group_id is None or e.get("group_id") == group_id
                     ):
                         active_count += 1
-                entity_edge_counts.append({
-                    "id": ent.get("entity_id", ""),
-                    "name": ent.get("name", ""),
-                    "entityType": ent.get("entity_type", ""),
-                    "edgeCount": active_count,
-                })
+                entity_edge_counts.append(
+                    {
+                        "id": ent.get("entity_id", ""),
+                        "name": ent.get("name", ""),
+                        "entityType": ent.get("entity_type", ""),
+                        "edgeCount": active_count,
+                    }
+                )
         else:
             for ent, ehid in valid_ents:
                 out_edges = await self._query("get_outgoing_edges", {"id": ehid})
@@ -2494,29 +2475,25 @@ class HelixGraphStore:
                         group_id is None or e.get("group_id") == group_id
                     ):
                         active_count += 1
-                entity_edge_counts.append({
-                    "id": ent.get("entity_id", ""),
-                    "name": ent.get("name", ""),
-                    "entityType": ent.get("entity_type", ""),
-                    "edgeCount": active_count,
-                })
+                entity_edge_counts.append(
+                    {
+                        "id": ent.get("entity_id", ""),
+                        "name": ent.get("name", ""),
+                        "entityType": ent.get("entity_type", ""),
+                        "edgeCount": active_count,
+                    }
+                )
 
         entity_edge_counts.sort(key=lambda x: x["edgeCount"], reverse=True)
         return entity_edge_counts[:limit]
 
-    async def get_growth_timeline(
-        self, group_id: str | None = None, days: int = 30
-    ) -> list[dict]:
+    async def get_growth_timeline(self, group_id: str | None = None, days: int = 30) -> list[dict]:
         since = (utc_now() - timedelta(days=days)).isoformat()
         episode_query = (
-            ("find_episodes_by_group", {"gid": group_id})
-            if group_id
-            else ("find_episodes_all", {})
+            ("find_episodes_by_group", {"gid": group_id}) if group_id else ("find_episodes_all", {})
         )
         entity_query = (
-            ("find_entities_by_group", {"gid": group_id})
-            if group_id
-            else ("find_entities_all", {})
+            ("find_entities_by_group", {"gid": group_id}) if group_id else ("find_entities_all", {})
         )
 
         if self._helix_client is not None:
@@ -2700,9 +2677,7 @@ class HelixGraphStore:
                     pair_counts[pair] += 1
 
         results = [
-            (a, b, count)
-            for (a, b), count in pair_counts.items()
-            if count >= min_shared_neighbors
+            (a, b, count) for (a, b), count in pair_counts.items() if count >= min_shared_neighbors
         ]
         results.sort(key=lambda x: -x[2])
         return results[:limit]
@@ -2796,10 +2771,12 @@ class HelixGraphStore:
 
         # 1. Fetch outgoing + incoming edges from remove_id concurrently
         if self._helix_client is not None:
-            out_edges, in_edges = await self._helix_client.query_concurrent([
-                ("get_outgoing_edges", {"id": remove_hid}),
-                ("get_incoming_edges", {"id": remove_hid}),
-            ])
+            out_edges, in_edges = await self._helix_client.query_concurrent(
+                [
+                    ("get_outgoing_edges", {"id": remove_hid}),
+                    ("get_incoming_edges", {"id": remove_hid}),
+                ]
+            )
         else:
             out_edges = await self._query("get_outgoing_edges", {"id": remove_hid})
             in_edges = await self._query("get_incoming_edges", {"id": remove_hid})
@@ -2826,7 +2803,8 @@ class HelixGraphStore:
             if existing:
                 if rel.weight > existing.weight:
                     await self.update_relationship_weight(
-                        keep_id, rel.target_id,
+                        keep_id,
+                        rel.target_id,
                         rel.weight - existing.weight,
                         group_id=group_id,
                         predicate=rel.predicate,
@@ -2884,7 +2862,8 @@ class HelixGraphStore:
             if existing:
                 if rel.weight > existing.weight:
                     await self.update_relationship_weight(
-                        rel.source_id, keep_id,
+                        rel.source_id,
+                        keep_id,
                         rel.weight - existing.weight,
                         group_id=group_id,
                         predicate=rel.predicate,
@@ -2936,10 +2915,12 @@ class HelixGraphStore:
 
         # 4. Merge summaries — fetch both entities concurrently
         if self._helix_client is not None:
-            keep_results, remove_results = await self._helix_client.query_concurrent([
-                ("get_entity", {"id": keep_hid}),
-                ("get_entity", {"id": remove_hid}),
-            ])
+            keep_results, remove_results = await self._helix_client.query_concurrent(
+                [
+                    ("get_entity", {"id": keep_hid}),
+                    ("get_entity", {"id": remove_hid}),
+                ]
+            )
         else:
             keep_results = await self._query("get_entity", {"id": keep_hid})
             remove_results = await self._query("get_entity", {"id": remove_hid})
@@ -3049,10 +3030,12 @@ class HelixGraphStore:
 
         # Fetch outgoing + incoming concurrently
         if self._helix_client is not None:
-            edges, in_edges = await self._helix_client.query_concurrent([
-                ("get_outgoing_edges", {"id": source_hid}),
-                ("get_incoming_edges", {"id": source_hid}),
-            ])
+            edges, in_edges = await self._helix_client.query_concurrent(
+                [
+                    ("get_outgoing_edges", {"id": source_hid}),
+                    ("get_incoming_edges", {"id": source_hid}),
+                ]
+            )
         else:
             edges = await self._query("get_outgoing_edges", {"id": source_hid})
             in_edges = await self._query("get_incoming_edges", {"id": source_hid})
@@ -3063,9 +3046,8 @@ class HelixGraphStore:
             if not self._is_active_edge(edge):
                 continue
             rel = self._dict_to_relationship(edge)
-            matches = (
-                (rel.source_id == source_id and rel.target_id == target_id)
-                or (rel.source_id == target_id and rel.target_id == source_id)
+            matches = (rel.source_id == source_id and rel.target_id == target_id) or (
+                rel.source_id == target_id and rel.target_id == source_id
             )
             if not matches:
                 continue
@@ -3119,10 +3101,12 @@ class HelixGraphStore:
                 if hid is None:
                     continue
                 if self._helix_client is not None:
-                    out_edges, in_edges = await self._helix_client.query_concurrent([
-                        ("get_outgoing_edges", {"id": hid}),
-                        ("get_incoming_edges", {"id": hid}),
-                    ])
+                    out_edges, in_edges = await self._helix_client.query_concurrent(
+                        [
+                            ("get_outgoing_edges", {"id": hid}),
+                            ("get_incoming_edges", {"id": hid}),
+                        ]
+                    )
                 else:
                     out_edges = await self._query("get_outgoing_edges", {"id": hid})
                     in_edges = await self._query("get_incoming_edges", {"id": hid})
@@ -3306,11 +3290,13 @@ class HelixGraphStore:
                 "updated_at": i.updated_at.isoformat(),
                 "deleted_at": i.expires_at.isoformat() if i.expires_at else "",
                 "is_deleted": False,
-                "context_json": json.dumps({
-                    "threshold": i.threshold,
-                    "trigger_type": i.trigger_type,
-                    "entity_name": i.entity_name,
-                }),
+                "context_json": json.dumps(
+                    {
+                        "threshold": i.threshold,
+                        "trigger_type": i.trigger_type,
+                        "entity_name": i.entity_name,
+                    }
+                ),
             },
         )
         if results:
@@ -3323,9 +3309,7 @@ class HelixGraphStore:
         # Try cache
         hid = self._intention_id_cache.get(id)
         if hid is None:
-            all_intentions = await self._query(
-                "find_intentions_by_group", {"gid": group_id}
-            )
+            all_intentions = await self._query("find_intentions_by_group", {"gid": group_id})
             for d in all_intentions:
                 iid = d.get("intention_id", "")
                 ihid = self._extract_helix_id(d)
@@ -3507,7 +3491,10 @@ class HelixGraphStore:
             status = ev.get("status", default_status)
             resolved_at = ev.get("resolved_at")
             if resolved_at is None and status in {
-                "committed", "rejected", "expired", "superseded",
+                "committed",
+                "rejected",
+                "expired",
+                "superseded",
             }:
                 resolved_at = utc_now_iso()
             results = await self._query(
@@ -3663,14 +3650,10 @@ class HelixGraphStore:
         unavailable.
         """
         try:
-            results = await self._query(
-                "find_entity_ids_by_group", {"gid": group_id}
-            )
+            results = await self._query("find_entity_ids_by_group", {"gid": group_id})
             return len(results)
         except Exception:
-            logger.debug(
-                "find_entity_ids_by_group unavailable, falling back to full query"
-            )
+            logger.debug("find_entity_ids_by_group unavailable, falling back to full query")
         results = await self._query("find_entities_by_group", {"gid": group_id})
         return len(results)
 

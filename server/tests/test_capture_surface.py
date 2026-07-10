@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from engram.config import ActivationConfig
-from engram.ingestion import capture_surface
 from engram.extraction.narrow.pipeline import NarrowExtractionPipeline
+from engram.ingestion import capture_surface
 from engram.ingestion.capture_surface import (
     attach_api_capture_diagnostics,
     attach_mcp_capture_diagnostics,
@@ -297,9 +297,7 @@ async def test_build_api_remember_write_surface_loads_client_adjudications() -> 
 
     manager.ingest_episode.assert_awaited_once()
     call_kwargs = manager.ingest_episode.await_args.kwargs
-    assert call_kwargs["conversation_date"] == parse_conversation_date(
-        "2026-05-15T12:34:56"
-    )
+    assert call_kwargs["conversation_date"] == parse_conversation_date("2026-05-15T12:34:56")
     assert call_kwargs["proposed_entities"] == [{"name": "Alice", "entity_type": "Person"}]
     assert call_kwargs["model_tier"] == "opus"
     assert response["status"] == "remembered"
@@ -355,9 +353,7 @@ async def test_build_mcp_remember_write_surface_runs_capture_project_side_effect
     call_kwargs = manager.ingest_episode.await_args.kwargs
     assert call_kwargs["group_id"] == "native_brain"
     assert call_kwargs["session_id"] == "sess_1"
-    assert call_kwargs["conversation_date"] == parse_conversation_date(
-        "2026-05-15T12:34:56"
-    )
+    assert call_kwargs["conversation_date"] == parse_conversation_date("2026-05-15T12:34:56")
     assert call_kwargs["proposed_entities"] == [{"name": "Alice", "entity_type": "Person"}]
     assert call_kwargs["model_tier"] == "opus"
     ingest_live_turn.assert_awaited_once_with(manager, "Alice works at Engram.", source="remember")

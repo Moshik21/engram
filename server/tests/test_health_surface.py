@@ -86,10 +86,7 @@ async def test_probe_graph_store_health_prefers_fast_health_check() -> None:
 
 @pytest.mark.asyncio
 async def test_probe_graph_store_health_reports_unhealthy_when_missing_or_failing() -> None:
-    assert (
-        await probe_graph_store_health(None, group_id="brain")
-        == ServiceStatus.UNHEALTHY
-    )
+    assert await probe_graph_store_health(None, group_id="brain") == ServiceStatus.UNHEALTHY
     assert (
         await probe_graph_store_health(FakeGraphStore(raises=True), group_id="brain")
         == ServiceStatus.UNHEALTHY

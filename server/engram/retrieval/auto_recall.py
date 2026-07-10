@@ -171,9 +171,7 @@ def plan_mcp_recall_middleware(
         return RecallMiddlewarePlan(
             should_recall=False,
             surface_notifications_when_recall_disabled=bool(
-                tool_name == "get_context"
-                and cfg
-                and cfg.notification_surfacing_enabled
+                tool_name == "get_context" and cfg and cfg.notification_surfacing_enabled
             ),
             auto_observe_content=False,
             ingest_live_turn=False,
@@ -785,9 +783,7 @@ async def build_full_auto_recall_surface(
         )
         session_entity_names = manager_conversation_top_entity_names(manager)
         graph_probe = (
-            manager.get_recall_need_graph_probe()
-            if cfg.recall_need_graph_probe_enabled
-            else None
+            manager.get_recall_need_graph_probe() if cfg.recall_need_graph_probe_enabled else None
         )
         need = await analyze_memory_need(
             content,
@@ -1081,11 +1077,7 @@ async def build_full_auto_recall_surface(
         results,
         query=query,
         packets=packets,
-        gate=(
-            _memory_need_gate_payload(need, decision="triggered")
-            if need is not None
-            else None
-        ),
+        gate=(_memory_need_gate_payload(need, decision="triggered") if need is not None else None),
         min_score=cfg.auto_recall_min_score,
     )
     if response is None:

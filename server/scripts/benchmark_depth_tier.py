@@ -35,6 +35,7 @@ Re-run (warm cache => byte-identical, zero API): same command. Cache hit-rate=10
 
 Determinism floor (no API key): add --extraction narrow (deterministic, zero API).
 """
+
 from __future__ import annotations
 
 # ruff: noqa: E501  (diagnostic script; long report/dict lines are fine)
@@ -148,7 +149,11 @@ class _CachingAdapter(EngramLongMemEvalAdapter):
 _ABLATABLE: dict[str, tuple[str, ...]] = {
     # consolidation phases (config _enabled flags)
     "merge": ("consolidation_merge_multi_signal_enabled", "consolidation_merge_llm_enabled"),
-    "infer": ("consolidation_infer_pmi_enabled", "consolidation_infer_auto_validation_enabled", "consolidation_infer_llm_enabled"),
+    "infer": (
+        "consolidation_infer_pmi_enabled",
+        "consolidation_infer_auto_validation_enabled",
+        "consolidation_infer_llm_enabled",
+    ),
     "replay": ("consolidation_replay_enabled",),
     "dream": ("consolidation_dream_enabled", "consolidation_dream_associations_enabled"),
     "triage": ("triage_enabled",),
@@ -173,8 +178,7 @@ def _apply_ablation(cfg: EngramConfig, ablate: list[str]) -> dict[str, list[str]
         fields = _ABLATABLE.get(name)
         if fields is None:
             raise SystemExit(
-                f"ABORT: unknown --ablate target {name!r}. "
-                f"Known: {', '.join(sorted(_ABLATABLE))}."
+                f"ABORT: unknown --ablate target {name!r}. Known: {', '.join(sorted(_ABLATABLE))}."
             )
         for f in fields:
             if not hasattr(cfg.activation, f):
@@ -242,7 +246,10 @@ async def _ingest_persona(adapter: _CachingAdapter, group_id: str, persona: dict
         if not content:
             continue
         ep_id = await adapter._manager.store_episode(
-            content, group_id=group_id, source=f"gt:{sid}", session_id=sid,
+            content,
+            group_id=group_id,
+            source=f"gt:{sid}",
+            session_id=sid,
             conversation_date=_parse_date(date),
         )
         ep_to_session[ep_id] = sid
@@ -250,7 +257,9 @@ async def _ingest_persona(adapter: _CachingAdapter, group_id: str, persona: dict
             await adapter._manager.project_episode(ep_id, group_id=group_id)
         except ProjectionError as e:
             msg = str(e)
-            if msg.startswith(("extractor_parse_error", "extractor_api_error", "extractor_truncated")):
+            if msg.startswith(
+                ("extractor_parse_error", "extractor_api_error", "extractor_truncated")
+            ):
                 raise SystemExit(
                     f"ABORT: {msg} on session {sid} of {persona.get('persona_id')}. "
                     "Refusing to build a corpus with silently-dropped episodes. "
@@ -327,7 +336,9 @@ def _evidence_texts(results: list[dict], *, newest_first: bool) -> list[str]:
     return [t for _, t in episode_ev] + entity_ev
 
 
-async def _precondition_gate(adapter: _CachingAdapter, group_id: str, persona: dict, session_to_ep: dict[str, list[str]]) -> dict[str, dict]:
+async def _precondition_gate(
+    adapter: _CachingAdapter, group_id: str, persona: dict, session_to_ep: dict[str, list[str]]
+) -> dict[str, dict]:
     """For multi_hop / current_value: is the bridge entity in the graph AND linked
     (via source-episode provenance) to the answer session? If not, the graph
     cannot connect it — an extraction gap, not a traversal failure."""
@@ -345,9 +356,14 @@ async def _precondition_gate(adapter: _CachingAdapter, group_id: str, persona: d
         linked = False
         if bridge_ent is not None:
             srcs = set(bridge_ent.source_episode_ids or [])
-            ans_eps = {e for sid in q.get("answer_session_ids", []) for e in session_to_ep.get(sid, [])}
+            ans_eps = {
+                e for sid in q.get("answer_session_ids", []) for e in session_to_ep.get(sid, [])
+            }
             linked = bool(srcs & ans_eps)
-        gate[q["qid"]] = {"bridge_in_graph": bridge_ent is not None, "bridge_linked_to_answer": linked}
+        gate[q["qid"]] = {
+            "bridge_in_graph": bridge_ent is not None,
+            "bridge_linked_to_answer": linked,
+        }
     return gate
 
 
@@ -355,17 +371,26 @@ def _judge(q: dict, evidence: list[str]):
     qtype = q["type"]
     if qtype == "multi_hop":
         return judge_multi_hop(
-            q["qid"], evidence, answer=q["answer"],
-            accepted_forms=q.get("accepted_forms"), forbidden=q.get("forbidden"),
+            q["qid"],
+            evidence,
+            answer=q["answer"],
+            accepted_forms=q.get("accepted_forms"),
+            forbidden=q.get("forbidden"),
         )
     if qtype == "current_value":
         return judge_current_value(
-            q["qid"], evidence, answer=q["answer"], forbidden=q.get("forbidden", []),
-            accepted_forms=q.get("accepted_forms"), evidence_is_ordered=True,
+            q["qid"],
+            evidence,
+            answer=q["answer"],
+            forbidden=q.get("forbidden", []),
+            accepted_forms=q.get("accepted_forms"),
+            evidence_is_ordered=True,
         )
     if qtype == "synthesis":
         return judge_synthesis(
-            q["qid"], evidence, required_facts=q["required_facts"],
+            q["qid"],
+            evidence,
+            required_facts=q["required_facts"],
             forbidden_facts=q.get("forbidden_facts"),
         )
     return None
@@ -442,17 +467,23 @@ async def run_persona(
     depth_rows: dict[str, list[str]] = {}
     for q in persona["queries"]:
         nf = q["type"] == "current_value"
-        res = await adapter_on._manager.recall(q["question"], group_id=gid, limit=top_k, record_access=False)
+        res = await adapter_on._manager.recall(
+            q["question"], group_id=gid, limit=top_k, record_access=False
+        )
         depth_rows[q["qid"]] = _evidence_texts(res, newest_first=nf)
     await _close(adapter_on)
 
     # ---- core-only arm: SAME frozen store, no re-ingest, graph toggled OFF ----
     cfg_off = _cfg_for(data_dir)
-    adapter_off, gid2, _ = await _build_adapter(cfg_off, graph_on=False, cache_path=cache_path, extraction=extraction)
+    adapter_off, gid2, _ = await _build_adapter(
+        cfg_off, graph_on=False, cache_path=cache_path, extraction=extraction
+    )
     core_rows: dict[str, list[str]] = {}
     for q in persona["queries"]:
         nf = q["type"] == "current_value"
-        res = await adapter_off._manager.recall(q["question"], group_id=gid2, limit=top_k, record_access=False)
+        res = await adapter_off._manager.recall(
+            q["question"], group_id=gid2, limit=top_k, record_access=False
+        )
         core_rows[q["qid"]] = _evidence_texts(res, newest_first=nf)
     await _close(adapter_off)
 
@@ -464,18 +495,30 @@ async def run_persona(
         depth_v = _judge(q, depth_rows[q["qid"]])
         core_v = _judge(q, core_rows[q["qid"]])
         g = gate.get(q["qid"])
-        out_queries.append({
-            "qid": q["qid"], "type": q["type"], "bridge": q.get("bridge_entity"),
-            "answer": q.get("answer") or q.get("required_facts"),
-            "core_pass": core_v.passed, "depth_pass": depth_v.passed,
-            "core_coverage": core_v.coverage, "depth_coverage": depth_v.coverage,
-            "depth_false_recall": depth_v.false_recall, "core_false_recall": core_v.false_recall,
-            "depth_notes": depth_v.notes, "core_notes": core_v.notes,
-            "gate": g,
-        })
+        out_queries.append(
+            {
+                "qid": q["qid"],
+                "type": q["type"],
+                "bridge": q.get("bridge_entity"),
+                "answer": q.get("answer") or q.get("required_facts"),
+                "core_pass": core_v.passed,
+                "depth_pass": depth_v.passed,
+                "core_coverage": core_v.coverage,
+                "depth_coverage": depth_v.coverage,
+                "depth_false_recall": depth_v.false_recall,
+                "core_false_recall": core_v.false_recall,
+                "depth_notes": depth_v.notes,
+                "core_notes": core_v.notes,
+                "gate": g,
+            }
+        )
     return {
-        "persona_id": pid, "extractor": extractor_kind, "num_sessions": len(persona["sessions"]),
-        "top_k": top_k, "cache_stats_ingest": cache_stats_ingest, "queries": out_queries,
+        "persona_id": pid,
+        "extractor": extractor_kind,
+        "num_sessions": len(persona["sessions"]),
+        "top_k": top_k,
+        "cache_stats_ingest": cache_stats_ingest,
+        "queries": out_queries,
         "ablation": applied_ablation,
     }
 
@@ -577,12 +620,14 @@ def _repeat_class_report(run_personas: list[list[dict]], qtype: str) -> dict:
         f = _headline_filter(personas, qtype)
         cv, dv = f["core_verdicts"], f["depth_verdicts"]
         n = len(cv)
-        per_run.append({
-            "core_pass_rate": (sum(cv.values()) / n) if n else 0.0,
-            "depth_pass_rate": (sum(dv.values()) / n) if n else 0.0,
-            "core_verdicts": cv,
-            "depth_verdicts": dv,
-        })
+        per_run.append(
+            {
+                "core_pass_rate": (sum(cv.values()) / n) if n else 0.0,
+                "depth_pass_rate": (sum(dv.values()) / n) if n else 0.0,
+                "core_verdicts": cv,
+                "depth_verdicts": dv,
+            }
+        )
     agg = aggregate_repeated_runs(per_run)
     agg["query_type"] = qtype
     return agg
@@ -591,12 +636,16 @@ def _repeat_class_report(run_personas: list[list[dict]], qtype: str) -> dict:
 def _markdown(report: dict) -> str:
     lines = ["# Depth-Tier Eval Report", ""]
     lines.append(f"- Extractor: {report['extractor_identity']}")
-    lines.append(f"- Ingest cache hit-rate: {report['cache_hit_rate']:.2%} (hits={report['cache_hits']}, misses={report['cache_misses']})")
+    lines.append(
+        f"- Ingest cache hit-rate: {report['cache_hit_rate']:.2%} (hits={report['cache_hits']}, misses={report['cache_misses']})"
+    )
     lines.append("")
     lines.append("Headline = per-class core-only vs core+depth pass-rate on the FROZEN corpus.")
     lines.append("A depth-tier win = delta CI excludes 0 on multi_hop OR current_value.")
     lines.append("")
-    lines.append("| class | n (headline) | core | depth | delta | McNemar p | delta CI95 | win | false-recall | excl(precond/core-pass) |")
+    lines.append(
+        "| class | n (headline) | core | depth | delta | McNemar p | delta CI95 | win | false-recall | excl(precond/core-pass) |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|---|")
     for c in report["per_class"]:
         lines.append(
@@ -618,7 +667,9 @@ def _repeat_markdown(report: dict) -> str:
     lines.append("Per-class pass-rate mean +/- std over runs; delta = depth - core (paired).")
     lines.append("`flips` = per-query verdict disagreement across runs (0 => deterministic).")
     lines.append("")
-    lines.append("| class | core mean+/-std | depth mean+/-std | delta mean+/-std | delta CI95 | McNemar p | win | core flips | depth flips |")
+    lines.append(
+        "| class | core mean+/-std | depth mean+/-std | delta mean+/-std | delta CI95 | McNemar p | win | core flips | depth flips |"
+    )
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for c in report["per_class"]:
         lines.append(
@@ -631,7 +682,9 @@ def _repeat_markdown(report: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _single_report(all_personas: list[dict], extractor_identity: str, hits: int, misses: int) -> dict:
+def _single_report(
+    all_personas: list[dict], extractor_identity: str, hits: int, misses: int
+) -> dict:
     total = hits + misses
     return {
         "extractor_identity": extractor_identity,
@@ -656,8 +709,14 @@ async def _run_once(args, *, data_dir: str | None = None) -> tuple[list[dict], s
     for p in (Path(p) for p in args.files):
         print(f"=== persona {p.name} ===", file=sys.stderr)
         per = await run_persona(
-            p, args.top_k, args.cache, args.extraction, args.allow_narrow,
-            ablate=args.ablate, data_dir=data_dir, reflect=args.reflect,
+            p,
+            args.top_k,
+            args.cache,
+            args.extraction,
+            args.allow_narrow,
+            ablate=args.ablate,
+            data_dir=data_dir,
+            reflect=args.reflect,
         )
         all_personas.append(per)
         extractor_identity = per["extractor"]
@@ -750,30 +809,43 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Deterministic depth-tier answer-quality eval.")
     ap.add_argument("files", nargs="+", help="graphthesis persona JSON files")
     ap.add_argument("--top-k", type=int, default=8)
-    ap.add_argument("--cache", required=True, help="path to the persistent extraction-cache SQLite file")
+    ap.add_argument(
+        "--cache", required=True, help="path to the persistent extraction-cache SQLite file"
+    )
     ap.add_argument("--extraction", default="auto", choices=["auto", "anthropic", "narrow"])
-    ap.add_argument("--allow-narrow", action="store_true", help="accept the deterministic narrow extractor (determinism floor)")
+    ap.add_argument(
+        "--allow-narrow",
+        action="store_true",
+        help="accept the deterministic narrow extractor (determinism floor)",
+    )
     ap.add_argument("--output", default=None)
     ap.add_argument(
-        "--repeat", type=int, default=1,
+        "--repeat",
+        type=int,
+        default=1,
         help="run the paired eval N times on FRESH stores (sharing the warm cache) "
-             "and aggregate per-class mean/std + paired delta CI + McNemar + verdict-flip counts",
+        "and aggregate per-class mean/std + paired delta CI + McNemar + verdict-flip counts",
     )
     ap.add_argument(
-        "--ablate", action="append", default=None, metavar="PHASE",
+        "--ablate",
+        action="append",
+        default=None,
+        metavar="PHASE",
         help="turn a consolidation phase / depth operator OFF on the DEPTH arm "
-             "(repeatable). Known: " + ", ".join(sorted(_ABLATABLE)),
+        "(repeatable). Known: " + ", ".join(sorted(_ABLATABLE)),
     )
     ap.add_argument(
-        "--reflect", action="store_true",
+        "--reflect",
+        action="store_true",
         help="run the write-side Observer/Reflector phase (#3) before recall so "
-             "synthesized observation episodes are present on the shared store "
-             "(measures reflect-on vs the default reflect-off baseline)",
+        "synthesized observation episodes are present on the shared store "
+        "(measures reflect-on vs the default reflect-off baseline)",
     )
     ap.add_argument(
-        "--no-frozen-clock", action="store_true",
+        "--no-frozen-clock",
+        action="store_true",
         help="do NOT pin time.time/utc_now to a fixed instant (default: pinned "
-             "for determinism; perf_counter timeouts are unaffected)",
+        "for determinism; perf_counter timeouts are unaffected)",
     )
     args = ap.parse_args()
     if args.extraction == "narrow":

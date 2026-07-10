@@ -19,9 +19,7 @@ def test_serve_mode_helix_sets_runtime_env(monkeypatch) -> None:
 
     cli.main()
 
-    assert calls == [
-        ("engram.main:app", {"host": "0.0.0.0", "port": 8100, "log_level": "info"})
-    ]
+    assert calls == [("engram.main:app", {"host": "0.0.0.0", "port": 8100, "log_level": "info"})]
     assert calls[0][1]["port"] == 8100
     assert calls[0][1]["host"] == "0.0.0.0"
     assert calls[0][1]["log_level"] == "info"
@@ -54,9 +52,7 @@ def test_serve_native_data_dir_sets_runtime_env(monkeypatch, tmp_path) -> None:
 
     cli.main()
 
-    assert calls == [
-        ("engram.main:app", {"host": "0.0.0.0", "port": 8100, "log_level": "info"})
-    ]
+    assert calls == [("engram.main:app", {"host": "0.0.0.0", "port": 8100, "log_level": "info"})]
     assert os.environ["ENGRAM_MODE"] == "helix"
     assert os.environ["ENGRAM_HELIX__TRANSPORT"] == "native"
     assert os.environ["ENGRAM_HELIX__DATA_DIR"] == str(native_dir)

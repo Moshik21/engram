@@ -812,17 +812,18 @@ class TestGraphManagerIntegration:
         from engram.storage.helix.graph import HelixGraphStore
         from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
+
         graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
         activation = MemoryActivationStore(cfg=ActivationConfig())
         search = HelixSearchIndex(
-     helix_config=HelixDBConfig(host="localhost", port=6969),
-     provider=NoopProvider(),
-     embed_config=EmbeddingConfig(),
-     storage_dim=0,
-     embed_provider="noop",
-     embed_model="noop",
- )
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
         await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
         extractor = EntityExtractor()
@@ -851,17 +852,18 @@ class TestGraphManagerIntegration:
         from engram.storage.helix.graph import HelixGraphStore
         from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
+
         graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
         activation = MemoryActivationStore(cfg=ActivationConfig())
         search = HelixSearchIndex(
-     helix_config=HelixDBConfig(host="localhost", port=6969),
-     provider=NoopProvider(),
-     embed_config=EmbeddingConfig(),
-     storage_dim=0,
-     embed_provider="noop",
-     embed_model="noop",
- )
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
         await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
         extractor = EntityExtractor()
@@ -895,17 +897,18 @@ class TestGraphManagerIntegration:
         from engram.storage.helix.graph import HelixGraphStore
         from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
+
         graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
         activation = MemoryActivationStore(cfg=ActivationConfig())
         search = HelixSearchIndex(
-     helix_config=HelixDBConfig(host="localhost", port=6969),
-     provider=NoopProvider(),
-     embed_config=EmbeddingConfig(),
-     storage_dim=0,
-     embed_provider="noop",
-     embed_model="noop",
- )
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
         await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
         extractor = EntityExtractor()

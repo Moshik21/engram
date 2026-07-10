@@ -73,6 +73,7 @@ REQUIRED_ABSENT_GAPS = {
     "consolidation calibration needs saved calibration snapshots",
 }
 
+
 async def run_projected_consolidated_smoke(
     sqlite_path: Path,
     *,
@@ -602,9 +603,7 @@ async def _run_sustained_recall_checks(
         for query in queries:
             results = await manager.recall(query, group_id=group_id, limit=5)
             if not results:
-                raise SystemExit(
-                    f"Sustained smoke recall returned no results: {query}"
-                )
+                raise SystemExit(f"Sustained smoke recall returned no results: {query}")
             checks += 1
         elapsed = time.monotonic() - start
         if elapsed >= min_duration_seconds:

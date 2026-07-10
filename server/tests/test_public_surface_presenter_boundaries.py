@@ -221,9 +221,7 @@ PUBLIC_MUTATION_ORCHESTRATION_BOUNDARIES = {
     ("engram/api/graph.py", "get_graph_at"): {"build_api_temporal_graph_surface"},
     ("engram/api/stats.py", "get_stats"): {"build_api_dashboard_stats_surface"},
     ("engram/api/episodes.py", "list_episodes"): {"build_api_episode_list_surface"},
-    ("engram/api/lifecycle.py", "lifecycle_summary"): {
-        "build_api_lifecycle_summary_surface"
-    },
+    ("engram/api/lifecycle.py", "lifecycle_summary"): {"build_api_lifecycle_summary_surface"},
     ("engram/api/activation.py", "get_activation_snapshot"): {
         "build_api_activation_snapshot_surface",
     },
@@ -896,8 +894,7 @@ def _nested_functions_in(surface: tuple[str, str]) -> set[tuple[str, str, str]]:
         return {
             (relative_path, function.name, node.name)
             for node in ast.walk(function)
-            if node is not function
-            and isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+            if node is not function and isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
         }
     raise AssertionError(f"Function not found: {relative_path}:{function_name}")
 
@@ -1113,9 +1110,7 @@ def test_mcp_public_surfaces_only_await_route_facing_helpers() -> None:
         "_get_evaluation_store",
         "resolve_mcp_consolidation_trigger_store",
     }
-    allowed_prefixes = (
-        "build_",
-    )
+    allowed_prefixes = ("build_",)
     violations = {
         call
         for call in _direct_awaited_name_calls(["engram/mcp/server.py"])

@@ -102,6 +102,7 @@ def load_locomo_dataset(
         sessions: list[LoCoMoSession] = []
         flat_turns: list[dict] = []
         if isinstance(conv, dict):
+
             def _session_n(key: str) -> int | None:
                 parts = key.split("_")
                 if not key.startswith("session_") or key.endswith("date_time"):

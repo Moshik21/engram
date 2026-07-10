@@ -43,9 +43,18 @@ logger = logging.getLogger(__name__)
 # merge_entity_attributes' {**existing, **new}. Update-intent prefixes
 # (new_/current_/latest_) win an in-dict collision.
 _ROLE_ATTR_KEYS = {
-    "role", "new_role", "current_role", "latest_role",
-    "title", "new_title", "current_title", "job_title", "job",
-    "position", "new_position", "occupation",
+    "role",
+    "new_role",
+    "current_role",
+    "latest_role",
+    "title",
+    "new_title",
+    "current_title",
+    "job_title",
+    "job",
+    "position",
+    "new_position",
+    "occupation",
 }
 
 
@@ -271,7 +280,9 @@ async def apply_relationship_fact(
             if source_id:
                 auto_created_endpoints.append(source_name)
         if not target_id:
-            source_type_hint = "Decision" if proposal_edge and len(target_name.split()) >= 4 else "Concept"
+            source_type_hint = (
+                "Decision" if proposal_edge and len(target_name.split()) >= 4 else "Concept"
+            )
             target_id = await _auto_create_endpoint(
                 graph_store,
                 target_name,
@@ -583,12 +594,9 @@ class ApplyEngine:
             pii_categories = candidate.pii_categories
             from engram.extraction.promotion import should_protect_as_identity_core
 
-            protect_identity = (
-                self._cfg.identity_core_enabled
-                and should_protect_as_identity_core(
-                    entity_type,
-                    client_proposal=is_client_proposal,
-                )
+            protect_identity = self._cfg.identity_core_enabled and should_protect_as_identity_core(
+                entity_type,
+                client_proposal=is_client_proposal,
             )
 
             if candidate.epistemic_mode == "meta":

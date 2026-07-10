@@ -56,9 +56,7 @@ def test_load_human_label_evidence_records_artifact_hash(tmp_path: Path) -> None
 
     assert evidence["status"] == "measured"
     assert evidence["artifact_path"] == str(artifact_path)
-    assert evidence["artifact_sha256"] == hashlib.sha256(
-        artifact_path.read_bytes()
-    ).hexdigest()
+    assert evidence["artifact_sha256"] == hashlib.sha256(artifact_path.read_bytes()).hexdigest()
 
 
 def test_human_label_evidence_rejects_synthetic_or_unreviewed_artifact() -> None:
@@ -105,9 +103,7 @@ def test_human_label_evidence_requires_sample_source_traceability() -> None:
 
     assert evidence["status"] == "failed"
     assert "missing_sample_sources(1)" in evidence["failures"]
-    assert "sample_source_mismatch(other_staging_harness!=staging_harness)" in evidence[
-        "failures"
-    ]
+    assert "sample_source_mismatch(other_staging_harness!=staging_harness)" in evidence["failures"]
 
 
 def test_human_label_evidence_requires_reviewable_sample_text() -> None:
@@ -174,9 +170,7 @@ def test_human_label_evidence_requires_expected_artifact_kind() -> None:
 
     assert evidence["status"] == "failed"
     assert evidence["kind"] == "generic_label_export"
-    expected_failure = (
-        "invalid_human_label_kind(generic_label_export!=engram_human_label_evidence)"
-    )
+    expected_failure = "invalid_human_label_kind(generic_label_export!=engram_human_label_evidence)"
     assert expected_failure in evidence["failures"]
 
 
@@ -264,9 +258,10 @@ async def test_evaluate_cli_attaches_and_gates_human_label_artifact(
         "git": git_metadata,
     }
     assert bundle["source_sha256"]["human_label_artifact"] == expected_hash
-    assert bundle["source_sha256"]["report_json"] == hashlib.sha256(
-        report_path.read_bytes()
-    ).hexdigest()
+    assert (
+        bundle["source_sha256"]["report_json"]
+        == hashlib.sha256(report_path.read_bytes()).hexdigest()
+    )
     assert bundle["gates"]["require_human_label_evidence"] is True
     assert bundle["gates"]["min_human_recall_samples"] == 2
     assert bundle["gates"]["min_human_session_samples"] == 1
@@ -450,9 +445,7 @@ async def test_evaluate_cli_rejects_missing_memory_value_when_required(
     with pytest.raises(SystemExit) as exc_info:
         await run_evaluate_command(args)
 
-    assert str(exc_info.value) == (
-        "Memory value evidence failed gates: ['memory_value:missing']"
-    )
+    assert str(exc_info.value) == ("Memory value evidence failed gates: ['memory_value:missing']")
 
 
 @pytest.mark.asyncio
@@ -530,9 +523,7 @@ async def test_evaluate_cli_rejects_template_out_without_template(
     with pytest.raises(SystemExit) as exc_info:
         await run_evaluate_command(args)
 
-    assert str(exc_info.value) == (
-        "--human-label-template-out requires --human-label-template"
-    )
+    assert str(exc_info.value) == ("--human-label-template-out requires --human-label-template")
     assert not template_path.exists()
 
 

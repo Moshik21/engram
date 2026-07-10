@@ -65,9 +65,7 @@ def memory_write_contract(
         "attachment_kind": attachment_kind,
         "adjudication_requests": _copy_adjudication_requests(adjudication_requests),
         "committed_entities": _copy_committed_entities(committed_entities),
-        "committed_relationships": _copy_committed_relationships(
-            committed_relationships
-        ),
+        "committed_relationships": _copy_committed_relationships(committed_relationships),
     }
 
 

@@ -147,11 +147,7 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
     finally:
         async with lock:
             _lifespan_refcount -= 1
-            if (
-                _lifespan_refcount == 0
-                and _shutdown_on_idle()
-                and not _external_runtime_attached
-            ):
+            if _lifespan_refcount == 0 and _shutdown_on_idle() and not _external_runtime_attached:
                 await _shutdown()
 
 
@@ -268,8 +264,7 @@ def _should_start_mcp_background_runtime(config: EngramConfig) -> bool:
 
 def _should_start_mcp_cue_index_outbox(config: EngramConfig) -> bool:
     return bool(
-        not _background_runtime_managed_externally
-        and config.activation.cue_index_outbox_enabled
+        not _background_runtime_managed_externally and config.activation.cue_index_outbox_enabled
     )
 
 
@@ -444,9 +439,7 @@ def _get_session() -> SessionState:
 
 def _start_cue_index_outbox_replay(runtime: Any, *, limit: int) -> asyncio.Task[int]:
     """Schedule durable cue-index replay without blocking MCP startup."""
-    return asyncio.create_task(
-        runtime.drain_cue_index_outbox(limit=limit, include_failed=False)
-    )
+    return asyncio.create_task(runtime.drain_cue_index_outbox(limit=limit, include_failed=False))
 
 
 async def _get_evaluation_store() -> SQLiteEvaluationStore:
@@ -1293,9 +1286,7 @@ async def get_runtime_state(
         debt = build_adoption_debt(
             metrics,
             last_context_load=(
-                session.last_context_load_at.isoformat()
-                if session.last_context_load_at
-                else None
+                session.last_context_load_at.isoformat() if session.last_context_load_at else None
             ),
             context_loaded_this_session=session.context_loaded_this_session,
             turns_since_context=session.turns_since_context,

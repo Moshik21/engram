@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import helix_native
+
     HAS_NATIVE = True
 except ImportError:
     HAS_NATIVE = False
@@ -160,6 +161,7 @@ class NativeTransport:
                 raw = [raw]
 
             from engram.storage.helix import unwrap_helix_results
+
             return unwrap_helix_results(raw)
 
         except Exception as exc:
@@ -212,9 +214,7 @@ class NativeTransport:
             async with sem:
                 return await self.query(endpoint, payload)
 
-        return list(
-            await asyncio.gather(*[_one(ep, pl) for ep, pl in queries])
-        )
+        return list(await asyncio.gather(*[_one(ep, pl) for ep, pl in queries]))
 
     async def batch(
         self,
@@ -266,9 +266,7 @@ class NativeTransport:
             async with sem:
                 return await self.query(endpoint, payload)
 
-        return list(
-            await asyncio.gather(*[_one(ep, pl) for ep, pl in queries])
-        )
+        return list(await asyncio.gather(*[_one(ep, pl) for ep, pl in queries]))
 
     @property
     def is_connected(self) -> bool:

@@ -274,9 +274,7 @@ class TestAuditFollowUpDefaults:
             group_id="default",
             phase_names={"evidence_adjudication"},
         )
-        adj = next(
-            pr for pr in cycle.phase_results if pr.phase == "evidence_adjudication"
-        )
+        adj = next(pr for pr in cycle.phase_results if pr.phase == "evidence_adjudication")
         assert adj.status == "success"
         assert adj.items_processed > 0
         assert adj.items_processed <= 200

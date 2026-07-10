@@ -335,8 +335,7 @@ def test_lifecycle_cli_markdown_renders_stage_snapshot() -> None:
     assert "- Group: `cli_brain`" in rendered
     assert "- Cue: `ready` | coverage 100.0%" in rendered
     assert (
-        "- Recall: `ready` | active entities 0 | top score 0 | "
-        "triggers 0 | intentions 2 | pinned 1"
+        "- Recall: `ready` | active entities 0 | top score 0 | triggers 0 | intentions 2 | pinned 1"
     ) in rendered
     assert "- Consolidate: `ready`" in rendered
 
@@ -390,8 +389,7 @@ def test_lifecycle_cli_markdown_includes_latest_phase_error() -> None:
 
     assert "- Consolidate: `attention`" in rendered
     assert (
-        "latest `cyc_phase_error` | error "
-        "`graph_embed: optional vector index unavailable`"
+        "latest `cyc_phase_error` | error `graph_embed: optional vector index unavailable`"
     ) in rendered
 
 

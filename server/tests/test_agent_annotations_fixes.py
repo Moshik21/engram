@@ -133,15 +133,23 @@ async def test_remember_proposals_persist_entities_and_edge(proposal_manager):
         model_tier="default",
     )
 
-    aurelia = [e for e in await graph_store.find_entity_candidates("Aurelia", "default")
-               if e.name == "Aurelia"]
-    nimbus = [e for e in await graph_store.find_entity_candidates("Nimbus Corp", "default")
-              if e.name == "Nimbus Corp"]
+    aurelia = [
+        e
+        for e in await graph_store.find_entity_candidates("Aurelia", "default")
+        if e.name == "Aurelia"
+    ]
+    nimbus = [
+        e
+        for e in await graph_store.find_entity_candidates("Nimbus Corp", "default")
+        if e.name == "Nimbus Corp"
+    ]
     assert aurelia, "proposed subject entity must persist"
     assert nimbus, "proposed object entity must persist"
 
     rels = await graph_store.get_relationships(
-        aurelia[0].id, direction="outgoing", group_id="default",
+        aurelia[0].id,
+        direction="outgoing",
+        group_id="default",
     )
     assert any(r.predicate == "WORKS_AT" and r.target_id == nimbus[0].id for r in rels), (
         "the proposed edge between two committed entities must persist (B1)"
@@ -175,8 +183,11 @@ async def test_unverified_proposal_does_not_first_sight_commit(proposal_manager)
         model_tier="opus",
     )
 
-    committed = [e for e in await graph_store.find_entity_candidates("Ghostington", "default")
-                 if e.name == "Ghostington"]
+    committed = [
+        e
+        for e in await graph_store.find_entity_candidates("Ghostington", "default")
+        if e.name == "Ghostington"
+    ]
     assert not committed, "unverified single-source proposal must not commit on first sight"
 
     pending = await graph_store.get_pending_evidence(group_id="default", limit=50)
@@ -208,12 +219,14 @@ class TestConfidenceDeWeaponization:
         content = "Aurelia works at Nimbus Corp."
         cands = proposals_to_evidence(
             None,
-            [{
-                "subject": "Aurelia",
-                "predicate": "WORKS_AT",
-                "object": "Nimbus Corp",
-                "source_span": content,
-            }],
+            [
+                {
+                    "subject": "Aurelia",
+                    "predicate": "WORKS_AT",
+                    "object": "Nimbus Corp",
+                    "source_span": content,
+                }
+            ],
             "ep1",
             "default",
             episode_content=content,
@@ -308,14 +321,16 @@ class TestDateReanchoring:
         content = "It started recently."
         cands = proposals_to_evidence(
             None,
-            [{
-                "subject": "Project",
-                "predicate": "STARTED",
-                "object": "2024-01-01",
-                "valid_from": "2024-01-01",
-                "temporal_hint": "last month",
-                "source_span": content,
-            }],
+            [
+                {
+                    "subject": "Project",
+                    "predicate": "STARTED",
+                    "object": "2024-01-01",
+                    "valid_from": "2024-01-01",
+                    "temporal_hint": "last month",
+                    "source_span": content,
+                }
+            ],
             "ep1",
             "default",
             episode_content=content,
@@ -371,23 +386,30 @@ async def test_remember_events_materialize_dated_event_node(proposal_manager):
         group_id="default",
         session=session,
         source="mcp",
-        events=[{
-            "name": "Product Launch",
-            "date": "2026-04-01",
-            "source_span": "Product Launch happened on 2026-04-01",
-        }],
+        events=[
+            {
+                "name": "Product Launch",
+                "date": "2026-04-01",
+                "source_span": "Product Launch happened on 2026-04-01",
+            }
+        ],
         activation_cfg=manager._cfg,
         ingest_live_turn=_noop,
         recall_middleware=_noop,
     )
 
-    event_nodes = [e for e in await graph_store.find_entity_candidates("Product Launch", "default")
-                   if e.name == "Product Launch"]
+    event_nodes = [
+        e
+        for e in await graph_store.find_entity_candidates("Product Launch", "default")
+        if e.name == "Product Launch"
+    ]
     assert event_nodes, "remember(events) must create a first-class Event node"
     assert event_nodes[0].entity_type == "Event"
 
     rels = await graph_store.get_relationships(
-        event_nodes[0].id, direction="outgoing", group_id="default",
+        event_nodes[0].id,
+        direction="outgoing",
+        group_id="default",
     )
     occurred = [r for r in rels if r.predicate == "OCCURRED_ON"]
     assert occurred, "Event must have an OCCURRED_ON edge"
@@ -405,11 +427,13 @@ async def test_observe_events_persist_deferred_without_projection(proposal_manag
         group_id="g_obs",
         session=session,
         source="mcp",
-        events=[{
-            "name": "Kickoff",
-            "date": "2026-05-01",
-            "source_span": "Kickoff was on 2026-05-01",
-        }],
+        events=[
+            {
+                "name": "Kickoff",
+                "date": "2026-05-01",
+                "source_span": "Kickoff was on 2026-05-01",
+            }
+        ],
         ingest_live_turn=_noop,
         recall_middleware=_noop,
     )
@@ -424,9 +448,5 @@ async def test_observe_events_persist_deferred_without_projection(proposal_manag
     statuses = {p["status"] for p in pending}
     assert pending, "observe(events) must persist deferred evidence"
     assert statuses == {"deferred"}
-    event_names = {
-        p["payload"].get("name")
-        for p in pending
-        if p["fact_class"] == "entity"
-    }
+    event_names = {p["payload"].get("name") for p in pending if p["fact_class"] == "entity"}
     assert "Kickoff" in event_names

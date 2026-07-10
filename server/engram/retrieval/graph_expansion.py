@@ -36,9 +36,34 @@ def _extract_query_terms(query: str) -> list[str]:
 
     # Single capitalized words (not at sentence start, not common words)
     stop = {
-        "What", "When", "Where", "Who", "How", "Which", "Did", "Do", "Does",
-        "Is", "Are", "Was", "Were", "Have", "Has", "Can", "Could", "Would",
-        "Should", "The", "My", "I", "And", "Or", "But", "Not", "This", "That",
+        "What",
+        "When",
+        "Where",
+        "Who",
+        "How",
+        "Which",
+        "Did",
+        "Do",
+        "Does",
+        "Is",
+        "Are",
+        "Was",
+        "Were",
+        "Have",
+        "Has",
+        "Can",
+        "Could",
+        "Would",
+        "Should",
+        "The",
+        "My",
+        "I",
+        "And",
+        "Or",
+        "But",
+        "Not",
+        "This",
+        "That",
     }
     words = query.split()
     for i, w in enumerate(words):
@@ -56,9 +81,7 @@ def _extract_query_terms(query: str) -> list[str]:
             terms.append(term)
 
     # Object of verb: "do I like", "do I use", "did I attend"
-    for match in re.finditer(
-        r"(?:do|did|have)\s+I\s+\w+\s+(.+?)(?:\?|$)", query, re.I
-    ):
+    for match in re.finditer(r"(?:do|did|have)\s+I\s+\w+\s+(.+?)(?:\?|$)", query, re.I):
         obj = match.group(1).strip().rstrip("?.,!")
         if obj and len(obj) > 2:
             terms.append(obj)
@@ -104,9 +127,7 @@ async def expand_query_from_graph(
     for term in terms[:max_entities]:
         try:
             # Look up entity candidates
-            candidates = await graph_store.find_entity_candidates(
-                term, group_id
-            )
+            candidates = await graph_store.find_entity_candidates(term, group_id)
             if not candidates:
                 continue
 
@@ -125,9 +146,7 @@ async def expand_query_from_graph(
                 # Add relationship predicates and targets
                 if include_relationships:
                     try:
-                        rels = await graph_store.get_relationships(
-                            eid, group_id=group_id
-                        )
+                        rels = await graph_store.get_relationships(eid, group_id=group_id)
                         for rel in rels[:5]:
                             pred = rel.predicate or ""
                             target = rel.target_id or ""
@@ -142,21 +161,13 @@ async def expand_query_from_graph(
                 # Add 1-hop neighbor names
                 if include_neighbors:
                     try:
-                        neighbors = await graph_store.get_relationships(
-                            eid, group_id=group_id
-                        )
+                        neighbors = await graph_store.get_relationships(eid, group_id=group_id)
                         for rel in neighbors[:3]:
-                            other_id = (
-                                rel.target_id
-                                if rel.source_id == eid
-                                else rel.source_id
-                            )
+                            other_id = rel.target_id if rel.source_id == eid else rel.source_id
                             if other_id and other_id != eid:
                                 # Try to get neighbor entity name
                                 try:
-                                    neighbor = await graph_store.get_entity(
-                                        other_id, group_id
-                                    )
+                                    neighbor = await graph_store.get_entity(other_id, group_id)
                                     if neighbor and neighbor.name:
                                         expansion_parts.append(neighbor.name)
                                 except Exception:

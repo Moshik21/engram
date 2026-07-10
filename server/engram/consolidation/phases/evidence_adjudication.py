@@ -147,14 +147,10 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                 # caller-tier confidence into a first-sight commit.
                 ev_signals = ev.get("corroborating_signals") or []
                 needs_corroboration_reason = None
-                if (
-                    "proper_name" in ev_signals
-                    and "identity_pattern" not in ev_signals
-                ):
+                if "proper_name" in ev_signals and "identity_pattern" not in ev_signals:
                     needs_corroboration_reason = "proper_name_needs_corroboration"
                 elif (
-                    ev.get("source_type") == "client_proposal"
-                    and "span_verified" not in ev_signals
+                    ev.get("source_type") == "client_proposal" and "span_verified" not in ev_signals
                 ):
                     needs_corroboration_reason = "unverified_proposal_needs_corroboration"
 
@@ -167,9 +163,7 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                     group_count = len(groups.get(ev_key, []))
                     if group_count < 2:
                         if not dry_run:
-                            await self._defer_evidence(
-                                graph_store, ev, group_id=group_id
-                            )
+                            await self._defer_evidence(graph_store, ev, group_id=group_id)
                             records.append(
                                 EvidenceAdjudicationRecord(
                                     cycle_id=cycle_id,

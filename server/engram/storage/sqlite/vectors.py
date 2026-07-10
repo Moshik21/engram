@@ -300,10 +300,7 @@ class SQLiteVectorStore:
                 sql += " AND em.group_id = ?"
                 params.append(group_id)
         else:
-            sql = (
-                "SELECT id, embedding, dimensions FROM embeddings "
-                "WHERE content_type = ?"
-            )
+            sql = "SELECT id, embedding, dimensions FROM embeddings WHERE content_type = ?"
             if group_id is not None:
                 sql += " AND group_id = ?"
                 params.append(group_id)

@@ -39,9 +39,7 @@ class TestIdentityEntityExtractor:
 
     def test_proper_name_detection(self, extractor):
         # Both names appear mid-sentence (not sentence-initial)
-        results = extractor.extract(
-            "I saw Alice at the store with Bob.", "ep1", "default"
-        )
+        results = extractor.extract("I saw Alice at the store with Bob.", "ep1", "default")
         names = [c.payload["name"] for c in results]
         assert "Alice" in names
         assert "Bob" in names
@@ -101,9 +99,7 @@ class TestIdentityEntityExtractor:
 
     def test_company_suffix_detection(self, extractor):
         """Names ending in company suffixes get Organization type."""
-        results = extractor.extract(
-            "She joined Acme Labs last month.", "ep1", "default"
-        )
+        results = extractor.extract("She joined Acme Labs last month.", "ep1", "default")
         names = [c.payload["name"] for c in results]
         assert "Acme Labs" in names
         entity = [c for c in results if c.payload["name"] == "Acme Labs"][0]
@@ -111,9 +107,7 @@ class TestIdentityEntityExtractor:
 
     def test_product_suffix_detection(self, extractor):
         """Names ending in product suffixes get Product type."""
-        results = extractor.extract(
-            "I use Notion App for project management.", "ep1", "default"
-        )
+        results = extractor.extract("I use Notion App for project management.", "ep1", "default")
         names = [c.payload["name"] for c in results]
         assert "Notion App" in names
         entity = [c for c in results if c.payload["name"] == "Notion App"][0]
@@ -121,9 +115,7 @@ class TestIdentityEntityExtractor:
 
     def test_noisy_span_rejected(self, extractor):
         """Source spans with >50% non-alphanumeric content return None."""
-        results = extractor.extract(
-            ">>> !@#$%^& <<< Alice ::: {{{}}}.", "ep1", "default"
-        )
+        results = extractor.extract(">>> !@#$%^& <<< Alice ::: {{{}}}.", "ep1", "default")
         # Alice may or may not be extracted, but any source_span should be clean
         for c in results:
             if c.source_span is not None:

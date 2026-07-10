@@ -1,7 +1,9 @@
 import asyncio
+
+from engram.activation.neuroplasticity import NeuroplasticityEngine
 from engram.config import ActivationConfig
 from engram.retrieval.belief import BeliefMapScorer
-from engram.activation.neuroplasticity import NeuroplasticityEngine
+
 
 async def test_synapse():
     cfg = ActivationConfig()
@@ -18,6 +20,7 @@ async def test_synapse():
     engine = NeuroplasticityEngine(cfg)
     engine.handle_positive_feedback("entity_123")
     print("Neuroplasticity test complete (check logs)")
+
 
 if __name__ == "__main__":
     asyncio.run(test_synapse())

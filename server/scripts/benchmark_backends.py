@@ -383,8 +383,10 @@ def print_results(results: list[BackendResult], corpus: CorpusSpec) -> None:
     print("\n" + "=" * 78)
     print("  ENGRAM BACKEND BENCHMARK COMPARISON")
     print("=" * 78)
-    print(f"  Corpus: {len(corpus.entities)} entities, {len(corpus.relationships)} rels, "
-          f"{len(corpus.episodes)} episodes, {len(corpus.ground_truth)} queries")
+    print(
+        f"  Corpus: {len(corpus.entities)} entities, {len(corpus.relationships)} rels, "
+        f"{len(corpus.episodes)} episodes, {len(corpus.ground_truth)} queries"
+    )
     print("=" * 78)
 
     # Header
@@ -418,9 +420,9 @@ def print_results(results: list[BackendResult], corpus: CorpusSpec) -> None:
     # Quality
     row("nDCG@10", [f"{_avg(r.ndcg_scores):.3f}" if r.available else "-" for r in results])
     row("MRR", [f"{_avg(r.mrr_scores):.3f}" if r.available else "-" for r in results])
-    row("Precision@10", [
-        f"{_avg(r.precision_scores):.3f}" if r.available else "-" for r in results
-    ])
+    row(
+        "Precision@10", [f"{_avg(r.precision_scores):.3f}" if r.available else "-" for r in results]
+    )
 
     # Memory
     row("RSS (MB)", [f"{r.rss_mb:.0f}" if r.available else "-" for r in results])
@@ -466,18 +468,28 @@ async def main() -> None:
 
     parser = argparse.ArgumentParser(description="Benchmark Engram storage backends")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--entities", type=int, default=200,
-                        help="Corpus size (default 200 for fast runs, use 1000+ for production)")
-    parser.add_argument("--backends", nargs="+", default=["lite", "helix", "full"],
-                        help="Backends to test (default: all available)")
+    parser.add_argument(
+        "--entities",
+        type=int,
+        default=200,
+        help="Corpus size (default 200 for fast runs, use 1000+ for production)",
+    )
+    parser.add_argument(
+        "--backends",
+        nargs="+",
+        default=["lite", "helix", "full"],
+        help="Backends to test (default: all available)",
+    )
     args = parser.parse_args()
 
     # Generate corpus once
     print(f"Generating corpus (seed={args.seed}, entities={args.entities})...")
     gen = CorpusGenerator(seed=args.seed, total_entities=args.entities)
     corpus = gen.generate()
-    print(f"  {len(corpus.entities)} entities, {len(corpus.relationships)} rels, "
-          f"{len(corpus.episodes)} episodes, {len(corpus.ground_truth)} queries\n")
+    print(
+        f"  {len(corpus.entities)} entities, {len(corpus.relationships)} rels, "
+        f"{len(corpus.episodes)} episodes, {len(corpus.ground_truth)} queries\n"
+    )
 
     # Use a simple retrieval method for fair comparison
     method = RetrievalMethod(
@@ -505,9 +517,7 @@ async def main() -> None:
             import helix_native  # noqa: F401
 
             print("[NATIVE] HelixDB PyO3 in-process backend...")
-            r = await benchmark_backend(
-                "Native (PyO3)", _setup_helix_native, corpus, gen, method
-            )
+            r = await benchmark_backend("Native (PyO3)", _setup_helix_native, corpus, gen, method)
             results.append(r)
             if r.available:
                 print(f"  Done: {r.load_ms:.0f}ms load, {r.avg_lat:.1f}ms avg search\n")

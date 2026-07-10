@@ -405,16 +405,13 @@ def test_b14_exact_recovery_warns_on_missing_vectors(monkeypatch, caplog):
     import asyncio
 
     with caplog.at_level(logging.WARNING, logger="engram.storage.helix.search"):
-        result = asyncio.run(
-            index.get_entity_embeddings(["ent_a", "ent_b"], group_id="g")
-        )
+        result = asyncio.run(index.get_entity_embeddings(["ent_a", "ent_b"], group_id="g"))
 
     assert "ent_a" in result
     assert "ent_b" not in result
     assert len(calls) == 1
     assert any(
-        "exact lookup recovered 1/2 entity vectors" in rec.getMessage()
-        for rec in caplog.records
+        "exact lookup recovered 1/2 entity vectors" in rec.getMessage() for rec in caplog.records
     ), "expected a WARNING about partial embedding recovery"
 
 
@@ -451,15 +448,11 @@ def test_b14_exact_full_recovery_no_warning(monkeypatch, caplog):
     import asyncio
 
     with caplog.at_level(logging.WARNING, logger="engram.storage.helix.search"):
-        result = asyncio.run(
-            index.get_entity_embeddings(["ent_a", "ent_b"], group_id="g")
-        )
+        result = asyncio.run(index.get_entity_embeddings(["ent_a", "ent_b"], group_id="g"))
 
     assert set(result) == {"ent_a", "ent_b"}
     assert len(calls) == 1
-    assert not any(
-        "recovered" in rec.getMessage() for rec in caplog.records
-    )
+    assert not any("recovered" in rec.getMessage() for rec in caplog.records)
 
 
 def test_b14_exact_recovery_uses_all_groups_endpoint(monkeypatch):

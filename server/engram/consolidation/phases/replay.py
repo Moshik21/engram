@@ -528,7 +528,6 @@ class EpisodeReplayPhase(ConsolidationPhase):
 
         return new_count
 
-
     async def _graph_vocabulary_link(
         self,
         episodes: list[Any],
@@ -620,8 +619,7 @@ class EpisodeReplayPhase(ConsolidationPhase):
         if signature is not None:
             params = signature.parameters
             accepts_kwargs = any(
-                param.kind is inspect.Parameter.VAR_KEYWORD
-                for param in params.values()
+                param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()
             )
             if accepts_kwargs or "episode_id" in params:
                 kwargs["episode_id"] = episode.id

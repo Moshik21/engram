@@ -113,11 +113,7 @@ def _prepare_fast_bm25_query(query: str) -> str:
     seen: set[str] = set()
     for raw_token in re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query.lower()):
         for token in re.split(r"[_-]+", raw_token):
-            if (
-                len(token) < 3
-                or token in seen
-                or token in _FAST_BM25_HIGH_FANOUT_TERMS
-            ):
+            if len(token) < 3 or token in seen or token in _FAST_BM25_HIGH_FANOUT_TERMS:
                 continue
             seen.add(token)
             if token in _FAST_BM25_LOW_SIGNAL_TERMS:
@@ -402,18 +398,15 @@ class HelixSearchIndex:
                 )
                 if not retryable:
                     # Non-retryable error (bad input, auth failure, etc.)
-                    logger.warning(
-                        "HelixSearchIndex: non-retryable embedding error: %s", e
-                    )
+                    logger.warning("HelixSearchIndex: non-retryable embedding error: %s", e)
                     break
 
                 delay = min(
-                    self._EMBED_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                    self._EMBED_BASE_DELAY * (2**attempt) + random.uniform(0, 1),
                     self._EMBED_MAX_DELAY,
                 )
                 logger.warning(
-                    "HelixSearchIndex: embedding attempt %d/%d failed: %s. "
-                    "Retrying in %.1fs",
+                    "HelixSearchIndex: embedding attempt %d/%d failed: %s. Retrying in %.1fs",
                     attempt + 1,
                     self._EMBED_MAX_RETRIES,
                     e,
@@ -524,12 +517,8 @@ class HelixSearchIndex:
                 continue
             current_round = (current_round + "\n" + turn).strip()
             # A round is complete when it contains both user and assistant
-            has_user = bool(
-                re.search(r"(?:User|Human)\s*:", current_round)
-            )
-            has_assistant = bool(
-                re.search(r"(?:Assistant|AI)\s*:", current_round)
-            )
+            has_user = bool(re.search(r"(?:User|Human)\s*:", current_round))
+            has_assistant = bool(re.search(r"(?:Assistant|AI)\s*:", current_round))
             if has_user and has_assistant:
                 if len(current_round) >= min_chars:
                     rounds.append(current_round)
@@ -724,11 +713,7 @@ class HelixSearchIndex:
         """Post-filter raw result rows by group_id."""
         if not group_id:
             return list(raw_rows)
-        return [
-            row
-            for row in raw_rows
-            if str(row.get(group_field, "")) == group_id
-        ]
+        return [row for row in raw_rows if str(row.get(group_field, "")) == group_id]
 
     def _filter_by_entity_type(
         self,
@@ -860,9 +845,7 @@ class HelixSearchIndex:
                 )
                 filtered = bool(rows)
             except Exception:
-                logger.debug(
-                    "search_cue_vectors_filtered unavailable, falling back to unfiltered"
-                )
+                logger.debug("search_cue_vectors_filtered unavailable, falling back to unfiltered")
                 rows = []
 
         if not filtered:
@@ -1064,10 +1047,7 @@ class HelixSearchIndex:
             #      labels) — matches Naive RAG granularity (~5-6 chunks/session)
             #   2. Topic segmentation (non-conversational long text)
             #   3. Size-based chunking (last resort)
-            if (
-                self._helix_client is not None
-                and len(episode.content) > self.CHUNK_MIN_LENGTH
-            ):
+            if self._helix_client is not None and len(episode.content) > self.CHUNK_MIN_LENGTH:
                 chunks: list[str] = []
 
                 # 1. Try round-level chunking first (conversational content)
@@ -1088,9 +1068,7 @@ class HelixSearchIndex:
                     chunks = self._chunk_text(episode.content)
                 if len(chunks) > 1:  # Only chunk if content actually splits
                     # Check if native transport (server-side Embed() won't work)
-                    is_native = getattr(
-                        self._helix_config, "transport", "http"
-                    ) == "native"
+                    is_native = getattr(self._helix_config, "transport", "http") == "native"
                     for i, chunk_text in enumerate(chunks):
                         used_server_embed = False
                         if not is_native:
@@ -1128,8 +1106,7 @@ class HelixSearchIndex:
         except Exception as e:
             self._embed_stats["episodes_failed"] += 1
             logger.error(
-                "Failed to index episode %s: %s "
-                "[stats: indexed=%d, failed=%d]",
+                "Failed to index episode %s: %s [stats: indexed=%d, failed=%d]",
                 episode.id,
                 e,
                 self._embed_stats["episodes_indexed"],
@@ -1603,11 +1580,7 @@ class HelixSearchIndex:
 
         target_ids = set(entity_ids)
         results: dict[str, list[float]] = {}
-        endpoint = (
-            "find_entity_vectors_by_ids"
-            if group_id
-            else "find_entity_vectors_by_ids_all"
-        )
+        endpoint = "find_entity_vectors_by_ids" if group_id else "find_entity_vectors_by_ids_all"
         payload = (
             {"entity_ids": list(target_ids), "gid": group_id}
             if group_id
@@ -1622,12 +1595,7 @@ class HelixSearchIndex:
         for row in rows:
             eid = str(row.get("entity_id", ""))
             if eid in target_ids:
-                vec = (
-                    row.get("vec")
-                    or row.get("vector")
-                    or row.get("embedding")
-                    or row.get("data")
-                )
+                vec = row.get("vec") or row.get("vector") or row.get("embedding") or row.get("data")
                 if vec and isinstance(vec, list):
                     results[eid] = [float(v) for v in vec]
                     if len(results) == len(target_ids):
@@ -1816,9 +1784,7 @@ class HelixSearchIndex:
         ]
 
         try:
-            results = await client.query_many(
-                "add_graph_embed_vector", payloads, max_concurrent=8
-            )
+            results = await client.query_many("add_graph_embed_vector", payloads, max_concurrent=8)
             synced = sum(1 for r in results if r is not None)
             logger.info(
                 "sync_graph_embeddings: wrote %d/%d %s vectors to HelixDB",
@@ -1895,9 +1861,7 @@ class HelixSearchIndex:
                     row_id = row.get("id") or row.get("_id")
                     if row_id is not None:
                         try:
-                            await self._query(
-                                "delete_graph_embed_vector", {"id": row_id}
-                            )
+                            await self._query("delete_graph_embed_vector", {"id": row_id})
                             deleted += 1
                         except Exception:
                             pass
@@ -1963,7 +1927,6 @@ class HelixSearchIndex:
             # not expose a numeric score. Preserve that ordering as rank-based
             # confidence so fallback recall does not surface all hits as 0.0.
             return [
-                (item_id, 1.0 / float(rank + 1))
-                for rank, (item_id, _score) in enumerate(results)
+                (item_id, 1.0 / float(rank + 1)) for rank, (item_id, _score) in enumerate(results)
             ]
         return [(eid, score / max_score) for eid, score in results]

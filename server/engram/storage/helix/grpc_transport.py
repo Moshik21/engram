@@ -34,8 +34,7 @@ class GrpcTransport:
     def __init__(self, config: Any) -> None:
         if not HAS_GRPC:
             raise ImportError(
-                "grpcio is required for gRPC transport. "
-                "Install with: pip install engram[grpc]"
+                "grpcio is required for gRPC transport. Install with: pip install engram[grpc]"
             )
         self._config = config
         self._channel: Any = None

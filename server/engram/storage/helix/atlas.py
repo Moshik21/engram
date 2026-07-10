@@ -249,9 +249,7 @@ class HelixAtlasStore:
                     "activation_score": region.activation_score,
                     "growth_7d": region.growth_7d,
                     "growth_30d": region.growth_30d,
-                    "dominant_entity_types_json": json.dumps(
-                        region.dominant_entity_types
-                    ),
+                    "dominant_entity_types_json": json.dumps(region.dominant_entity_types),
                     "hub_entity_ids_json": json.dumps(region.hub_entity_ids),
                     "center_entity_id": region.center_entity_id or "",
                     "latest_entity_created_at": region.latest_entity_created_at or "",
@@ -351,28 +349,15 @@ class HelixAtlasStore:
                     id=_safe_get(d, "snapshot_id", ""),
                     group_id=_safe_get(d, "group_id", group_id),
                     generated_at=_safe_get(d, "generated_at", ""),
-                    represented_entity_count=int(
-                        _safe_get(d, "represented_entity_count", 0)
-                    ),
-                    represented_edge_count=int(
-                        _safe_get(d, "represented_edge_count", 0)
-                    ),
-                    displayed_node_count=int(
-                        _safe_get(d, "displayed_node_count", 0)
-                    ),
-                    displayed_edge_count=int(
-                        _safe_get(d, "displayed_edge_count", 0)
-                    ),
+                    represented_entity_count=int(_safe_get(d, "represented_entity_count", 0)),
+                    represented_edge_count=int(_safe_get(d, "represented_edge_count", 0)),
+                    displayed_node_count=int(_safe_get(d, "displayed_node_count", 0)),
+                    displayed_edge_count=int(_safe_get(d, "displayed_edge_count", 0)),
                     total_entities=int(_safe_get(d, "total_entities", 0)),
-                    total_relationships=int(
-                        _safe_get(d, "total_relationships", 0)
-                    ),
+                    total_relationships=int(_safe_get(d, "total_relationships", 0)),
                     total_regions=int(_safe_get(d, "total_regions", 0)),
                     hottest_region_id=_safe_get(d, "hottest_region_id") or None,
-                    fastest_growing_region_id=_safe_get(
-                        d, "fastest_growing_region_id"
-                    )
-                    or None,
+                    fastest_growing_region_id=_safe_get(d, "fastest_growing_region_id") or None,
                     truncated=truncated_val,
                 )
             )
@@ -462,18 +447,14 @@ class HelixAtlasStore:
                     subtitle=subtitle if subtitle else None,
                     kind=_safe_get(d, "kind", ""),
                     member_count=int(_safe_get(d, "member_count", 0)),
-                    represented_edge_count=int(
-                        _safe_get(d, "represented_edge_count", 0)
-                    ),
+                    represented_edge_count=int(_safe_get(d, "represented_edge_count", 0)),
                     activation_score=float(_safe_get(d, "activation_score", 0.0)),
                     growth_7d=int(_safe_get(d, "growth_7d", 0)),
                     growth_30d=int(_safe_get(d, "growth_30d", 0)),
                     dominant_entity_types=dominant,
                     hub_entity_ids=hub_ids,
                     center_entity_id=center_entity_id if center_entity_id else None,
-                    latest_entity_created_at=latest_created
-                    if latest_created
-                    else None,
+                    latest_entity_created_at=latest_created if latest_created else None,
                     x=float(_safe_get(d, "x", 0.0)),
                     y=float(_safe_get(d, "y", 0.0)),
                     z=float(_safe_get(d, "z", 0.0)),
@@ -536,22 +517,12 @@ class HelixAtlasStore:
             id=_safe_get(snapshot_dict, "snapshot_id", ""),
             group_id=_safe_get(snapshot_dict, "group_id", group_id),
             generated_at=_safe_get(snapshot_dict, "generated_at", ""),
-            represented_entity_count=int(
-                _safe_get(snapshot_dict, "represented_entity_count", 0)
-            ),
-            represented_edge_count=int(
-                _safe_get(snapshot_dict, "represented_edge_count", 0)
-            ),
-            displayed_node_count=int(
-                _safe_get(snapshot_dict, "displayed_node_count", 0)
-            ),
-            displayed_edge_count=int(
-                _safe_get(snapshot_dict, "displayed_edge_count", 0)
-            ),
+            represented_entity_count=int(_safe_get(snapshot_dict, "represented_entity_count", 0)),
+            represented_edge_count=int(_safe_get(snapshot_dict, "represented_edge_count", 0)),
+            displayed_node_count=int(_safe_get(snapshot_dict, "displayed_node_count", 0)),
+            displayed_edge_count=int(_safe_get(snapshot_dict, "displayed_edge_count", 0)),
             total_entities=int(_safe_get(snapshot_dict, "total_entities", 0)),
-            total_relationships=int(
-                _safe_get(snapshot_dict, "total_relationships", 0)
-            ),
+            total_relationships=int(_safe_get(snapshot_dict, "total_relationships", 0)),
             total_regions=int(_safe_get(snapshot_dict, "total_regions", 0)),
             hottest_region_id=hottest if hottest else None,
             fastest_growing_region_id=fastest if fastest else None,

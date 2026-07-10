@@ -14,9 +14,7 @@ def test_rest_app_serves_streamable_http_mcp_at_advertised_path(monkeypatch, tmp
     monkeypatch.setenv("ENGRAM_EMBEDDING__PROVIDER", "noop")
     monkeypatch.setenv("ENGRAM_MCP_ENABLED", "1")
     toggle_calls: list[bool] = []
-    original_set_background_runtime = (
-        mcp_server_module.set_background_runtime_managed_externally
-    )
+    original_set_background_runtime = mcp_server_module.set_background_runtime_managed_externally
 
     def record_background_runtime_owner(enabled: bool = True) -> None:
         toggle_calls.append(enabled)

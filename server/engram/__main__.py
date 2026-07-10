@@ -44,7 +44,7 @@ def main():
         "                            Verify the native Helix brain loop end to end\n"
         "  engram axi --project $PWD\n"
         "                            Print compact agent-facing runtime/context packet\n"
-        "  engram axi recall \"query\" --limit 5\n"
+        '  engram axi recall "query" --limit 5\n'
         "                            Search memory from a shell-capable agent\n"
         "  engram authority --out claim-authority.json\n"
         "                            Generate memory authority payload for clients\n"

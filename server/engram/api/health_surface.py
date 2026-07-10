@@ -46,11 +46,7 @@ async def probe_graph_store_health(
     """Probe the graph store for the active default brain group."""
     if graph_store is None:
         return ServiceStatus.UNHEALTHY
-    timeout = (
-        timeout_seconds
-        if timeout_seconds is not None
-        else _health_probe_timeout_seconds()
-    )
+    timeout = timeout_seconds if timeout_seconds is not None else _health_probe_timeout_seconds()
     health_check = getattr(graph_store, "health_check", None)
     try:
         if health_check is not None:

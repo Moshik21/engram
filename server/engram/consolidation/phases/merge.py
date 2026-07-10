@@ -909,9 +909,7 @@ class EntityMergePhase(ConsolidationPhase):
                     ]
                     if spans_end:
                         provenance_updates["evidence_span_end"] = max(spans_end).isoformat()
-                    await graph_store.update_entity(
-                        survivor.id, provenance_updates, group_id
-                    )
+                    await graph_store.update_entity(survivor.id, provenance_updates, group_id)
 
                     # Clean up loser from activation + search
                     await activation_store.clear_activation(loser.id)

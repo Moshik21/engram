@@ -67,9 +67,7 @@ def test_merge_collects_suppressed_cue_when_episode_outscores() -> None:
     cue_candidates = [_cue_candidate(EPISODE_ID, score=0.5)]
     suppressed: dict[str, float] = {}
 
-    special = _merge_special_results(
-        episode_candidates, cue_candidates, cfg, suppressed
-    )
+    special = _merge_special_results(episode_candidates, cue_candidates, cfg, suppressed)
 
     # Survivor stays surfaced as a plain episode — content NOT swapped for cue.
     assert len(special) == 1
@@ -86,9 +84,7 @@ def test_merge_does_not_collect_when_cue_wins() -> None:
     cue_candidates = [_cue_candidate(EPISODE_ID, score=0.9)]
     suppressed: dict[str, float] = {}
 
-    special = _merge_special_results(
-        episode_candidates, cue_candidates, cfg, suppressed
-    )
+    special = _merge_special_results(episode_candidates, cue_candidates, cfg, suppressed)
 
     assert len(special) == 1
     assert special[0].result_type == "cue_episode"
@@ -104,9 +100,7 @@ class _FakeSearchIndex:
     async def search_episodes(self, *, query: str, group_id: str, limit: int) -> list:
         return [(EPISODE_ID, 0.9)]
 
-    async def search_episode_cues(
-        self, *, query: str, group_id: str, limit: int
-    ) -> list:
+    async def search_episode_cues(self, *, query: str, group_id: str, limit: int) -> list:
         return [(EPISODE_ID, 0.5)]
 
     async def compute_similarity(
@@ -167,14 +161,10 @@ class _FakeGraphStore:
     async def get_episode_entities(self, episode_id: str, *, group_id: str) -> list:
         return []
 
-    async def get_episode_cue(
-        self, episode_id: str, group_id: str
-    ) -> EpisodeCue | None:
+    async def get_episode_cue(self, episode_id: str, group_id: str) -> EpisodeCue | None:
         return self.cue if episode_id == EPISODE_ID else None
 
-    async def update_episode_cue(
-        self, episode_id: str, updates: dict, *, group_id: str
-    ) -> None:
+    async def update_episode_cue(self, episode_id: str, updates: dict, *, group_id: str) -> None:
         self.cue_updates.append(dict(updates))
         if "hit_count" in updates:
             self.cue.hit_count = int(updates["hit_count"])
@@ -182,9 +172,7 @@ class _FakeGraphStore:
         if state is not None:
             self.cue.projection_state = state
 
-    async def update_episode(
-        self, episode_id: str, updates: dict, *, group_id: str
-    ) -> None:
+    async def update_episode(self, episode_id: str, updates: dict, *, group_id: str) -> None:
         self.episode_updates.append(dict(updates))
         new_state = updates.get("projection_state")
         if new_state is not None:

@@ -51,10 +51,7 @@ _tiered = set(CONSOLIDATION_PHASE_TIERS)
 if _known != _tiered:
     missing = ", ".join(sorted(_known - _tiered)) or "none"
     extra = ", ".join(sorted(_tiered - _known)) or "none"
-    raise RuntimeError(
-        "Consolidation phase tier registry drift: "
-        f"missing={missing}; extra={extra}"
-    )
+    raise RuntimeError(f"Consolidation phase tier registry drift: missing={missing}; extra={extra}")
 
 
 def validate_consolidation_phase_order(phase_names: Iterable[str]) -> tuple[str, ...]:

@@ -450,9 +450,7 @@ def test_home_payload_uses_trace_client_for_capture_source() -> None:
         trace_client="claude-code",
     )
 
-    assert result.payload["next"][2]["cmd"] == (
-        "engram axi observe --stdin --source claude-code"
-    )
+    assert result.payload["next"][2]["cmd"] == ("engram axi observe --stdin --source claude-code")
 
 
 def test_home_payload_uses_generic_capture_source_without_trace_client() -> None:
@@ -818,9 +816,9 @@ def test_value_payload_compacts_memory_value_report() -> None:
     assert result.payload["cost"]["mode_breakdown"]["mcp_context"]["operation_counts"] == {
         "context": 3
     }
-    assert result.payload["cost"]["mode_breakdown"]["api_auto_observe"][
-        "skip_reason_counts"
-    ] == {"background_capture": 1}
+    assert result.payload["cost"]["mode_breakdown"]["api_auto_observe"]["skip_reason_counts"] == {
+        "background_capture": 1
+    }
     assert result.payload["cost"]["write_path"]["operation_count"] == 2
     assert result.payload["cost"]["write_path"]["p95_added_latency_ms"] == 8000
     assert result.payload["cost"]["top_modes_by_p95"][0]["mode"] == "api_auto_observe"
@@ -861,10 +859,7 @@ def test_packet_cache_clear_payload_reports_post_clear_summary() -> None:
         "persistent": True,
         "path": "/tmp/engram-packet-cache.sqlite3",
     }
-    assert (
-        result.payload["next"][0]["cmd"]
-        == 'engram axi context --project "$PWD" --timeout 10'
-    )
+    assert result.payload["next"][0]["cmd"] == 'engram axi context --project "$PWD" --timeout 10'
 
 
 def test_packet_cache_summary_payload_reports_cache_diagnostics() -> None:
@@ -883,9 +878,7 @@ def test_packet_cache_summary_payload_reports_cache_diagnostics() -> None:
         "persistent": True,
         "path": "/tmp/engram-packet-cache.sqlite3",
     }
-    assert result.payload["next"][0]["cmd"] == (
-        'engram axi context --project "$PWD" --timeout 10'
-    )
+    assert result.payload["next"][0]["cmd"] == ('engram axi context --project "$PWD" --timeout 10')
     assert result.payload["next"][1]["cmd"] == "engram axi packet-cache clear"
 
 

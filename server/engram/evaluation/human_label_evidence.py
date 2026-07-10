@@ -77,22 +77,14 @@ def build_human_label_evidence_template(
         )
         for evidence in additional_adoption_evidences or []
     ]
-    client = (
-        adoption_report.get("client")
-        or "<Claude Code | Cursor | Windsurf | other MCP client>"
-    )
-    captured_at = (
-        adoption_report.get("capturedAt")
-        or "<ISO-8601 timestamp from live harness run>"
-    )
+    client = adoption_report.get("client") or "<Claude Code | Cursor | Windsurf | other MCP client>"
+    captured_at = adoption_report.get("capturedAt") or "<ISO-8601 timestamp from live harness run>"
     session_id = (
         adoption_report.get("sessionId")
         or "<client session/thread id from adoption report if available>"
     )
     adoption_report_arg = _shell_arg(
-        adoption_report_path
-        or adoption_report.get("path")
-        or "adoption-report.json"
+        adoption_report_path or adoption_report.get("path") or "adoption-report.json"
     )
     required_client_flag = (
         f" --require-adoption-client {_shell_arg(required_adoption_client)}"
@@ -317,9 +309,7 @@ def build_human_label_evidence(
     min_session_samples = max(0, int(min_session_samples))
     recall_samples = _extract_samples(payload, "recall_samples", "recallSamples")
     session_samples = _extract_samples(payload, "session_samples", "sessionSamples")
-    source = _string(
-        _first(payload, "source", "label_source", "labelSource", "harness_source")
-    )
+    source = _string(_first(payload, "source", "label_source", "labelSource", "harness_source"))
     kind = _string(payload.get("kind"))
     client = _string(_first(payload, "client", "harness", "client_label", "clientLabel"))
     captured_at = _string(_first(payload, "captured_at", "capturedAt"))
@@ -358,8 +348,7 @@ def build_human_label_evidence(
     failures: list[str] = []
     if kind != HUMAN_LABEL_EVIDENCE_KIND:
         failures.append(
-            "invalid_human_label_kind"
-            f"({kind or 'missing'}!={HUMAN_LABEL_EVIDENCE_KIND})"
+            f"invalid_human_label_kind({kind or 'missing'}!={HUMAN_LABEL_EVIDENCE_KIND})"
         )
     if not human_labeled:
         failures.append("missing_human_labeled_flag")
@@ -376,13 +365,9 @@ def build_human_label_evidence(
         sample_source for sample_source in sample_sources if _looks_placeholder(sample_source)
     ]
     if placeholder_sample_sources:
-        failures.append(
-            "placeholder_sample_sources(" + ",".join(placeholder_sample_sources) + ")"
-        )
+        failures.append("placeholder_sample_sources(" + ",".join(placeholder_sample_sources) + ")")
     if synthetic_sample_sources:
-        failures.append(
-            "synthetic_sample_sources(" + ",".join(synthetic_sample_sources) + ")"
-        )
+        failures.append("synthetic_sample_sources(" + ",".join(synthetic_sample_sources) + ")")
     if missing_sample_source_count:
         failures.append(f"missing_sample_sources({missing_sample_source_count})")
     for field, count in missing_recall_text.items():
@@ -399,12 +384,9 @@ def build_human_label_evidence(
         ]
         if mismatched_sample_sources:
             mismatch_text = ",".join(
-                f"{sample_source}!={source}"
-                for sample_source in mismatched_sample_sources
+                f"{sample_source}!={source}" for sample_source in mismatched_sample_sources
             )
-            failures.append(
-                "sample_source_mismatch(" + mismatch_text + ")"
-            )
+            failures.append("sample_source_mismatch(" + mismatch_text + ")")
     if not client:
         failures.append("missing_harness_client")
     elif _looks_placeholder(client):
@@ -484,11 +466,7 @@ def _missing_sample_text_requirements(
 ) -> dict[str, int]:
     missing: dict[str, int] = {}
     for label, aliases in requirements.items():
-        count = sum(
-            1
-            for sample in samples
-            if _missing_sample_text(_mapping(sample), aliases)
-        )
+        count = sum(1 for sample in samples if _missing_sample_text(_mapping(sample), aliases))
         if count:
             missing[label] = count
     return missing
@@ -508,11 +486,7 @@ def _missing_sample_value_requirements(
 ) -> dict[str, int]:
     missing: dict[str, int] = {}
     for label, aliases in requirements.items():
-        count = sum(
-            1
-            for sample in samples
-            if not _sample_has_any_key(_mapping(sample), aliases)
-        )
+        count = sum(1 for sample in samples if not _sample_has_any_key(_mapping(sample), aliases))
         if count:
             missing[label] = count
     return missing
@@ -622,6 +596,8 @@ def _looks_synthetic(source: str) -> bool:
 
 def _looks_placeholder(value: str) -> bool:
     stripped = value.strip()
-    return stripped.startswith("<") and stripped.endswith(">") or bool(
-        _PLACEHOLDER_TOKEN_RE.search(stripped)
+    return (
+        stripped.startswith("<")
+        and stripped.endswith(">")
+        or bool(_PLACEHOLDER_TOKEN_RE.search(stripped))
     )

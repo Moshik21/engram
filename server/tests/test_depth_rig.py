@@ -122,10 +122,18 @@ def test_aggregate_pooled_ci_excludes_zero_for_strong_effect():
 
 def test_aggregate_is_fully_deterministic_across_calls():
     runs = [
-        _run(0.5, 0.75, {"q1": True, "q2": False, "q3": True, "q4": False},
-             {"q1": True, "q2": True, "q3": True, "q4": False}),
-        _run(0.25, 0.75, {"q1": False, "q2": False, "q3": True, "q4": False},
-             {"q1": True, "q2": True, "q3": True, "q4": False}),
+        _run(
+            0.5,
+            0.75,
+            {"q1": True, "q2": False, "q3": True, "q4": False},
+            {"q1": True, "q2": True, "q3": True, "q4": False},
+        ),
+        _run(
+            0.25,
+            0.75,
+            {"q1": False, "q2": False, "q3": True, "q4": False},
+            {"q1": True, "q2": True, "q3": True, "q4": False},
+        ),
     ]
     a = aggregate_repeated_runs(runs, seed=99)
     b = aggregate_repeated_runs(runs, seed=99)

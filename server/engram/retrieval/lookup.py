@@ -434,9 +434,7 @@ class EntityFactLookupService:
                     "object": target_name,
                     "polarity": relationship.polarity,
                     "valid_from": (
-                        relationship.valid_from.isoformat()
-                        if relationship.valid_from
-                        else None
+                        relationship.valid_from.isoformat() if relationship.valid_from else None
                     ),
                     "valid_to": (
                         relationship.valid_to.isoformat() if relationship.valid_to else None
@@ -444,9 +442,7 @@ class EntityFactLookupService:
                     "confidence": relationship.confidence,
                     "source_episode": relationship.source_episode,
                     "created_at": (
-                        relationship.created_at.isoformat()
-                        if relationship.created_at
-                        else None
+                        relationship.created_at.isoformat() if relationship.created_at else None
                     ),
                 },
             )

@@ -43,9 +43,7 @@ class TestConsolidationStore:
             await borrowed_store.save_cycle(cycle)
             await borrowed_store.close()
 
-            row = await (
-                await db.execute("SELECT COUNT(*) FROM consolidation_cycles")
-            ).fetchone()
+            row = await (await db.execute("SELECT COUNT(*) FROM consolidation_cycles")).fetchone()
             assert row[0] == 1
         finally:
             await db.close()

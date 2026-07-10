@@ -186,10 +186,7 @@ async def test_api_recall_surface_degrades_when_recall_stage_times_out(monkeypat
     assert result["packets"][0]["title"] == "No recalled evidence under budget"
     assert "skip_reason=recall_timeout" in result["packets"][0]["evidence_lines"]
     assert "fallback_status=unavailable" in result["packets"][0]["evidence_lines"]
-    assert (
-        "recall_retrieve_cancelled_ms=100.0"
-        in result["packets"][0]["evidence_lines"]
-    )
+    assert "recall_retrieve_cancelled_ms=100.0" in result["packets"][0]["evidence_lines"]
     assert result["lifecycle"]["degraded"] is True
     assert result["lifecycle"]["timeout"] is True
     assert result["lifecycle"]["skipReason"] == "recall_timeout"
@@ -374,9 +371,10 @@ async def test_explicit_recall_packet_cache_scope_is_shared_across_sources() -> 
 
     assert api_packets == [cached_packet]
     assert mcp_packets == [cached_packet]
-    assert [
-        call.kwargs["scope"] for call in manager.get_cached_memory_packets.call_args_list
-    ] == ["explicit_recall", "explicit_recall"]
+    assert [call.kwargs["scope"] for call in manager.get_cached_memory_packets.call_args_list] == [
+        "explicit_recall",
+        "explicit_recall",
+    ]
     samples = [call.args[1] for call in manager.record_memory_operation.call_args_list]
     assert [sample.source for sample in samples] == ["api_recall", "mcp_recall"]
     assert [sample.mode for sample in samples] == ["explicit_recall", "explicit_recall"]
@@ -720,9 +718,7 @@ async def test_api_recall_surface_uses_context_packets_when_deep_recall_times_ou
         limit_packets=6,
         sync_persistent=False,
     )
-    recorded_modes = [
-        call.args[1].mode for call in manager.record_memory_operation.call_args_list
-    ]
+    recorded_modes = [call.args[1].mode for call in manager.record_memory_operation.call_args_list]
     assert "context_packet_cache_preflight" in recorded_modes
 
 
@@ -807,9 +803,7 @@ async def test_api_recall_surface_returns_recent_context_packets_on_degraded_cac
     assert result["packets"] == [context_packet]
     assert result["lifecycle"]["timeout"] is True
     manager.recall.assert_awaited_once()
-    recorded_modes = [
-        call.args[1].mode for call in manager.record_memory_operation.call_args_list
-    ]
+    recorded_modes = [call.args[1].mode for call in manager.record_memory_operation.call_args_list]
     assert "context_packet_recent_fallback" in recorded_modes
 
 
@@ -857,9 +851,7 @@ async def test_api_recall_surface_uses_project_files_when_degraded_cache_is_cold
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
     assert "Native PyO3 dogfood recall" in result["packets"][0]["evidence_lines"][0]
     assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
-    recorded_modes = [
-        call.args[1].mode for call in manager.record_memory_operation.call_args_list
-    ]
+    recorded_modes = [call.args[1].mode for call in manager.record_memory_operation.call_args_list]
     assert "project_file_recall_fallback" in recorded_modes
 
 
@@ -941,8 +933,7 @@ async def test_api_recall_surface_prebuilds_project_file_fallback_before_timeout
     ) in cache_keys
     assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
     assert all(
-        call.kwargs.get("persist") is True
-        for call in manager.cache_memory_packets.call_args_list
+        call.kwargs.get("persist") is True for call in manager.cache_memory_packets.call_args_list
     )
 
 
@@ -1043,8 +1034,7 @@ def test_explicit_recall_cache_relevance_ignores_generated_why_now() -> None:
         "episode_ids": ["ep_old"],
         "provenance": ["cue:ep_old"],
         "why_now": (
-            "Relevant to the recall query: qvanta noexisting loadedstore miss "
-            "tail 20260527 probeA"
+            "Relevant to the recall query: qvanta noexisting loadedstore miss tail 20260527 probeA"
         ),
     }
     query = "qvanta noexisting loadedstore miss tail 20260527 probeA"
@@ -1063,10 +1053,7 @@ def test_project_file_cache_requires_distinctive_marker_for_recall() -> None:
         "_project_file_fallback_project_path": "/Users/konnermoshier/Engram",
         "_project_file_fallback_version": _PROJECT_FILE_FALLBACK_PACKET_VERSION,
     }
-    query = (
-        "live dogfood loaded-store recall context trace orchid 20260528 "
-        "mcp current probe"
-    )
+    query = "live dogfood loaded-store recall context trace orchid 20260528 mcp current probe"
 
     assert _filter_packets_for_query([packet], query=query, limit=3) == []
     assert not _packets_satisfy_explicit_query([packet], query=query)
@@ -1419,10 +1406,7 @@ async def test_api_recall_surface_searches_when_project_file_cache_misses_marker
     result = await build_api_recall_surface(
         manager,
         group_id="native_brain",
-        query=(
-            "live dogfood loaded-store recall context trace orchid 20260528 "
-            "mcp current probe"
-        ),
+        query=("live dogfood loaded-store recall context trace orchid 20260528 mcp current probe"),
         limit=3,
         project_path=str(engram_project),
         operation_source="mcp_recall",
@@ -1629,8 +1613,7 @@ async def test_api_recall_surface_returns_project_packets_on_empty_success(
     ) in cache_keys
     assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
     assert all(
-        call.kwargs.get("persist") is True
-        for call in manager.cache_memory_packets.call_args_list
+        call.kwargs.get("persist") is True for call in manager.cache_memory_packets.call_args_list
     )
 
 
@@ -1787,8 +1770,7 @@ async def test_api_recall_surface_ignores_weak_session_recent_for_project_file_f
         manager,
         group_id="native_brain",
         query=(
-            "dogfood finalize idempotent INSERT OR REPLACE "
-            "graph_stats_timeout human label artifact"
+            "dogfood finalize idempotent INSERT OR REPLACE graph_stats_timeout human label artifact"
         ),
         limit=3,
         project_path=str(tmp_path),
@@ -2233,8 +2215,7 @@ async def test_mcp_recall_surface_returns_project_packets_on_empty_success(
     ) in cache_keys
     assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
     assert all(
-        call.kwargs.get("persist") is True
-        for call in manager.cache_memory_packets.call_args_list
+        call.kwargs.get("persist") is True for call in manager.cache_memory_packets.call_args_list
     )
 
 
@@ -2346,9 +2327,7 @@ async def test_mcp_recall_surface_uses_cached_packet_payloads() -> None:
     }
     manager = SimpleNamespace(
         recall=AsyncMock(return_value=[]),
-        get_cached_memory_packets=Mock(
-            return_value=SimpleNamespace(packets=[cached_packet])
-        ),
+        get_cached_memory_packets=Mock(return_value=SimpleNamespace(packets=[cached_packet])),
         cache_memory_packets=Mock(),
         record_memory_operation=Mock(),
         get_recall_need_thresholds=Mock(return_value=None),

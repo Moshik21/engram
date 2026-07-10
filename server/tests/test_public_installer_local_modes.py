@@ -218,23 +218,20 @@ def test_install_script_forwards_explicit_helix_mode() -> None:
     assert '[ "${MODE:-}" = "openclaw" ]' in install_script
     assert '"$BIN_DIR/engramctl" quickstart --mode "$MODE"' in install_script
     assert (
-        '"$BIN_DIR/engramctl" quickstart --mode helix --install-openclaw'
-        " --connect openclaw"
+        '"$BIN_DIR/engramctl" quickstart --mode helix --install-openclaw --connect openclaw'
     ) in install_script
     assert 'if [ "$MODE" = "full" ]; then' in install_script
     assert 'if [ "$MODE" = "full" ] || [ "$MODE" = "openclaw" ]; then' not in install_script
     assert 'package_spec="engram[local,native]"' in install_script
     assert "#subdirectory=server[local,native]" in install_script
     assert 'uv_tool_install_engram "$github_spec" "GitHub"' in install_script
-    assert (
-        install_script.index('uv_tool_install_engram "$github_spec" "GitHub"')
-        < install_script.index('uv_tool_install_engram "$package_spec" "PyPI"')
-    )
+    assert install_script.index(
+        'uv_tool_install_engram "$github_spec" "GitHub"'
+    ) < install_script.index('uv_tool_install_engram "$package_spec" "PyPI"')
     assert "resolve_helix_native_requirement" in install_script
     assert (
         "uv tool install --reinstall-package engram --reinstall-package "
-        'helix-native --with "$helix_native_req" "$package_spec"'
-        in install_script
+        'helix-native --with "$helix_native_req" "$package_spec"' in install_script
     )
     assert "HELIX_NATIVE_SUBDIR" in install_script
     assert "discover_helix_native_release_wheel" in install_script
@@ -298,8 +295,7 @@ def test_engramctl_start_honors_configured_api_port() -> None:
     assert "local_startup_attempts" in engramctl
     assert (
         'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" '
-        '"${doctor_args[@]}"'
-        in engramctl
+        '"${doctor_args[@]}"' in engramctl
     )
     assert "doctor_args+=(--no-lifecycle)" in engramctl
     assert "return 1" in engramctl
@@ -497,8 +493,7 @@ def test_engramctl_storage_reports_native_and_sqlite_paths() -> None:
     engramctl = (ROOT / "installer/engramctl").read_text()
 
     assert (
-        'local helix_data_dir="${ENGRAM_HELIX__DATA_DIR:-$HOME/.helix/engram-native}"'
-        in engramctl
+        'local helix_data_dir="${ENGRAM_HELIX__DATA_DIR:-$HOME/.helix/engram-native}"' in engramctl
     )
     assert 'local sqlite_path="${ENGRAM_SQLITE__PATH:-$LITE_DB_FILE}"' in engramctl
     assert '"http://127.0.0.1:${port}/api/storage?live=true&timeoutSeconds=5"' in engramctl
@@ -521,13 +516,13 @@ def test_engramctl_storage_offline_smoke_shows_native_data_path(tmp_path: Path) 
 def test_engramctl_connect_uses_release_clean_mcp_paths() -> None:
     engramctl = (ROOT / "installer/engramctl").read_text()
 
-    assert '$HOME/.codex/config.toml' in engramctl
+    assert "$HOME/.codex/config.toml" in engramctl
     assert "write_codex_mcp_config" in engramctl
     assert "[mcp_servers.engram]" in engramctl
     assert "remote_mcp_client_enabled = true" in engramctl
-    assert 'project_path/.mcp.json' in engramctl
-    assert 'project_path/.cursor/mcp.json' in engramctl
-    assert '$HOME/.codeium/windsurf/mcp_config.json' in engramctl
+    assert "project_path/.mcp.json" in engramctl
+    assert "project_path/.cursor/mcp.json" in engramctl
+    assert "$HOME/.codeium/windsurf/mcp_config.json" in engramctl
     assert '"type": "http"' in engramctl
     assert 'url": "$url"' in engramctl
     assert "openclaw mcp set engram" in engramctl
@@ -537,7 +532,7 @@ def test_engramctl_connect_uses_release_clean_mcp_paths() -> None:
     assert "OpenClaw CLI not found and npx is unavailable" in engramctl
     assert "OpenClaw: $openclaw_cmd skills list --eligible" in engramctl
     assert 'OPENCLAW_SKILL_SLUG="${ENGRAM_OPENCLAW_SKILL_SLUG:-engram-brain}"' in engramctl
-    assert '$HOME/.openclaw/skills/$OPENCLAW_SKILL_SLUG' in engramctl
+    assert "$HOME/.openclaw/skills/$OPENCLAW_SKILL_SLUG" in engramctl
 
 
 def test_engramctl_connect_codex_writes_global_toml(tmp_path: Path) -> None:
@@ -694,15 +689,13 @@ def test_engramctl_update_preserves_helix_native_package_extras() -> None:
     assert 'install_engram_tool_with_native "$package_spec"' in engramctl
     assert (
         "uv tool install --force --reinstall-package engram --reinstall-package "
-        'helix-native --with "$helix_native_req"'
-        in engramctl
+        'helix-native --with "$helix_native_req"' in engramctl
     )
     assert "resolve_helix_native_requirement" in engramctl
     assert "discover_helix_native_release_wheel" in engramctl
     assert "local_helix_native_requirement" in engramctl
-    assert (
-        engramctl.index('install_engram_tool_with_native "$github_spec"')
-        < engramctl.index('install_engram_tool_with_native "$package_spec"')
+    assert engramctl.index('install_engram_tool_with_native "$github_spec"') < engramctl.index(
+        'install_engram_tool_with_native "$package_spec"'
     )
     assert "cargo --version" in engramctl
     assert "rustup default stable" in engramctl

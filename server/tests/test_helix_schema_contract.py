@@ -12,9 +12,7 @@ NATIVE_SCHEMA = REPO_ROOT / "helixdb-cfg/db/schema.hx"
 NATIVE_GENERATED_QUERIES = (
     REPO_ROOT / "helixdb-cfg/.helix/dev/helix-repo-copy/helix-container/src/queries.rs"
 )
-NATIVE_BUNDLED_GENERATED_QUERIES = (
-    REPO_ROOT / "native/helix-repo/helix-python/src/queries.rs"
-)
+NATIVE_BUNDLED_GENERATED_QUERIES = REPO_ROOT / "native/helix-repo/helix-python/src/queries.rs"
 
 ENTITY_HX_FIELDS = {
     "name": "String",
@@ -298,9 +296,7 @@ def test_helix_stats_bulk_queries_are_synced_across_helix_sources() -> None:
         "count_episodes_by_group": "gid: String",
         "count_relationships_by_group": "gid: String",
         "count_cues_by_group": "gid: String",
-        "get_projected_episode_entities_by_group": (
-            "gid: String, projection_state: String"
-        ),
+        "get_projected_episode_entities_by_group": ("gid: String, projection_state: String"),
         "get_projected_episode_entities_all": "projection_state: String",
     }
 

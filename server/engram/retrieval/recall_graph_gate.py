@@ -21,8 +21,7 @@ def graph_probe_timed_out(stage_timings_ms: dict[str, float] | None) -> bool:
     return bool(
         stage_timings_ms
         and (
-            "recall_stats_timeout" in stage_timings_ms
-            or "graph_expand_timeout" in stage_timings_ms
+            "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
         )
     )
 

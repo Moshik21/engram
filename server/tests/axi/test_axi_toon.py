@@ -24,4 +24,3 @@ def test_render_toon_quotes_special_scalars() -> None:
 
     assert 'cmd: "engram axi recall \\"query\\""' in output
     assert 'text: "a:b"' in output
-

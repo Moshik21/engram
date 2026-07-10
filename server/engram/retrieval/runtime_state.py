@@ -399,9 +399,7 @@ def _build_agent_adoption_guidance(
         "status": status,
         "doNotTreatEmptyAsFailure": bool(fresh_runtime or needs_bootstrap),
         "requiredNextTools": required_tools,
-        "harnessCaptureActive": harness_capture_active_from_metrics(
-            memory_operation_metrics
-        ),
+        "harnessCaptureActive": harness_capture_active_from_metrics(memory_operation_metrics),
         **({"adoptionDebt": adoption_debt_field} if adoption_debt_field else {}),
         "beforeAnswer": {
             "required": True,
@@ -498,9 +496,7 @@ def _with_cache_metadata(
         {
             "live": live,
             "cacheStatus": cache_status,
-            "runtimeStateAgeSeconds": 0
-            if cached_at is None
-            else max(0, int(now - cached_at)),
+            "runtimeStateAgeSeconds": 0 if cached_at is None else max(0, int(now - cached_at)),
             "timeout": timeout,
             "stageTimingsMs": stage_timings,
         }

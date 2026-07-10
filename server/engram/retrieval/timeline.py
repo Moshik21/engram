@@ -243,9 +243,7 @@ async def build_timeline_surface(
         limit=limit,
     )
     rows = build_timeline_rows(recall_results, facts)
-    event_time_rows = sum(
-        1 for r in rows if r.date_basis in ("conversation_date", "valid_from")
-    )
+    event_time_rows = sum(1 for r in rows if r.date_basis in ("conversation_date", "valid_from"))
     return {
         "operation": "timeline",
         "query": query,

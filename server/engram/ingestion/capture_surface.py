@@ -224,9 +224,7 @@ def _capture_stage_timings(manager: Any) -> dict[str, float]:
     if not isinstance(timings, Mapping):
         return {}
     return {
-        str(key): float(value)
-        for key, value in timings.items()
-        if isinstance(value, int | float)
+        str(key): float(value) for key, value in timings.items() if isinstance(value, int | float)
     }
 
 
@@ -644,10 +642,13 @@ async def build_api_auto_observe_surface(
         packet_source="api_auto_observe",
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return attach_api_capture_diagnostics(present_api_memory_write(
-        memory_write_contract("observe", episode_id),
-        status="observed",
-    ), manager)
+    return attach_api_capture_diagnostics(
+        present_api_memory_write(
+            memory_write_contract("observe", episode_id),
+            status="observed",
+        ),
+        manager,
+    )
 
 
 async def build_api_auto_observe_request_surface(
@@ -736,10 +737,13 @@ async def build_api_observe_write_surface(
         conversation_date=parse_conversation_date(conversation_date),
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return attach_api_capture_diagnostics(present_api_memory_write(
-        memory_write_contract("observe", episode_id),
-        status="observed",
-    ), manager)
+    return attach_api_capture_diagnostics(
+        present_api_memory_write(
+            memory_write_contract("observe", episode_id),
+            status="observed",
+        ),
+        manager,
+    )
 
 
 async def build_api_attachment_observe_write_surface(
@@ -772,11 +776,14 @@ async def build_api_attachment_observe_write_surface(
         attachments=[attachment],
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return attach_api_capture_diagnostics(present_api_memory_write(
-        memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
-        status="stored",
-        include_legacy_episode_id=True,
-    ), manager)
+    return attach_api_capture_diagnostics(
+        present_api_memory_write(
+            memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
+            status="stored",
+            include_legacy_episode_id=True,
+        ),
+        manager,
+    )
 
 
 async def load_remember_committed_facts(
@@ -835,29 +842,19 @@ async def load_remember_committed_facts(
                     if not committed_id:
                         continue
                     fact_class = str(row.get("fact_class") or "")
-                    payload = (
-                        row.get("payload")
-                        if isinstance(row.get("payload"), Mapping)
-                        else {}
-                    )
+                    payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
                     if fact_class == "entity":
                         if committed_id not in seen_entity_ids:
                             entity_ids.append(committed_id)
                             seen_entity_ids.add(committed_id)
-                    elif (
-                        fact_class == "relationship"
-                        and committed_id not in seen_rel_ids
-                    ):
+                    elif fact_class == "relationship" and committed_id not in seen_rel_ids:
                         seen_rel_ids.add(committed_id)
                         relationship_rows.append(
                             {
                                 "id": committed_id,
-                                "subject": payload.get("subject")
-                                or payload.get("source"),
-                                "predicate": payload.get("predicate")
-                                or payload.get("relation"),
-                                "object": payload.get("object")
-                                or payload.get("target"),
+                                "subject": payload.get("subject") or payload.get("source"),
+                                "predicate": payload.get("predicate") or payload.get("relation"),
+                                "object": payload.get("object") or payload.get("target"),
                             }
                         )
         except Exception:
@@ -902,13 +899,9 @@ async def load_remember_committed_facts(
                     {
                         "id": str(ent.get("id") or eid),
                         "name": str(ent.get("name") or ""),
-                        "entity_type": str(
-                            ent.get("entity_type") or ent.get("type") or ""
-                        ),
+                        "entity_type": str(ent.get("entity_type") or ent.get("type") or ""),
                         "summary": ent.get("summary"),
-                        "identity_core": bool(
-                            ent.get("identity_core") in (True, 1, "1")
-                        ),
+                        "identity_core": bool(ent.get("identity_core") in (True, 1, "1")),
                     }
                 )
             else:
@@ -1275,16 +1268,19 @@ async def build_mcp_remember_write_surface(
     )
     _invalidate_durable_context_after_remember(group_id)
 
-    response = attach_mcp_capture_diagnostics(present_mcp_memory_write(
-        memory_write_contract(
-            "remember",
-            episode_id,
-            adjudication_requests=adjudications,
-            committed_entities=committed_entities,
-            committed_relationships=committed_relationships,
+    response = attach_mcp_capture_diagnostics(
+        present_mcp_memory_write(
+            memory_write_contract(
+                "remember",
+                episode_id,
+                adjudication_requests=adjudications,
+                committed_entities=committed_entities,
+                committed_relationships=committed_relationships,
+            ),
+            message=message,
         ),
-        message=message,
-    ), manager)
+        manager,
+    )
     response["promotion"] = promotion_meta
     await _run_mcp_write_side_effect(
         "recall_middleware",
@@ -1346,10 +1342,13 @@ async def build_mcp_observe_write_surface(
         packet_source="mcp_observe",
     )
     side_effect_timings: dict[str, float] = {}
-    response = attach_mcp_capture_diagnostics(present_mcp_memory_write(
-        memory_write_contract("observe", episode_id),
-        message="Stored for background processing.",
-    ), manager)
+    response = attach_mcp_capture_diagnostics(
+        present_mcp_memory_write(
+            memory_write_contract("observe", episode_id),
+            message="Stored for background processing.",
+        ),
+        manager,
+    )
     await _run_mcp_write_side_effect(
         "live_turn",
         ingest_live_turn(manager, content, source="observe"),
@@ -1417,7 +1416,10 @@ async def build_mcp_attachment_observe_write_surface(
     )
     record_mcp_memory_write_activity(session)
     await _record_write_operation(manager, group_id, finish_operation)
-    return attach_mcp_capture_diagnostics(present_mcp_memory_write(
-        memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
-        message=f"{attachment_kind.title()} stored for background processing.",
-    ), manager)
+    return attach_mcp_capture_diagnostics(
+        present_mcp_memory_write(
+            memory_write_contract("observe", episode_id, attachment_kind=attachment_kind),
+            message=f"{attachment_kind.title()} stored for background processing.",
+        ),
+        manager,
+    )

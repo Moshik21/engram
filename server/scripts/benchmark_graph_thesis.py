@@ -23,10 +23,10 @@ Run (native, LLM extraction):
     ENGRAM_ACTIVATION__EVIDENCE_EXTRACTION_ENABLED=false \
     uv run python scripts/benchmark_graph_thesis.py data/graphthesis/*.json --top-k 5
 """
+
 from __future__ import annotations
 
 # ruff: noqa: E501  (diagnostic script; long report/dict lines are fine)
-
 import argparse
 import asyncio
 import json
@@ -36,6 +36,7 @@ from pathlib import Path
 
 def _parse_date(s):
     from engram.benchmark.longmemeval.adapter import _parse_session_date
+
     try:
         return _parse_session_date(s) if s else None
     except Exception:
@@ -48,7 +49,7 @@ async def _build_manager(activation_cfg, graph_on: bool):
 
     adapter = EngramLongMemEvalAdapter(
         cfg=activation_cfg,
-        extraction_mode="auto",          # auto -> Anthropic when key present
+        extraction_mode="auto",  # auto -> Anthropic when key present
         embedding_provider="local",
         reranker_provider="local",
         use_graph=graph_on,
@@ -80,12 +81,15 @@ async def _ingest_persona(adapter, group_id, persona) -> dict[str, str]:
         sid = sess["session_id"]
         date = sess.get("date")
         turns = sess.get("turns", [])
-        body = "\n".join(f"{t.get('role','user')}: {t.get('text','')}" for t in turns)
+        body = "\n".join(f"{t.get('role', 'user')}: {t.get('text', '')}" for t in turns)
         content = (f"[Conversation from {date}]\n{body}" if date else body).strip()
         if not content:
             continue
         ep_id = await adapter._manager.store_episode(
-            content, group_id=group_id, source=f"gt:{sid}", session_id=sid,
+            content,
+            group_id=group_id,
+            source=f"gt:{sid}",
+            session_id=sid,
             conversation_date=_parse_date(date),
         )
         ep_to_session[ep_id] = sid
@@ -118,7 +122,10 @@ async def _precondition_gate(adapter, group_id, persona) -> dict[str, bool]:
             # answer sessions -> their episode ids (from our ingest map stored on q)
             ans_eps = set(q.get("_answer_episode_ids", []))
             linked = bool(srcs & ans_eps)
-        gate[q["qid"]] = {"bridge_in_graph": bridge_ent is not None, "bridge_linked_to_answer": linked}
+        gate[q["qid"]] = {
+            "bridge_in_graph": bridge_ent is not None,
+            "bridge_linked_to_answer": linked,
+        }
     return gate
 
 
@@ -150,12 +157,16 @@ async def run_persona(path: Path, top_k: int) -> dict:
     for ep, sid in ep_to_session.items():
         session_to_ep.setdefault(sid, []).append(ep)
     for q in persona["queries"]:
-        q["_answer_episode_ids"] = [e for sid in q.get("answer_session_ids", []) for e in session_to_ep.get(sid, [])]
+        q["_answer_episode_ids"] = [
+            e for sid in q.get("answer_session_ids", []) for e in session_to_ep.get(sid, [])
+        ]
     gate = await _precondition_gate(adapter_on, gid, persona)
 
     rows = []
     for q in persona["queries"]:
-        res_on = await adapter_on._manager.recall(q["question"], group_id=gid, limit=top_k, record_access=False)
+        res_on = await adapter_on._manager.recall(
+            q["question"], group_id=gid, limit=top_k, record_access=False
+        )
         ret_on = _retrieved_sessions(res_on, ep_to_session, top_k)
         rows.append({"q": q, "ret_on": ret_on})
     await _close(adapter_on)
@@ -165,7 +176,9 @@ async def run_persona(path: Path, top_k: int) -> dict:
     adapter_off, gid2 = await _build_manager(cfg_off.activation, graph_on=False)
     for row in rows:
         q = row["q"]
-        res_off = await adapter_off._manager.recall(q["question"], group_id=gid2, limit=top_k, record_access=False)
+        res_off = await adapter_off._manager.recall(
+            q["question"], group_id=gid2, limit=top_k, record_access=False
+        )
         row["ret_off"] = _retrieved_sessions(res_off, ep_to_session, top_k)
     await _close(adapter_off)
 
@@ -177,15 +190,26 @@ async def run_persona(path: Path, top_k: int) -> dict:
     for row in rows:
         q = row["q"]
         ans = q.get("answer_session_ids", [])
-        out_queries.append({
-            "qid": q["qid"], "type": q["type"], "bridge": q.get("bridge_entity"),
-            "answer_sessions": ans,
-            "on_hit": hit(row["ret_on"], ans), "off_hit": hit(row["ret_off"], ans),
-            "ret_on": row["ret_on"], "ret_off": row["ret_off"],
-            "gate": gate.get(q["qid"]),
-        })
-    return {"persona_id": pid, "extractor": extractor_kind, "num_sessions": len(persona["sessions"]),
-            "top_k": top_k, "queries": out_queries}
+        out_queries.append(
+            {
+                "qid": q["qid"],
+                "type": q["type"],
+                "bridge": q.get("bridge_entity"),
+                "answer_sessions": ans,
+                "on_hit": hit(row["ret_on"], ans),
+                "off_hit": hit(row["ret_off"], ans),
+                "ret_on": row["ret_on"],
+                "ret_off": row["ret_off"],
+                "gate": gate.get(q["qid"]),
+            }
+        )
+    return {
+        "persona_id": pid,
+        "extractor": extractor_kind,
+        "num_sessions": len(persona["sessions"]),
+        "top_k": top_k,
+        "queries": out_queries,
+    }
 
 
 async def _close(adapter):
@@ -210,7 +234,8 @@ async def main(args):
                 if q["type"] != qtype:
                     continue
                 n += 1
-                on += int(q["on_hit"]); off += int(q["off_hit"])
+                on += int(q["on_hit"])
+                off += int(q["off_hit"])
         return on, off, n
 
     mh_on, mh_off, mh_n = agg("multi_hop")
@@ -224,14 +249,27 @@ async def main(args):
     }
     print(json.dumps(report, indent=2))
     print("\n=== SUMMARY ===", file=sys.stderr)
-    print(f"multi_hop answer-session recall: graph-OFF {mh_off}/{mh_n} -> graph-ON {mh_on}/{mh_n}", file=sys.stderr)
-    print(f"control   answer-session recall: graph-OFF {c_off}/{c_n} -> graph-ON {c_on}/{c_n}", file=sys.stderr)
+    print(
+        f"multi_hop answer-session recall: graph-OFF {mh_off}/{mh_n} -> graph-ON {mh_on}/{mh_n}",
+        file=sys.stderr,
+    )
+    print(
+        f"control   answer-session recall: graph-OFF {c_off}/{c_n} -> graph-ON {c_on}/{c_n}",
+        file=sys.stderr,
+    )
     # precondition transparency
-    bad = [(per['persona_id'], q['qid']) for per in all_personas for q in per['queries']
-           if q['type'] == 'multi_hop' and q['gate'] and not q['gate']['bridge_linked_to_answer']]
+    bad = [
+        (per["persona_id"], q["qid"])
+        for per in all_personas
+        for q in per["queries"]
+        if q["type"] == "multi_hop" and q["gate"] and not q["gate"]["bridge_linked_to_answer"]
+    ]
     if bad:
-        print(f"PRECONDITION: {len(bad)} multi_hop queries where the graph never linked bridge->answer "
-              f"(extraction gap, not a traversal failure): {bad}", file=sys.stderr)
+        print(
+            f"PRECONDITION: {len(bad)} multi_hop queries where the graph never linked bridge->answer "
+            f"(extraction gap, not a traversal failure): {bad}",
+            file=sys.stderr,
+        )
     if args.output:
         Path(args.output).write_text(json.dumps(report, indent=2))
 

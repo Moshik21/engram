@@ -142,9 +142,7 @@ async def build_api_recall_surface(
         _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
         return response
     project_file_fallback_path = (
-        project_path or _default_project_path_for_recall()
-        if not cache_packets
-        else None
+        project_path or _default_project_path_for_recall() if not cache_packets else None
     )
     prefer_project_file_before_recent = bool(project_path)
     project_file_fallback_task = _start_project_file_recall_fallback_task(
@@ -205,9 +203,7 @@ async def build_api_recall_surface(
                 operation_source=operation_source,
             )
             stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
-            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-                project_file_started
-            )
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
             if build_duration_ms is not None:
                 stage_timings["project_file_recall_fallback"] = build_duration_ms
             used_project_file_fallback = bool(packets)
@@ -222,11 +218,7 @@ async def build_api_recall_surface(
                 allow_recent_miss=True,
                 project_path=project_path,
             )
-        if (
-            not packets
-            and not prefer_project_file_before_recent
-            and project_file_fallback_path
-        ):
+        if not packets and not prefer_project_file_before_recent and project_file_fallback_path:
             project_file_started = time.perf_counter()
             packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
                 project_file_fallback_task,
@@ -238,9 +230,7 @@ async def build_api_recall_surface(
                 operation_source=operation_source,
             )
             stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
-            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-                project_file_started
-            )
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
             if build_duration_ms is not None:
                 stage_timings["project_file_recall_fallback"] = build_duration_ms
             used_project_file_fallback = bool(packets)
@@ -277,8 +267,8 @@ async def build_api_recall_surface(
             serializer=memory_packet_to_api_dict,
             operation_source=operation_source,
         )
-        recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = (
-            _elapsed_ms(packet_started)
+        recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = _elapsed_ms(
+            packet_started
         )
     if (
         recall_metadata["status"] == "ok"
@@ -301,9 +291,7 @@ async def build_api_recall_surface(
             ),
         )
         stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
-        stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-            project_file_started
-        )
+        stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
         if build_duration_ms is not None:
             stage_timings["project_file_recall_fallback"] = build_duration_ms
         if packets:
@@ -381,9 +369,7 @@ async def build_mcp_recall_surface(
         )
         return response
     project_file_fallback_path = (
-        project_path or _default_project_path_for_recall()
-        if not cache_packets
-        else None
+        project_path or _default_project_path_for_recall() if not cache_packets else None
     )
     prefer_project_file_before_recent = bool(project_path)
     project_file_fallback_task = _start_project_file_recall_fallback_task(
@@ -444,9 +430,7 @@ async def build_mcp_recall_surface(
                 operation_source="mcp_recall",
             )
             stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
-            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-                project_file_started
-            )
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
             if build_duration_ms is not None:
                 stage_timings["project_file_recall_fallback"] = build_duration_ms
             used_project_file_fallback = bool(packets)
@@ -461,11 +445,7 @@ async def build_mcp_recall_surface(
                 allow_recent_miss=True,
                 project_path=project_path,
             )
-        if (
-            not packets
-            and not prefer_project_file_before_recent
-            and project_file_fallback_path
-        ):
+        if not packets and not prefer_project_file_before_recent and project_file_fallback_path:
             project_file_started = time.perf_counter()
             packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
                 project_file_fallback_task,
@@ -477,9 +457,7 @@ async def build_mcp_recall_surface(
                 operation_source="mcp_recall",
             )
             stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
-            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-                project_file_started
-            )
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
             if build_duration_ms is not None:
                 stage_timings["project_file_recall_fallback"] = build_duration_ms
             used_project_file_fallback = bool(packets)
@@ -530,8 +508,8 @@ async def build_mcp_recall_surface(
             serializer=lambda packet: packet.to_dict(),
             operation_source="mcp_recall",
         )
-        recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = (
-            _elapsed_ms(packet_started)
+        recall_metadata.setdefault("stage_timings_ms", {})["packet_assembly"] = _elapsed_ms(
+            packet_started
         )
     if (
         recall_metadata["status"] == "ok"
@@ -554,9 +532,7 @@ async def build_mcp_recall_surface(
             ),
         )
         stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
-        stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-            project_file_started
-        )
+        stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
         if build_duration_ms is not None:
             stage_timings["project_file_recall_fallback"] = build_duration_ms
         if packets:
@@ -707,9 +683,7 @@ async def _run_explicit_recall_with_budget(
                 operation_source=operation_source,
                 timeout_seconds=PROJECT_FILE_RECALL_FALLBACK_WAIT_SECONDS,
             )
-            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(
-                project_file_started
-            )
+            stage_timings["project_file_recall_fallback_wait"] = _elapsed_ms(project_file_started)
             if build_duration_ms is not None:
                 stage_timings["project_file_recall_fallback"] = build_duration_ms
             if packets:
@@ -799,9 +773,7 @@ async def _run_explicit_recall_with_budget(
                 limit=limit,
                 timeout_seconds=1.25,
             )
-            stage_timings["durable_entity_rescue_after_timeout"] = _elapsed_ms(
-                rescue_started
-            )
+            stage_timings["durable_entity_rescue_after_timeout"] = _elapsed_ms(rescue_started)
             if rescue:
                 duration_ms = round((time.perf_counter() - started) * 1000, 4)
                 await _record_recall_budget_event(
@@ -903,9 +875,7 @@ async def _maybe_run_success_fast_fallback(
     )
     stage_timings = recall_metadata.setdefault("stage_timings_ms", {})
     stage_key = (
-        "recall_empty_success_fallback"
-        if live_results_empty
-        else "recall_low_overlap_fallback"
+        "recall_empty_success_fallback" if live_results_empty else "recall_low_overlap_fallback"
     )
     stage_timings[stage_key] = _elapsed_ms(fallback_started)
     recall_metadata["fallback_status"] = (
@@ -1102,9 +1072,7 @@ def _manager_recall_stage_timings(manager: Any) -> dict[str, float]:
     if not isinstance(timings, dict):
         return {}
     return {
-        str(key): float(value)
-        for key, value in timings.items()
-        if isinstance(value, int | float)
+        str(key): float(value) for key, value in timings.items() if isinstance(value, int | float)
     }
 
 
@@ -1224,11 +1192,7 @@ def _name_query_overlap_score(name: str, query: str, probe_token: str) -> float:
     if probe_l and len(probe_l) >= 5 and probe_l in name_l:
         score += 0.45 if len(probe_l) >= 8 else 0.25
 
-    query_parts = {
-        p
-        for p in re.findall(r"[a-z0-9]{4,}", query_l)
-        if p not in _RESCUE_STOPWORDS
-    }
+    query_parts = {p for p in re.findall(r"[a-z0-9]{4,}", query_l) if p not in _RESCUE_STOPWORDS}
     name_parts = set(re.findall(r"[a-z0-9]{4,}", name_l))
     if query_parts and name_parts:
         overlap = query_parts & name_parts
@@ -1446,8 +1410,7 @@ def _recall_results_satisfy_query(
         return True
     required_matches = 1 if len(tokens) == 1 else FAST_RECALL_FALLBACK_MIN_MATCHES
     return any(
-        len(_recall_result_query_matches(result, tokens)) >= required_matches
-        for result in results
+        len(_recall_result_query_matches(result, tokens)) >= required_matches for result in results
     )
 
 
@@ -2145,9 +2108,7 @@ def _default_project_path_for_recall() -> str | None:
         "off",
     }:
         return None
-    raw_path = os.environ.get("ENGRAM_RECALL_PROJECT_PATH") or os.environ.get(
-        "ENGRAM_PROJECT_PATH"
-    )
+    raw_path = os.environ.get("ENGRAM_RECALL_PROJECT_PATH") or os.environ.get("ENGRAM_PROJECT_PATH")
     if raw_path:
         return str(Path(raw_path).expanduser())
     cwd = Path.cwd()
@@ -2395,17 +2356,13 @@ def _packet_has_loaded_store_source(packet: Mapping[str, Any]) -> bool:
     else:
         provenance_items = ()
     return any(
-        str(item).startswith(("episode:", "entity:", "relationship:"))
-        for item in provenance_items
+        str(item).startswith(("episode:", "entity:", "relationship:")) for item in provenance_items
     )
 
 
 def _packet_has_project_file_fallback_source(packet: Mapping[str, Any]) -> bool:
     """Return whether a packet came from the bounded project-file fallback."""
-    if (
-        packet.get("_project_file_fallback_version")
-        != _PROJECT_FILE_FALLBACK_PACKET_VERSION
-    ):
+    if packet.get("_project_file_fallback_version") != _PROJECT_FILE_FALLBACK_PACKET_VERSION:
         return False
     trust = packet.get("trust")
     if isinstance(trust, Mapping) and str(trust.get("source") or "") == "project_file":
@@ -2420,10 +2377,7 @@ def _packet_has_stale_project_file_fallback_source(packet: Mapping[str, Any]) ->
     ) or str(packet.get("source") or "") == "project_file"
     if not is_project_file:
         return False
-    return (
-        packet.get("_project_file_fallback_version")
-        != _PROJECT_FILE_FALLBACK_PACKET_VERSION
-    )
+    return packet.get("_project_file_fallback_version") != _PROJECT_FILE_FALLBACK_PACKET_VERSION
 
 
 def _project_file_packet_matches_query(
@@ -2501,9 +2455,7 @@ def _diagnostic_recall_packet(
             "freshness": "runtime",
             "source": "recall_budget",
             "confidence": 1.0,
-            "why_now": (
-                "The packet reports recall runtime state; it is not a memory claim."
-            ),
+            "why_now": ("The packet reports recall runtime state; it is not a memory claim."),
             "provenance_count": 1,
             "evidence_count": len(evidence_lines),
             "belief_status": "diagnostic",

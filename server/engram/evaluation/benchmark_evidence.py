@@ -47,9 +47,7 @@ def build_benchmark_evidence(
         if _mapping(item).get("baseline_name") == baseline
     ]
     available_scenarios = [
-        item
-        for item in scenario_results
-        if bool(_mapping(item).get("available", True))
+        item for item in scenario_results if bool(_mapping(item).get("available", True))
     ]
     scenario_count = len(available_scenarios)
     passed_count = sum(1 for item in available_scenarios if bool(_mapping(item).get("passed")))

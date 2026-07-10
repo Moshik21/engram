@@ -89,10 +89,7 @@ class TestEngramConfig:
         )
 
         assert config.get_packet_cache_path("lite") == tmp_path / "engram.packet-cache.db"
-        assert (
-            config.get_cue_index_outbox_path("lite")
-            == tmp_path / "engram.cue-index-outbox.db"
-        )
+        assert config.get_cue_index_outbox_path("lite") == tmp_path / "engram.cue-index-outbox.db"
 
     def test_runtime_packet_cache_path_uses_native_helix_data_dir(self, tmp_path):
         config = EngramConfig(

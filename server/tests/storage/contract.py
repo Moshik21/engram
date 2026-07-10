@@ -148,9 +148,7 @@ class GraphStoreContractTests(abc.ABC):
         )
         await self.store.create_relationship(rel)
 
-        rels = await self.store.get_relationships(
-            src, direction="outgoing", group_id=self.group_id
-        )
+        rels = await self.store.get_relationships(src, direction="outgoing", group_id=self.group_id)
         assert len(rels) >= 1
         assert any(r.predicate == "CONNECTS" for r in rels)
 
@@ -207,9 +205,7 @@ class GraphStoreContractTests(abc.ABC):
                 group_id=self.group_id,
             )
         )
-        candidates = await self.store.find_entity_candidates(
-            "FastAPI Framework", self.group_id
-        )
+        candidates = await self.store.find_entity_candidates("FastAPI Framework", self.group_id)
         candidate_ids = [c.id for c in candidates]
         assert eid in candidate_ids
 

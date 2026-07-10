@@ -40,8 +40,10 @@ async def main(args: argparse.Namespace) -> None:
     print(f"{'=' * 60}")
     print(f"Conversations:  {result.total_conversations}")
     print(f"Total probes:   {result.total_probes}")
-    print(f"Config:         reader={result.reader_mode} judge={result.judge_mode} "
-          f"graph={result.use_graph} extraction={args.extraction}")
+    print(
+        f"Config:         reader={result.reader_mode} judge={result.judge_mode} "
+        f"graph={result.use_graph} extraction={args.extraction}"
+    )
     if result.overall_llm_accuracy is not None:
         print(f"LLM-judge acc:  {result.overall_llm_accuracy:.3f}")
     print(f"Overall F1:     {result.overall_f1:.3f}")

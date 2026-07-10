@@ -100,22 +100,19 @@ async def test_evaluation_store_prunes_recall_runtime_metrics_by_group(tmp_path)
 
         default_count = await (
             await store.db.execute(
-                "SELECT COUNT(*) FROM evaluation_recall_runtime_metrics "
-                "WHERE group_id = ?",
+                "SELECT COUNT(*) FROM evaluation_recall_runtime_metrics WHERE group_id = ?",
                 ("default",),
             )
         ).fetchone()
         other_count = await (
             await store.db.execute(
-                "SELECT COUNT(*) FROM evaluation_recall_runtime_metrics "
-                "WHERE group_id = ?",
+                "SELECT COUNT(*) FROM evaluation_recall_runtime_metrics WHERE group_id = ?",
                 ("other",),
             )
         ).fetchone()
         oldest_default = await (
             await store.db.execute(
-                "SELECT MIN(timestamp) FROM evaluation_recall_runtime_metrics "
-                "WHERE group_id = ?",
+                "SELECT MIN(timestamp) FROM evaluation_recall_runtime_metrics WHERE group_id = ?",
                 ("default",),
             )
         ).fetchone()
@@ -332,9 +329,7 @@ async def test_evaluation_store_replaces_duplicate_metric_snapshots(tmp_path) ->
         )
 
         recall_metrics = await store.get_latest_recall_metrics_snapshot("default")
-        memory_metrics = await store.get_latest_memory_operation_metrics_snapshot(
-            "default"
-        )
+        memory_metrics = await store.get_latest_memory_operation_metrics_snapshot("default")
 
         assert recall_metrics["total_analyses"] == 2
         assert memory_metrics["operation_count"] == 2
@@ -369,22 +364,19 @@ async def test_evaluation_store_prunes_memory_operation_metrics_by_group(tmp_pat
 
         default_count = await (
             await store.db.execute(
-                "SELECT COUNT(*) FROM evaluation_memory_operation_metrics "
-                "WHERE group_id = ?",
+                "SELECT COUNT(*) FROM evaluation_memory_operation_metrics WHERE group_id = ?",
                 ("default",),
             )
         ).fetchone()
         other_count = await (
             await store.db.execute(
-                "SELECT COUNT(*) FROM evaluation_memory_operation_metrics "
-                "WHERE group_id = ?",
+                "SELECT COUNT(*) FROM evaluation_memory_operation_metrics WHERE group_id = ?",
                 ("other",),
             )
         ).fetchone()
         oldest_default = await (
             await store.db.execute(
-                "SELECT MIN(timestamp) FROM evaluation_memory_operation_metrics "
-                "WHERE group_id = ?",
+                "SELECT MIN(timestamp) FROM evaluation_memory_operation_metrics WHERE group_id = ?",
                 ("default",),
             )
         ).fetchone()

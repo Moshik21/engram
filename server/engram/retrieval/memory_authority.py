@@ -103,15 +103,10 @@ def _build_onboarding(runtime_state: Mapping[str, Any], *, project_path: str | N
     metrics_gap = _metrics_are_empty_or_zero(recall_metrics) and _metrics_are_empty_or_zero(
         epistemic_metrics
     )
-    fresh_runtime = (
-        artifact_gap
-        and metrics_gap
-    )
+    fresh_runtime = artifact_gap and metrics_gap
     needs_project_bootstrap = artifact_gap or stale_count > 0
     should_bootstrap = bool(
-        project_path
-        and artifacts.get("enabled", True)
-        and needs_project_bootstrap
+        project_path and artifacts.get("enabled", True) and needs_project_bootstrap
     )
     actions = []
     if should_bootstrap:
@@ -128,8 +123,7 @@ def _build_onboarding(runtime_state: Mapping[str, Any], *, project_path: str | N
                 "tool": "bootstrap_project",
                 "args": {"project_path": "<current_project_path>"},
                 "reason": (
-                    "Runtime is fresh; provide a project path before assuming "
-                    "Engram is empty."
+                    "Runtime is fresh; provide a project path before assuming Engram is empty."
                 ),
             }
         )
@@ -225,10 +219,7 @@ def _build_protocol_verification(
     if capture_required:
         example.append({"phase": "capture", "tool": str(capture["tool"])})
     return {
-        "command": (
-            "engram adoption --authority claim-authority.json "
-            "--calls mcp-calls.jsonl"
-        ),
+        "command": ("engram adoption --authority claim-authority.json --calls mcp-calls.jsonl"),
         "live_evidence_command": (
             "engram adoption --authority claim-authority.json "
             "--calls live-harness-transcript.json --require-live-evidence"
@@ -333,9 +324,8 @@ def _project_local_only(text: str) -> bool:
         "temporary implementation",
         "local fixture",
     )
-    return (
-        any(marker in normalized for marker in local_markers)
-        and not _message_is_high_signal(text)
+    return any(marker in normalized for marker in local_markers) and not _message_is_high_signal(
+        text
     )
 
 
@@ -349,17 +339,9 @@ def validate_agent_protocol_calls(
     call transcript and use this validator to prove they did not treat
     file-based memory as a substitute for Engram.
     """
-    required = [
-        str(tool)
-        for tool in protocol.get("required_tools_before_answer") or []
-        if tool
-    ]
+    required = [str(tool) for tool in protocol.get("required_tools_before_answer") or [] if tool]
     before_answer_tools = _tools_for_phase(calls, "before_answer")
-    missing_required = [
-        tool
-        for tool in required
-        if tool not in before_answer_tools
-    ]
+    missing_required = [tool for tool in required if tool not in before_answer_tools]
     required_sequence_satisfied = _sequence_in_order(before_answer_tools, required)
 
     capture = _mapping(protocol.get("capture"))
@@ -423,9 +405,7 @@ def _validate_capture(
         missing = not any(tool in ENGRAM_CAPTURE_TOOLS for tool in capture_tools)
     elif destination in {"none", "project_local"}:
         unexpected_engram_capture_tools = [
-            tool
-            for tool in capture_tools
-            if tool in ENGRAM_CAPTURE_TOOLS
+            tool for tool in capture_tools if tool in ENGRAM_CAPTURE_TOOLS
         ]
 
     return {
@@ -441,11 +421,7 @@ def _tools_for_phase(
     calls: Sequence[Mapping[str, Any]],
     phase: str,
 ) -> list[str]:
-    return [
-        str(call["tool"])
-        for call in calls
-        if call.get("phase") == phase and call.get("tool")
-    ]
+    return [str(call["tool"]) for call in calls if call.get("phase") == phase and call.get("tool")]
 
 
 def _sequence_in_order(observed: Sequence[str], expected: Sequence[str]) -> bool:

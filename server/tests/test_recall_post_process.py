@@ -179,9 +179,7 @@ async def test_process_runs_recall_tail_in_order_and_filters_current_state_resul
             "score_breakdown": {"relevance_confidence": 0.91},
         }
     ]
-    assert processed.near_misses == [
-        {"result_type": "entity", "entity": {"name": "near"}}
-    ]
+    assert processed.near_misses == [{"result_type": "entity", "entity": {"name": "near"}}]
     assert seen_episode_ids == {"ep_primary", "ep_linked", "ep_temporal"}
     assert working_memory.get_recent_queries() == ["What is Engram using now?"]
     assert priming_buffer == {"ent_current": (0.2, 130.0)}
@@ -257,9 +255,7 @@ async def test_process_bounds_entity_episode_traversal() -> None:
         "confidence",
         "fingerprint",
     ]
-    assert processed.results == [
-        {"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}
-    ]
+    assert processed.results == [{"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}]
     assert stage_timings["recall_entity_episode_traversal_timeout"] >= 25
     assert "recall_entity_episode_traversal" not in stage_timings
 
@@ -332,9 +328,7 @@ async def test_process_bounds_relevance_confidence() -> None:
         "near_miss",
         "fingerprint",
     ]
-    assert processed.results == [
-        {"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}
-    ]
+    assert processed.results == [{"result_type": "entity", "entity": {"id": "ent_1"}, "score": 0.8}]
     assert stage_timings["recall_confidence_timeout"] >= 25
     assert "recall_confidence" not in stage_timings
 

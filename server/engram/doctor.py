@@ -219,9 +219,7 @@ def format_doctor_report(report: dict[str, Any]) -> str:
         consolidate = lifecycle.get("consolidate") or {}
         latest_cycle = consolidate.get("latestCycle") or {}
         consolidate_issue = cycle_issue_text(latest_cycle)
-        consolidate_issue_text = (
-            f" | error `{consolidate_issue}`" if consolidate_issue else ""
-        )
+        consolidate_issue_text = f" | error `{consolidate_issue}`" if consolidate_issue else ""
         lines.extend(
             [
                 "",
@@ -269,10 +267,7 @@ def format_doctor_report(report: dict[str, Any]) -> str:
                 f"{evaluation_summary['measured']}/{evaluation_summary['required']} "
                 "measured"
             )
-            lines.extend(
-                f"  - {failure}"
-                for failure in evaluation_summary["unmeasured"]
-            )
+            lines.extend(f"  - {failure}" for failure in evaluation_summary["unmeasured"])
 
     return "\n".join(lines).strip() + "\n"
 
@@ -470,9 +465,7 @@ async def _check_lifecycle_snapshot(
         "recall": recall.get("status"),
         "consolidate": consolidate.get("status"),
     }
-    attention_stages = [
-        stage for stage, status in stage_statuses.items() if status == "attention"
-    ]
+    attention_stages = [stage for stage, status in stage_statuses.items() if status == "attention"]
     status = "warn" if attention_stages else "pass"
     if attention_stages:
         attention_labels = [
@@ -481,9 +474,7 @@ async def _check_lifecycle_snapshot(
             else stage
             for stage in attention_stages
         ]
-        detail = "lifecycle snapshot loaded with attention: " + ", ".join(
-            attention_labels
-        )
+        detail = "lifecycle snapshot loaded with attention: " + ", ".join(attention_labels)
     else:
         detail = "Capture -> Cue -> Project -> Recall -> Consolidate snapshot loaded"
     _add_check(

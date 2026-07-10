@@ -271,8 +271,7 @@ def _primary_search_timeout_seconds(
     probe_timed_out = bool(
         stage_timings_ms
         and (
-            "recall_stats_timeout" in stage_timings_ms
-            or "graph_expand_timeout" in stage_timings_ms
+            "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
         )
     )
     adaptive_cap_ms = int(
@@ -388,9 +387,7 @@ async def retrieve(
         try:
             from engram.retrieval.graph_expansion import expand_query_from_graph
 
-            expansion_call = expand_query_from_graph(
-                query, graph_store, group_id
-            )
+            expansion_call = expand_query_from_graph(query, graph_store, group_id)
             timeout_seconds = _stage_timeout_seconds(
                 cfg,
                 "graph_query_expansion_timeout_ms",
@@ -492,8 +489,7 @@ async def retrieve(
             budget_profile=budget_profile,
         )
         primary_search_timed_out = bool(
-            stage_timings_ms
-            and "recall_primary_search_timeout" in stage_timings_ms
+            stage_timings_ms and "recall_primary_search_timeout" in stage_timings_ms
         )
         query_type = await classify_query(query, search_results=candidates)
         if enable_routing or query_type == QueryType.TEMPORAL:
@@ -616,10 +612,7 @@ async def retrieve(
     # Step 0.5: Planner-driven multi-intent recall (Phase 2)
     skip_planner_after_primary_timeout = bool(
         primary_search_timed_out
-        and (
-            not candidates
-            or _candidate_pool_has_zero_semantic_score(stage_timings_ms)
-        )
+        and (not candidates or _candidate_pool_has_zero_semantic_score(stage_timings_ms))
     )
     if cfg.recall_planner_enabled and not skip_planner_after_primary_timeout:
         planner_started = time.perf_counter()
@@ -710,9 +703,7 @@ async def retrieve(
             search_index,
             episode_method_name,
             "episode retrieval",
-            sibling_methods=()
-            if primary_search_timed_out
-            else ("search_episode_cues",),
+            sibling_methods=() if primary_search_timed_out else ("search_episode_cues",),
         )
         if search_episodes is not None:
             episode_search_started = time.perf_counter()
@@ -776,17 +767,13 @@ async def retrieve(
     cue_candidates: list[ScoredResult] = []
     if cfg.cue_recall_enabled:
         cue_method_name = (
-            "search_episode_cues_fast"
-            if primary_search_timed_out
-            else "search_episode_cues"
+            "search_episode_cues_fast" if primary_search_timed_out else "search_episode_cues"
         )
         search_episode_cues = _optional_recall_capability(
             search_index,
             cue_method_name,
             "cue recall",
-            sibling_methods=()
-            if primary_search_timed_out
-            else ("search_episodes",),
+            sibling_methods=() if primary_search_timed_out else ("search_episodes",),
         )
         if search_episode_cues is not None:
             cue_search_started = time.perf_counter()
@@ -891,11 +878,7 @@ async def retrieve(
                     existing_ep_ids = {ec.node_id for ec in episode_candidates}
                     chunk_text = chunk.get("chunk_text", "")
                     if episode_id not in existing_ep_ids:
-                        ep_score = (
-                            original_weight_semantic
-                            * chunk_score
-                            * _ep_score_weight
-                        )
+                        ep_score = original_weight_semantic * chunk_score * _ep_score_weight
                         episode_candidates.append(
                             ScoredResult(
                                 node_id=episode_id,
@@ -915,9 +898,7 @@ async def retrieve(
                         for ec in episode_candidates:
                             if ec.node_id == episode_id:
                                 new_score = (
-                                    original_weight_semantic
-                                    * chunk_score
-                                    * _ep_score_weight
+                                    original_weight_semantic * chunk_score * _ep_score_weight
                                 )
                                 if new_score > ec.score:
                                     ec.score = new_score
@@ -1027,10 +1008,7 @@ async def retrieve(
             return special_results[: min(limit, cfg.retrieval_top_n)]
         return []
 
-    if (
-        primary_search_timed_out
-        and _candidate_pool_has_zero_semantic_score(stage_timings_ms)
-    ):
+    if primary_search_timed_out and _candidate_pool_has_zero_semantic_score(stage_timings_ms):
         special_results = _merge_special_results(
             episode_candidates, cue_candidates, cfg, suppressed_cue_out
         )
@@ -1223,6 +1201,7 @@ async def retrieve(
         else:
             cross_domain_started = time.perf_counter()
             try:
+
                 async def _load_seed_entity_types() -> dict[str, str]:
                     loaded_types: dict[str, str] = {}
                     for seed_id, _ in seeds:
@@ -1383,6 +1362,7 @@ async def retrieve(
     # both vectors live in the same structural embedding space.
     graph_similarities: dict[str, float] | None = None
     if cfg.weight_graph_structural > 0:
+
         async def _compute_graph_similarities() -> dict[str, float] | None:
             all_candidate_ids = [eid for eid, _ in candidates]
             # Determine preferred method: try enabled methods that have data.
@@ -1425,9 +1405,7 @@ async def retrieve(
                     continue
 
                 # Find seed entities that have graph embeddings.
-                seed_embs = {
-                    sid: graph_embs[sid] for sid in query_seed_ids if sid in graph_embs
-                }
+                seed_embs = {sid: graph_embs[sid] for sid in query_seed_ids if sid in graph_embs}
                 if not seed_embs:
                     continue
 
@@ -1508,11 +1486,7 @@ async def retrieve(
                 try:
                     ent = await graph_store.get_entity(eid, group_id)
                     if ent:
-                        attrs = (
-                            dict(ent.attributes)
-                            if isinstance(ent.attributes, dict)
-                            else {}
-                        )
+                        attrs = dict(ent.attributes) if isinstance(ent.attributes, dict) else {}
                         # Include entity_type for domain mapping.
                         if ent.entity_type:
                             attrs["entity_type"] = ent.entity_type
@@ -1758,9 +1732,7 @@ async def retrieve(
                     )
                     # Guarantee at least top 3 date-sorted episodes survive
                     existing_ep_ids_in_scored = {
-                        sr.node_id
-                        for sr in scored
-                        if sr.result_type in {"episode", "cue_episode"}
+                        sr.node_id for sr in scored if sr.result_type in {"episode", "cue_episode"}
                     }
                     for ts, sr in dated_episodes[:3]:
                         if sr.node_id not in existing_ep_ids_in_scored:
@@ -1780,6 +1752,7 @@ async def retrieve(
         else:
             reranker_started = time.perf_counter()
             try:
+
                 async def _rerank_results() -> None:
                     if not cfg.reranker_rerank_episodes:
                         docs: list[tuple[str, str]] = []
@@ -1800,9 +1773,7 @@ async def retrieve(
                             top_n=cfg.reranker_top_n,
                         )
                         rerank_order = {eid: i for i, (eid, _) in enumerate(reranked)}
-                        scored.sort(
-                            key=lambda sr: rerank_order.get(sr.node_id, len(scored))
-                        )
+                        scored.sort(key=lambda sr: rerank_order.get(sr.node_id, len(scored)))
                         return
 
                     # --- OFF-by-default episode rerank experiment ---
@@ -1818,16 +1789,10 @@ async def retrieve(
                     )
 
                     entities = await asyncio.gather(
-                        *(
-                            graph_store.get_entity(sr.node_id, group_id)
-                            for sr in entity_srs
-                        )
+                        *(graph_store.get_entity(sr.node_id, group_id) for sr in entity_srs)
                     )
                     episodes = await asyncio.gather(
-                        *(
-                            graph_store.get_episode_by_id(sr.node_id, group_id)
-                            for sr in episode_srs
-                        )
+                        *(graph_store.get_episode_by_id(sr.node_id, group_id) for sr in episode_srs)
                     )
 
                     docs = []
@@ -1841,11 +1806,7 @@ async def retrieve(
                     for sr, ep in zip(episode_srs, episodes):
                         text = ep.content if ep else ""
                         if sr.chunk_context:
-                            text = (
-                                f"{text}\n{sr.chunk_context}"
-                                if text
-                                else sr.chunk_context
-                            )
+                            text = f"{text}\n{sr.chunk_context}" if text else sr.chunk_context
                         docs.append((f"episode::{id(sr)}", text))
 
                     if not docs:
@@ -1861,9 +1822,7 @@ async def retrieve(
                         for i, (key, _) in enumerate(reranked)
                         if key.startswith("entity::")
                     }
-                    scored.sort(
-                        key=lambda sr: entity_rank.get(sr.node_id, len(scored))
-                    )
+                    scored.sort(key=lambda sr: entity_rank.get(sr.node_id, len(scored)))
                     # Episodes/cues: overwrite score with the cross-encoder
                     # relevance score so Step 6's (-score, node_id) sort surfaces
                     # the reranked order. Keyed by id() to keep episode and cue
@@ -1879,9 +1838,7 @@ async def retrieve(
                             sr.score = rscore
 
                 rerank_call = _rerank_results()
-                timeout_seconds = _stage_timeout_seconds(
-                    cfg, "retrieval_reranker_timeout_ms"
-                )
+                timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_reranker_timeout_ms")
                 if timeout_seconds is not None:
                     await asyncio.wait_for(rerank_call, timeout=timeout_seconds)
                 else:
@@ -2033,7 +1990,10 @@ async def retrieve(
             entity_limit = max(0, entity_budget)
             entity_results = scored[:entity_limit]
             special_results = _merge_special_results(
-                episode_candidates, cue_candidates, cfg, suppressed_cue_out,
+                episode_candidates,
+                cue_candidates,
+                cfg,
+                suppressed_cue_out,
             )
             if cfg.passage_first_channel_separated:
                 # Channel-separated (additive): episodes/cues take the top-k by
@@ -2061,7 +2021,10 @@ async def retrieve(
             entity_limit = max(1, top_n - special_budget)
             entity_results = scored[:entity_limit]
             special_results = _merge_special_results(
-                episode_candidates, cue_candidates, cfg, suppressed_cue_out,
+                episode_candidates,
+                cue_candidates,
+                cfg,
+                suppressed_cue_out,
             )
             results = entity_results + special_results
             results.sort(key=lambda r: (-r.score, r.node_id))

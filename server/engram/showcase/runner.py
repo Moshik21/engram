@@ -129,9 +129,7 @@ async def execute_showcase_beat(
                     context_text.strip(),
                 )
                 outcome.highlights.append(first_line[:200])
-        outcome.matched_tokens = [
-            token for token in beat.expect_tokens if token.lower() in blob
-        ]
+        outcome.matched_tokens = [token for token in beat.expect_tokens if token.lower() in blob]
         outcome.passed = bool(outcome.matched_tokens) or bool(outcome.highlights)
         return outcome
     except Exception as exc:  # pragma: no cover - surfaced in CLI/tests

@@ -89,7 +89,6 @@ async def _run_captain_command(args: argparse.Namespace) -> int:
         return 0
 
     from engram.config import EngramConfig
-    from engram.graph_manager import GraphManager
     from engram.storage.bootstrap import (
         close_if_supported,
         create_local_runtime_stores,

@@ -37,7 +37,9 @@ async def graph():
     await store.close()
 
 
-async def _create_entity(graph, eid: str, name: str, etype: str = "Concept", group_id: str = "default"):
+async def _create_entity(
+    graph, eid: str, name: str, etype: str = "Concept", group_id: str = "default"
+):
     entity = Entity(
         id=eid,
         name=name,
@@ -218,8 +220,12 @@ async def test_get_expired_relationships(graph):
 
     # Active TTL edge (future)
     await _create_ttl_edge(
-        graph, f"e1_{gid}", f"e2_{gid}", days_from_now=30,
-        rel_id=f"rel_future_{gid}", group_id=gid,
+        graph,
+        f"e1_{gid}",
+        f"e2_{gid}",
+        days_from_now=30,
+        rel_id=f"rel_future_{gid}",
+        group_id=gid,
     )
 
     # Expired edge

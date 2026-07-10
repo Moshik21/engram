@@ -391,9 +391,7 @@ class SQLiteEvaluationStore:
             false_recalls=row["false_recalls"],
             stale_packets=row["stale_packets"],
             corrected_packets=row["corrected_packets"],
-            recall_needed=(
-                None if row["recall_needed"] is None else bool(row["recall_needed"])
-            ),
+            recall_needed=(None if row["recall_needed"] is None else bool(row["recall_needed"])),
             source=row["source"],
             query=row["query"],
             notes=row["notes"],

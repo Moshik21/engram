@@ -81,11 +81,11 @@ def build_home_payload(
     if not isinstance(health, dict):
         return AxiResult(
             payload={
-            **base,
-            "status": "offline",
-            "error": "Malformed health response",
-            "install": _local_install_state(),
-            "next": _home_unavailable_next_actions(timed_out=False),
+                **base,
+                "status": "offline",
+                "error": "Malformed health response",
+                "install": _local_install_state(),
+                "next": _home_unavailable_next_actions(timed_out=False),
             }
         )
     status = str(health.get("status") or "healthy")
@@ -256,17 +256,13 @@ def build_value_payload(client: AxiRestClient) -> AxiResult:
         "cost": _compact_value_cost(cost),
         "benefit": {
             "memory_need_precision": (
-                benefit.get("memory_need_precision")
-                or benefit.get("memoryNeedPrecision")
-                or 0
+                benefit.get("memory_need_precision") or benefit.get("memoryNeedPrecision") or 0
             ),
             "useful_packet_rate": (
                 benefit.get("useful_packet_rate") or benefit.get("usefulPacketRate") or 0
             ),
             "continuity_lift": (
-                benefit.get("session_continuity_lift")
-                or benefit.get("sessionContinuityLift")
-                or 0
+                benefit.get("session_continuity_lift") or benefit.get("sessionContinuityLift") or 0
             ),
         },
         "next": [
@@ -279,8 +275,7 @@ def build_value_payload(client: AxiRestClient) -> AxiResult:
             },
             {
                 "cmd": (
-                    'engram axi recall "query" --limit 5 '
-                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                    f'engram axi recall "query" --limit 5 --timeout {FOLLOWUP_TIMEOUT_SECONDS:g}'
                 ),
                 "reason": "Use explicit recall for long-tail memory searches",
             },
@@ -506,12 +501,8 @@ def build_packet_cache_clear_payload(client: AxiRestClient) -> AxiResult:
         "status": result.get("status") or "cleared",
         "cleared_count": result.get("clearedCount") or result.get("cleared_count") or 0,
         "packet_cache": {
-            "entry_count": packet_cache.get("entryCount")
-            or packet_cache.get("entry_count")
-            or 0,
-            "fresh_count": packet_cache.get("freshCount")
-            or packet_cache.get("fresh_count")
-            or 0,
+            "entry_count": packet_cache.get("entryCount") or packet_cache.get("entry_count") or 0,
+            "fresh_count": packet_cache.get("freshCount") or packet_cache.get("fresh_count") or 0,
             "hit_count": packet_cache.get("hitCount") or packet_cache.get("hit_count") or 0,
             "persistent": bool(packet_cache.get("persistent")),
             "path": packet_cache.get("path"),
@@ -519,8 +510,7 @@ def build_packet_cache_clear_payload(client: AxiRestClient) -> AxiResult:
         "next": [
             {
                 "cmd": (
-                    'engram axi context --project "$PWD" '
-                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                    f'engram axi context --project "$PWD" --timeout {FOLLOWUP_TIMEOUT_SECONDS:g}'
                 ),
                 "reason": "Rebuild cached project context on demand",
             }
@@ -541,12 +531,8 @@ def build_packet_cache_summary_payload(client: AxiRestClient) -> AxiResult:
         "operation": "packet-cache.summary",
         "status": result.get("status") or "ok",
         "packet_cache": {
-            "entry_count": packet_cache.get("entryCount")
-            or packet_cache.get("entry_count")
-            or 0,
-            "fresh_count": packet_cache.get("freshCount")
-            or packet_cache.get("fresh_count")
-            or 0,
+            "entry_count": packet_cache.get("entryCount") or packet_cache.get("entry_count") or 0,
+            "fresh_count": packet_cache.get("freshCount") or packet_cache.get("fresh_count") or 0,
             "invalidated_count": packet_cache.get("invalidatedCount")
             or packet_cache.get("invalidated_count")
             or 0,
@@ -561,8 +547,7 @@ def build_packet_cache_summary_payload(client: AxiRestClient) -> AxiResult:
         "next": [
             {
                 "cmd": (
-                    'engram axi context --project "$PWD" '
-                    f"--timeout {FOLLOWUP_TIMEOUT_SECONDS:g}"
+                    f'engram axi context --project "$PWD" --timeout {FOLLOWUP_TIMEOUT_SECONDS:g}'
                 ),
                 "reason": "Warm or reuse project context packets",
             },
@@ -1050,18 +1035,10 @@ def _compact_context_packets(
                     "evidence": trust.get("evidence_count")
                     or trust.get("evidenceCount")
                     or len(packet.get("evidence_lines") or packet.get("evidenceLines") or []),
-                    "belief": trust.get("belief_status")
-                    or trust.get("beliefStatus")
-                    or "unknown",
-                    "confirmed": trust.get("confirmed_count")
-                    or trust.get("confirmedCount")
-                    or 0,
-                    "corrected": trust.get("corrected_count")
-                    or trust.get("correctedCount")
-                    or 0,
-                    "dismissed": trust.get("dismissed_count")
-                    or trust.get("dismissedCount")
-                    or 0,
+                    "belief": trust.get("belief_status") or trust.get("beliefStatus") or "unknown",
+                    "confirmed": trust.get("confirmed_count") or trust.get("confirmedCount") or 0,
+                    "corrected": trust.get("corrected_count") or trust.get("correctedCount") or 0,
+                    "dismissed": trust.get("dismissed_count") or trust.get("dismissedCount") or 0,
                     "last_confirmed": trust.get("last_confirmed_at")
                     or trust.get("lastConfirmedAt"),
                     "last_corrected": trust.get("last_corrected_at")

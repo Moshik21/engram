@@ -149,18 +149,19 @@ def test_identity_core_blocks_bad_merges():
     assert identity_core_blocks_merge(core, golden) is True
     assert identity_core_blocks_merge(core, scrap) is True
     assert identity_core_blocks_merge(core, same) is False
-    assert identity_core_blocks_merge(
-        SimpleNamespace(name="A", identity_core=False),
-        SimpleNamespace(name="B", identity_core=False),
-    ) is False
+    assert (
+        identity_core_blocks_merge(
+            SimpleNamespace(name="A", identity_core=False),
+            SimpleNamespace(name="B", identity_core=False),
+        )
+        is False
+    )
 
 
 def test_decision_statement_names_pass_validation():
     from engram.extraction.resolver import validate_entity_name
 
-    long_decision = (
-        "GOLDEN_DECISION_1783643390: LongMemEval is not product north star"
-    )
+    long_decision = "GOLDEN_DECISION_1783643390: LongMemEval is not product north star"
     assert validate_entity_name(long_decision) is False  # narrow default
     assert (
         validate_entity_name(
@@ -236,9 +237,7 @@ def test_promotion_window_resets_on_idle_gap():
     record_promotion_in_window(session, w1, now=1_000.0)
     assert session.remember_count == 1
 
-    still = resolve_promotion_window(
-        session, now=1_000.0 + 60, read_external_window=False
-    )
+    still = resolve_promotion_window(session, now=1_000.0 + 60, read_external_window=False)
     assert still.remember_count == 1
 
     after_idle = resolve_promotion_window(

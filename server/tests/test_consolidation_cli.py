@@ -70,13 +70,9 @@ def test_print_cycle_result_warns_for_completed_cycle_with_phase_error(capsys):
     assert payload["status"] == "completed"
     assert payload["phases"][0]["error"] == "optional vector index unavailable"
     assert (
-        "[DRY RUN] Consolidation completed with warnings: "
-        "1 items processed, 0 affected"
+        "[DRY RUN] Consolidation completed with warnings: 1 items processed, 0 affected"
     ) in captured.out
-    assert (
-        "Consolidation warning: graph_embed: optional vector index unavailable"
-        in captured.err
-    )
+    assert "Consolidation warning: graph_embed: optional vector index unavailable" in captured.err
 
 
 def test_print_cycle_result_exits_nonzero_for_failed_cycle(capsys):

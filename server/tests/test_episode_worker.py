@@ -80,9 +80,7 @@ def _scheduled_event(episode_id: str = "ep_1") -> dict:
 
 def test_worker_uses_runtime_store_boundary():
     """Worker lifecycle logic should use explicit stores, not manager internals."""
-    worker_source = (
-        Path(__file__).resolve().parents[1] / "engram" / "worker.py"
-    ).read_text()
+    worker_source = (Path(__file__).resolve().parents[1] / "engram" / "worker.py").read_text()
 
     assert "self._manager._graph" not in worker_source
     assert "self._manager._search" not in worker_source

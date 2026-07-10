@@ -754,9 +754,7 @@ class TestHelixDBSync:
         reason="helix_native PyO3 extension is not installed",
     )
     @pytest.mark.asyncio
-    async def test_native_full_retrain_replaces_stale_graph_vectors(
-        self, tmp_path, monkeypatch
-    ):
+    async def test_native_full_retrain_replaces_stale_graph_vectors(self, tmp_path, monkeypatch):
         """Full retrain should clear stale native vectors before syncing new ones."""
 
         class FakeEmbeddingProvider:

@@ -224,8 +224,7 @@ class HelixConsolidationStore:
         """Return persisted per-tier last-run timestamps for a group."""
         db = await self._ensure_scheduler_sidecar()
         cursor = await db.execute(
-            "SELECT tier, last_run_at FROM consolidation_scheduler_tiers "
-            "WHERE group_id = ?",
+            "SELECT tier, last_run_at FROM consolidation_scheduler_tiers WHERE group_id = ?",
             (group_id,),
         )
         rows = await cursor.fetchall()
@@ -244,10 +243,7 @@ class HelixConsolidationStore:
             "INSERT INTO consolidation_scheduler_tiers "
             "(group_id, tier, last_run_at) VALUES (?, ?, ?) "
             "ON CONFLICT(group_id, tier) DO UPDATE SET last_run_at = excluded.last_run_at",
-            [
-                (group_id, tier, last_run_at)
-                for tier, last_run_at in tier_times.items()
-            ],
+            [(group_id, tier, last_run_at) for tier, last_run_at in tier_times.items()],
         )
         await db.commit()
 
@@ -300,10 +296,7 @@ class HelixConsolidationStore:
             for item in results:
                 hid = self._extract_helix_id(item)
                 self._cache_cycle(hid, item.get("cycle_id", ""), item.get("group_id"))
-                if (
-                    item.get("cycle_id") == cycle.id
-                    and item.get("group_id") == cycle.group_id
-                ):
+                if item.get("cycle_id") == cycle.id and item.get("group_id") == cycle.group_id:
                     helix_id = hid
                     break
 
@@ -820,9 +813,7 @@ class HelixConsolidationStore:
                 episode_id=_safe_get(r, "episode_id", ""),
                 score=_safe_get(r, "score", 0.0),
                 decision=_safe_get(r, "decision", ""),
-                score_breakdown=json.loads(
-                    _safe_get(r, "score_breakdown_json", "{}") or "{}"
-                ),
+                score_breakdown=json.loads(_safe_get(r, "score_breakdown_json", "{}") or "{}"),
                 timestamp=_safe_get(r, "timestamp", 0.0),
             )
             for r in results
@@ -1120,16 +1111,10 @@ class HelixConsolidationStore:
                 decision_source=_safe_get(r, "decision_source", ""),
                 confidence=_safe_get(r, "confidence", None),
                 threshold_band=_safe_get(r, "threshold_band", None),
-                features=json.loads(
-                    _safe_get(r, "features_json", "{}") or "{}"
-                ),
-                constraints_hit=json.loads(
-                    _safe_get(r, "constraints_json", "[]") or "[]"
-                ),
+                features=json.loads(_safe_get(r, "features_json", "{}") or "{}"),
+                constraints_hit=json.loads(_safe_get(r, "constraints_json", "[]") or "[]"),
                 policy_version=_safe_get(r, "policy_version", "v1"),
-                metadata=json.loads(
-                    _safe_get(r, "metadata_json", "{}") or "{}"
-                ),
+                metadata=json.loads(_safe_get(r, "metadata_json", "{}") or "{}"),
                 timestamp=_safe_get(r, "timestamp", 0.0),
             )
             for r in results
@@ -1177,9 +1162,7 @@ class HelixConsolidationStore:
                 outcome_type=_safe_get(r, "outcome_type", ""),
                 label=_safe_get(r, "label", ""),
                 value=_safe_get(r, "value", None),
-                metadata=json.loads(
-                    _safe_get(r, "metadata_json", "{}") or "{}"
-                ),
+                metadata=json.loads(_safe_get(r, "metadata_json", "{}") or "{}"),
                 timestamp=_safe_get(r, "timestamp", 0.0),
             )
             for r in results
@@ -1248,13 +1231,9 @@ class HelixConsolidationStore:
                     student_decision=_safe_get(r, "student_decision", ""),
                     student_confidence=_safe_get(r, "student_confidence", None),
                     threshold_band=_safe_get(r, "threshold_band", None),
-                    features=json.loads(
-                        _safe_get(r, "features_json", "{}") or "{}"
-                    ),
+                    features=json.loads(_safe_get(r, "features_json", "{}") or "{}"),
                     correct=correct_val_parsed,
-                    metadata=json.loads(
-                        _safe_get(r, "metadata_json", "{}") or "{}"
-                    ),
+                    metadata=json.loads(_safe_get(r, "metadata_json", "{}") or "{}"),
                     timestamp=_safe_get(r, "timestamp", 0.0),
                 )
             )
@@ -1309,12 +1288,8 @@ class HelixConsolidationStore:
                 abstain_count=_safe_get(r, "abstain_count", 0),
                 accuracy=_safe_get(r, "accuracy", None),
                 mean_confidence=_safe_get(r, "mean_confidence", None),
-                expected_calibration_error=_safe_get(
-                    r, "expected_calibration_error", None
-                ),
-                summary=json.loads(
-                    _safe_get(r, "summary_json", "{}") or "{}"
-                ),
+                expected_calibration_error=_safe_get(r, "expected_calibration_error", None),
+                summary=json.loads(_safe_get(r, "summary_json", "{}") or "{}"),
                 timestamp=_safe_get(r, "timestamp", 0.0),
             )
             for r in results

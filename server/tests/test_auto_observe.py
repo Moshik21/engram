@@ -27,6 +27,7 @@ from tests.conftest import MockExtractor, _helix_available
 
 # GROUP is now generated per-test via gid fixture
 
+
 @pytest.fixture
 def gid():
     return f"test_{uuid4().hex[:8]}"
@@ -566,7 +567,7 @@ class TestInstallHooks:
         managed_script.write_text(
             "#!/usr/bin/env bash\n"
             "# Engram AutoCapture - SessionEnd hook\n"
-            "curl -sf -X POST \"${ENGRAM_URL}/api/consolidation/trigger\"\n",
+            'curl -sf -X POST "${ENGRAM_URL}/api/consolidation/trigger"\n',
         )
         custom_script = hooks_dir / "capture-prompt.sh"
         custom_script.write_text("#!/bin/bash\nexit 0\n")
@@ -695,8 +696,9 @@ class TestInstallHooks:
 
 
 def test_harness_install_autocapture_command(tmp_path, monkeypatch) -> None:
-    from engram.harness_cli import configure_harness_parser, run_harness_command
     import argparse
+
+    from engram.harness_cli import configure_harness_parser, run_harness_command
 
     hooks_dir = tmp_path / "hooks"
     settings_path = tmp_path / "settings.json"

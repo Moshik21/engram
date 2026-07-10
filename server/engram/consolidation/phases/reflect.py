@@ -112,8 +112,7 @@ class ObserverReflectPhase(ConsolidationPhase):
         candidates = [
             ep
             for ep in episodes
-            if ep.source != _OBSERVER_SOURCE
-            and _status_value(ep.status) == "completed"
+            if ep.source != _OBSERVER_SOURCE and _status_value(ep.status) == "completed"
         ]
         if not candidates:
             return PhaseResult(

@@ -18,22 +18,10 @@ def test_fetch_limit_includes_near_miss_window_only_with_context() -> None:
 
 
 def test_ranking_feedback_tracks_true_usage_not_passive_surfacing() -> None:
-    assert (
-        should_record_ranking_feedback(record_access=True, interaction_type="surfaced")
-        is False
-    )
-    assert (
-        should_record_ranking_feedback(record_access=True, interaction_type="dismissed")
-        is False
-    )
-    assert (
-        should_record_ranking_feedback(record_access=False, interaction_type="used")
-        is True
-    )
-    assert (
-        should_record_ranking_feedback(record_access=False, interaction_type="confirmed")
-        is True
-    )
+    assert should_record_ranking_feedback(record_access=True, interaction_type="surfaced") is False
+    assert should_record_ranking_feedback(record_access=True, interaction_type="dismissed") is False
+    assert should_record_ranking_feedback(record_access=False, interaction_type="used") is True
+    assert should_record_ranking_feedback(record_access=False, interaction_type="confirmed") is True
     assert should_record_ranking_feedback(record_access=True, interaction_type=None) is True
 
 

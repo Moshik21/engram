@@ -43,9 +43,9 @@ READER_SYSTEM_PROMPT = (
     "2. Read the retrieved evidence carefully. "
     "3. Answer the question based ONLY on the evidence. "
     "4. If the evidence doesn't contain enough information, say "
-    "\"I don't have enough information to answer this question.\" "
+    '"I don\'t have enough information to answer this question." '
     "For temporal questions, pay attention to dates and chronological order. "
-    "For \"how many\" questions, prefer the most recent evidence. "
+    'For "how many" questions, prefer the most recent evidence. '
     "Be concise - answer in 1-2 sentences maximum."
 )
 
@@ -70,9 +70,12 @@ def _query_claude_cli(
 
     cmd = [
         CLAUDE_CLI,
-        "-p", prompt,
-        "--model", model,
-        "--output-format", "json",
+        "-p",
+        prompt,
+        "--model",
+        model,
+        "--output-format",
+        "json",
     ]
 
     # Add MCP server config if provided
@@ -129,9 +132,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 
     start = time.perf_counter()
 
-    dataset = load_dataset(
-        args.dataset, max_instances=args.max_instances, variant="auto"
-    )
+    dataset = load_dataset(args.dataset, max_instances=args.max_instances, variant="auto")
     if args.types:
         dataset = dataset.filter_types(args.types.split(","))
     if args.n_per_type:
@@ -190,9 +191,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
         try:
             await adapter.ingest_instance(instance)
         except Exception:
-            logger.error(
-                "Ingestion failed for %s", instance.question_id, exc_info=True
-            )
+            logger.error("Ingestion failed for %s", instance.question_id, exc_info=True)
             results.append(_error_result(instance))
             if args.checkpoint:
                 _save_checkpoint(args.checkpoint, results)
@@ -290,31 +289,31 @@ async def cmd_run(args: argparse.Namespace) -> None:
     total = len(results)
     correct = sum(1 for r in results if r["correct"])
     accuracy = correct / total if total else 0.0
-    avg_contain = (
-        sum(r.get("containment_score", 0) for r in results) / total if total else 0.0
-    )
+    avg_contain = sum(r.get("containment_score", 0) for r in results) / total if total else 0.0
     used_count = sum(1 for r in results if r.get("used_recall"))
 
     by_type: dict[str, list[dict]] = {}
     for r in results:
         by_type.setdefault(r["question_type"], []).append(r)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("LongMemEval Engram Benchmark")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Model: {args.model}")
     print(f"CLI: {CLAUDE_CLI} (Max subscription)")
     print(f"Instances: {total}")
-    print(f"Accuracy: {correct}/{total} = {accuracy*100:.1f}%")
+    print(f"Accuracy: {correct}/{total} = {accuracy * 100:.1f}%")
     print(f"Avg containment: {avg_contain:.4f}")
-    print(f"Recall tool used: {used_count}/{total} ({100*used_count/total:.0f}%)")
+    print(f"Recall tool used: {used_count}/{total} ({100 * used_count / total:.0f}%)")
     print(f"Elapsed: {elapsed:.0f}s")
     print()
     for t, items in sorted(by_type.items()):
         c = sum(1 for i in items if i["correct"])
         u = sum(1 for i in items if i.get("used_recall"))
         avg_s = sum(i.get("containment_score", 0) for i in items) / len(items)
-        print(f"  {t}: {c}/{len(items)} ({100*c/len(items):.0f}%) contain={avg_s:.4f} recall={u}")
+        print(
+            f"  {t}: {c}/{len(items)} ({100 * c / len(items):.0f}%) contain={avg_s:.4f} recall={u}"
+        )
 
     if args.output:
         output = {

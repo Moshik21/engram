@@ -13,8 +13,7 @@ from engram.retrieval.chat_feedback import (
 def test_generic_memory_free_response_detects_short_generic_replies() -> None:
     assert is_generic_memory_free_response("Got it, happy to help with that.") is True
     assert (
-        is_generic_memory_free_response("Engram should keep PyO3 native as the main path.")
-        is False
+        is_generic_memory_free_response("Engram should keep PyO3 native as the main path.") is False
     )
     assert (
         is_generic_memory_free_response(

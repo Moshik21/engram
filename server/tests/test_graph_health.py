@@ -16,7 +16,6 @@ async def graph_store():
     from engram.config import HelixDBConfig
     from engram.storage.helix.graph import HelixGraphStore
 
-
     store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
     await store.initialize()
     yield store

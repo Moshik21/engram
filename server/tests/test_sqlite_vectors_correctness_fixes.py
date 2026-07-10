@@ -295,9 +295,7 @@ async def test_hybrid_search_entity_types_excludes_non_matching_via_embeddings()
             embed_model="tiny-2",
         )
 
-        results = await index.search(
-            "alpha", entity_types=["Artifact"], group_id="g", limit=10
-        )
+        results = await index.search("alpha", entity_types=["Artifact"], group_id="g", limit=10)
         result_ids = {eid for eid, _score in results}
         assert "person-1" not in result_ids
         assert result_ids == {"art-1"}

@@ -311,7 +311,10 @@ _NP_PATTERN = re.compile(
     r"\b(?:my|the|a|an|this|that|these|those|his|her|their|our|its)\s+"
     r"(?:(?:new|old|first|last|recent|current|previous|next|original|main|primary"
     r"|favorite|favourite|best|worst|biggest|smallest|latest|earliest)\s+)*"
-    + _NP_WORD + r"(?:\s+" + _NP_WORD + r"){0,3}",
+    + _NP_WORD
+    + r"(?:\s+"
+    + _NP_WORD
+    + r"){0,3}",
 )
 
 # Proper noun sequences (capitalized words not at sentence start)
@@ -320,12 +323,25 @@ _PROPER_NOUN = re.compile(
 )
 
 # Stop phrases — too generic to be useful search terms
-_STOP_NPS = frozenset({
-    "the first", "the last", "the time", "the same", "the other",
-    "the one", "the way", "the thing", "the difference",
-    "my life", "the question", "this question",
-    "how many", "how long", "how much",
-})
+_STOP_NPS = frozenset(
+    {
+        "the first",
+        "the last",
+        "the time",
+        "the same",
+        "the other",
+        "the one",
+        "the way",
+        "the thing",
+        "the difference",
+        "my life",
+        "the question",
+        "this question",
+        "how many",
+        "how long",
+        "how much",
+    }
+)
 
 
 def _extract_noun_phrases(query: str) -> list[str]:
@@ -420,9 +436,7 @@ async def decompose_query(
             cache.popitem(last=False)
 
     if len(sub_queries) > 1:
-        logger.debug(
-            "Decomposed query into %d sub-queries: %s", len(sub_queries), sub_queries
-        )
+        logger.debug("Decomposed query into %d sub-queries: %s", len(sub_queries), sub_queries)
 
     return sub_queries
 

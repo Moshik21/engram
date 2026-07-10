@@ -36,9 +36,7 @@ async def test_group_conversation_helpers_scope_store_calls() -> None:
     store.update_conversation.return_value = True
     store.delete_conversation.return_value = True
 
-    assert await list_group_conversations(store, group_id="brain_a", limit=5) == [
-        {"id": "conv_1"}
-    ]
+    assert await list_group_conversations(store, group_id="brain_a", limit=5) == [{"id": "conv_1"}]
     assert (
         await create_group_conversation(
             store,
@@ -169,28 +167,40 @@ async def test_api_conversation_surfaces_return_none_for_not_found() -> None:
     store.update_conversation.return_value = False
     store.delete_conversation.return_value = False
 
-    assert await build_api_conversation_messages_surface(
-        store,
-        conversation_id="conv_foreign",
-        group_id="brain_a",
-    ) is None
-    assert await build_api_conversation_append_messages_surface(
-        store,
-        conversation_id="conv_foreign",
-        group_id="brain_a",
-        messages=[{"role": "user", "content": "blocked"}],
-    ) is None
-    assert await build_api_conversation_update_surface(
-        store,
-        conversation_id="conv_foreign",
-        group_id="brain_a",
-        title="Blocked",
-    ) is None
-    assert await build_api_conversation_delete_surface(
-        store,
-        conversation_id="conv_foreign",
-        group_id="brain_a",
-    ) is None
+    assert (
+        await build_api_conversation_messages_surface(
+            store,
+            conversation_id="conv_foreign",
+            group_id="brain_a",
+        )
+        is None
+    )
+    assert (
+        await build_api_conversation_append_messages_surface(
+            store,
+            conversation_id="conv_foreign",
+            group_id="brain_a",
+            messages=[{"role": "user", "content": "blocked"}],
+        )
+        is None
+    )
+    assert (
+        await build_api_conversation_update_surface(
+            store,
+            conversation_id="conv_foreign",
+            group_id="brain_a",
+            title="Blocked",
+        )
+        is None
+    )
+    assert (
+        await build_api_conversation_delete_surface(
+            store,
+            conversation_id="conv_foreign",
+            group_id="brain_a",
+        )
+        is None
+    )
     assert conversation_not_found_payload() == {"detail": "Not found"}
 
 

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from engram.config import ActivationConfig
-from engram.consolidation.scheduler import ConsolidationScheduler, PHASE_TIERS
+from engram.consolidation.scheduler import PHASE_TIERS, ConsolidationScheduler
 
 _SLEEP_PATH = "engram.consolidation.scheduler.asyncio.sleep"
 _TIME_PATH = "engram.consolidation.scheduler.time.time"

@@ -70,8 +70,11 @@ def test_current_value_passes_when_gold_outranks_stale():
         "[2024/01/08] working alongside a teammate named Dana.",
     ]
     v = judge_current_value(
-        "q11", ev, answer="Staff Engineer",
-        forbidden=["teammate named Dana"], evidence_is_ordered=True,
+        "q11",
+        ev,
+        answer="Staff Engineer",
+        forbidden=["teammate named Dana"],
+        evidence_is_ordered=True,
     )
     assert v.passed
     assert v.gold_present
@@ -84,8 +87,11 @@ def test_current_value_fails_when_stale_value_outranks_gold():
         "[2024/03/20] Dana moved up to Staff Engineer this week.",
     ]
     v = judge_current_value(
-        "q11", ev, answer="Staff Engineer",
-        forbidden=["teammate named Dana"], evidence_is_ordered=True,
+        "q11",
+        ev,
+        answer="Staff Engineer",
+        forbidden=["teammate named Dana"],
+        evidence_is_ordered=True,
     )
     assert v.gold_present
     assert v.forbidden_hit
@@ -97,8 +103,11 @@ def test_current_value_fails_on_stale_only_answer():
     # Only the stale value is retrieved; the latest value is absent.
     ev = ["[2024/01/08] working alongside a teammate named Dana."]
     v = judge_current_value(
-        "q11", ev, answer="Staff Engineer",
-        forbidden=["teammate named Dana"], evidence_is_ordered=True,
+        "q11",
+        ev,
+        answer="Staff Engineer",
+        forbidden=["teammate named Dana"],
+        evidence_is_ordered=True,
     )
     assert not v.gold_present
     assert not v.passed
@@ -116,7 +125,8 @@ def test_synthesis_passes_on_full_coverage():
         "Dana used to be at Cobalt Robotics before all this.",
     ]
     v = judge_synthesis(
-        "q12", ev,
+        "q12",
+        ev,
         required_facts=["Project Atlas", "Staff Engineer", "Cobalt Robotics"],
         forbidden_facts=["Brightwave Capital"],
     )
@@ -128,7 +138,8 @@ def test_synthesis_passes_on_full_coverage():
 def test_synthesis_fails_below_threshold():
     ev = ["Got staffed on Project Atlas alongside Dana."]
     v = judge_synthesis(
-        "q12", ev,
+        "q12",
+        ev,
         required_facts=["Project Atlas", "Staff Engineer", "Cobalt Robotics"],
         coverage_threshold=0.66,
     )
@@ -146,7 +157,8 @@ def test_synthesis_false_recall_guard_fails_pass():
         "Sofia works at Brightwave Capital.",
     ]
     v = judge_synthesis(
-        "q12", ev,
+        "q12",
+        ev,
         required_facts=["Project Atlas", "Staff Engineer", "Cobalt Robotics"],
         forbidden_facts=["Brightwave Capital"],
     )

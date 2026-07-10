@@ -383,9 +383,7 @@ class MicrogliaPhase(ConsolidationPhase):
                             entity = await graph_store.get_entity(eid, group_id)
                             if entity:
                                 attrs = (
-                                    entity.attributes
-                                    if isinstance(entity.attributes, dict)
-                                    else {}
+                                    entity.attributes if isinstance(entity.attributes, dict) else {}
                                 )
                                 if attrs.get("mat_tier") == "semantic":
                                     should_clear = True

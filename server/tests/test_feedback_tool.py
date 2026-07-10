@@ -118,6 +118,7 @@ class FakeGraphManager:
 
     # Bind the real method
     from engram.graph_manager import GraphManager
+
     record_explicit_feedback = GraphManager.record_explicit_feedback
 
 

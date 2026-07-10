@@ -281,9 +281,7 @@ def test_close_runtime_resources_closes_owned_runtime_stores() -> None:
 
 
 def test_episode_worker_runtime_stores_expose_owned_stores() -> None:
-    source = textwrap.dedent(
-        inspect.getsource(GraphManager.get_episode_worker_runtime_stores)
-    )
+    source = textwrap.dedent(inspect.getsource(GraphManager.get_episode_worker_runtime_stores))
     tree = ast.parse(source)
     returns = [node.value for node in ast.walk(tree) if isinstance(node, ast.Return)]
     assert len(returns) == 1

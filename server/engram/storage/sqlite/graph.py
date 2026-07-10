@@ -409,36 +409,16 @@ class SQLiteGraphStore:
                WHERE episode_id IN (SELECT id FROM episodes WHERE group_id = ?)""",
             (group_id,),
         )
-        await self.db.execute(
-            "DELETE FROM episode_cues WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM episodes WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM relationships WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM schema_members WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM graph_embeddings WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM episode_evidence WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM episode_adjudications WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM intentions WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM complement_tags WHERE group_id = ?", (group_id,)
-        )
-        await self.db.execute(
-            "DELETE FROM entities WHERE group_id = ?", (group_id,)
-        )
+        await self.db.execute("DELETE FROM episode_cues WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM episodes WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM relationships WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM schema_members WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM graph_embeddings WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM episode_evidence WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM episode_adjudications WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM intentions WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM complement_tags WHERE group_id = ?", (group_id,))
+        await self.db.execute("DELETE FROM entities WHERE group_id = ?", (group_id,))
         await self.db.commit()
 
     async def find_entities(
@@ -2163,9 +2143,7 @@ class SQLiteGraphStore:
                 else None
             ),
             evidence_span_end=(
-                _parse_dt(row["evidence_span_end"])
-                if "evidence_span_end" in row.keys()
-                else None
+                _parse_dt(row["evidence_span_end"]) if "evidence_span_end" in row.keys() else None
             ),
         )
 

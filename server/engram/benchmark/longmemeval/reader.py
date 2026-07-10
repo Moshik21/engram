@@ -22,6 +22,7 @@ def _text(msg) -> str:
     """Concatenate text blocks from an Anthropic message."""
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text").strip()
 
+
 _READER_SYSTEM = (
     "You answer a question using ONLY the provided context from a user's memory. "
     "Be concise — give just the answer, no preamble. If the context does not "
@@ -149,7 +150,9 @@ class OllamaReaderJudge:
     async def read(self, question: str, evidence: list[str]) -> str:
         context = "\n".join(f"- {e}" for e in evidence[: self._max_evidence]) or "(no context)"
         return await self._generate(
-            _READER_SYSTEM, f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:", 256,
+            _READER_SYSTEM,
+            f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:",
+            256,
         )
 
     async def judge(

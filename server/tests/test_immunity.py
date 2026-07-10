@@ -17,14 +17,17 @@ async def test_immunity_dissolution_logic():
 
     mock_graph = MagicMock()
     from engram.utils.dates import utc_now
+
     now = utc_now()
     old_date = now - timedelta(days=2)
 
     # Mock some nodes with different gravity
-    mock_graph.find_entities = AsyncMock(return_value=[
-        {"id": "node_high", "name": "Important", "created_at": old_date},
-        {"id": "node_low", "name": "Noise", "created_at": old_date}
-    ])
+    mock_graph.find_entities = AsyncMock(
+        return_value=[
+            {"id": "node_high", "name": "Important", "created_at": old_date},
+            {"id": "node_low", "name": "Noise", "created_at": old_date},
+        ]
+    )
 
     async def mock_get_neighbors(node_id):
         if node_id == "node_high":
@@ -44,7 +47,7 @@ async def test_immunity_dissolution_logic():
         activation_store=MagicMock(),
         search_index=mock_search,
         cfg=cfg,
-        cycle_id="cycle_1"
+        cycle_id="cycle_1",
     )
 
     # Verify report contains the low gravity node

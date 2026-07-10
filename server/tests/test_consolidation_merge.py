@@ -170,7 +170,11 @@ class TestEntityMergePhase:
 
     @pytest.mark.asyncio
     async def test_exact_identifier_aliases_merge_across_types(
-        self, store, activation, search, gid,
+        self,
+        store,
+        activation,
+        search,
+        gid,
     ):
         e1 = _entity("1712061", entity_type="Technology", access_count=10, group_id=gid)
         e2 = _entity("SKU 1712061", entity_type="Identifier", access_count=1, group_id=gid)

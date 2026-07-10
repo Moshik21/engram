@@ -20,10 +20,10 @@ def show_progress(path: str = "results/longmemeval_oracle_checkpoint.json"):
     total = len(instances)
     correct = sum(1 for i in instances if i["correct"])
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  LongMemEval Progress: {total}/500")
-    print(f"  Overall: {correct}/{total} = {100*correct/total:.1f}%")
-    print(f"{'='*60}\n")
+    print(f"  Overall: {correct}/{total} = {100 * correct / total:.1f}%")
+    print(f"{'=' * 60}\n")
 
     by_type: dict = {}
     for i in instances:
@@ -37,7 +37,7 @@ def show_progress(path: str = "results/longmemeval_oracle_checkpoint.json"):
             by_type[t]["errors"].append(i)
 
     print(f"  {'Type':<30} {'Score':>10} {'Acc':>8}")
-    print(f"  {'-'*30} {'-'*10} {'-'*8}")
+    print(f"  {'-' * 30} {'-' * 10} {'-' * 8}")
     for t in sorted(by_type.keys()):
         v = by_type[t]
         acc = 100 * v["c"] / v["n"] if v["n"] else 0
@@ -47,10 +47,8 @@ def show_progress(path: str = "results/longmemeval_oracle_checkpoint.json"):
     # Category accuracy (official metric)
     non_abs = {k: v for k, v in by_type.items() if k != "abstention"}
     if non_abs:
-        cat_acc = sum(
-            v["c"] / v["n"] for v in non_abs.values() if v["n"]
-        ) / len(non_abs)
-        print(f"\n  Category accuracy (official): {100*cat_acc:.1f}%")
+        cat_acc = sum(v["c"] / v["n"] for v in non_abs.values() if v["n"]) / len(non_abs)
+        print(f"\n  Category accuracy (official): {100 * cat_acc:.1f}%")
 
     # Recent results
     print("\n  Last 5 results:")
@@ -59,6 +57,7 @@ def show_progress(path: str = "results/longmemeval_oracle_checkpoint.json"):
         print(f"    {mark} {i['question_id'][:12]:<14} {i['question_type']}")
 
     print()
+
 
 if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "results/longmemeval_oracle_checkpoint.json"

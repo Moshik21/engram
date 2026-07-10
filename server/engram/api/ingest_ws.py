@@ -45,20 +45,24 @@ async def ingest_ws(websocket: WebSocket) -> None:
                     },
                 )
 
-                await websocket.send_json({
-                    "type": "ack",
-                    "bytes_received": len(buffer),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "ack",
+                        "bytes_received": len(buffer),
+                    }
+                )
 
             elif msg_type == "finalize":
                 # Finalize the discourse and trigger a full projection
                 logger.info("Finalizing fluid ingestion session %s", session_id)
 
                 # In a full implementation, we'd call manager.ingest_episode(buffer)
-                await websocket.send_json({
-                    "type": "completion",
-                    "status": "matured_to_episode",
-                })
+                await websocket.send_json(
+                    {
+                        "type": "completion",
+                        "status": "matured_to_episode",
+                    }
+                )
                 break
 
     except WebSocketDisconnect:

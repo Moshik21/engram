@@ -242,9 +242,7 @@ class GeminiProvider(EmbeddingProvider):
         all_embeddings: list[list[float]] = []
         for i in range(0, len(texts), self._batch_size):
             batch = texts[i : i + self._batch_size]
-            vecs = await asyncio.to_thread(
-                self._embed_sync, batch, "RETRIEVAL_DOCUMENT"
-            )
+            vecs = await asyncio.to_thread(self._embed_sync, batch, "RETRIEVAL_DOCUMENT")
             all_embeddings.extend(vecs)
         return all_embeddings
 
@@ -255,9 +253,7 @@ class GeminiProvider(EmbeddingProvider):
             return self._query_cache[text]
         import asyncio
 
-        vecs = await asyncio.to_thread(
-            self._embed_sync, [text], "RETRIEVAL_QUERY"
-        )
+        vecs = await asyncio.to_thread(self._embed_sync, [text], "RETRIEVAL_QUERY")
         vec = vecs[0] if vecs else []
         if vec:
             self._query_cache[text] = vec
@@ -280,9 +276,7 @@ class GeminiProvider(EmbeddingProvider):
         """Embed text + image together into a single aggregated vector."""
         import asyncio
 
-        return await asyncio.to_thread(
-            self._embed_multimodal_sync, text, image_bytes, image_mime
-        )
+        return await asyncio.to_thread(self._embed_multimodal_sync, text, image_bytes, image_mime)
 
     # gemini-embedding-2-preview supports 8,192 tokens per input.
     # Approximate as 4 chars/token -> 32,768 chars.
@@ -407,9 +401,7 @@ def truncate_vectors(vectors: list[list[float]], target_dim: int) -> list[list[f
     return [v[:target_dim] for v in vectors]
 
 
-def prefix_cosine_similarity(
-    a: list[float], b: list[float], prefix_dim: int = 256
-) -> float:
+def prefix_cosine_similarity(a: list[float], b: list[float], prefix_dim: int = 256) -> float:
     """Fast approximate cosine similarity using Matryoshka prefix slicing.
 
     Slices both vectors to ``prefix_dim`` before computing similarity.

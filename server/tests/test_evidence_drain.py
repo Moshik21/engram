@@ -121,5 +121,3 @@ async def test_reject_junk_evidence_writes_rejected_status():
     assert store.updates[0][0] == "evi_junk"
     assert store.updates[0][1] == "rejected"
     assert store.updates[0][2]["commit_reason"].startswith("drain_evidence:")
-
-

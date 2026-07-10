@@ -62,16 +62,17 @@ class TestEchoChamberSmoke:
         from engram.benchmark.echo_chamber import run_echo_chamber
         from engram.config import ActivationConfig
         from engram.storage.memory.activation import MemoryActivationStore
+
         graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph_store.initialize()
         search_index = HelixSearchIndex(
-     helix_config=HelixDBConfig(host="localhost", port=6969),
-     provider=NoopProvider(),
-     embed_config=EmbeddingConfig(),
-     storage_dim=0,
-     embed_provider="noop",
-     embed_model="noop",
- )
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
         await search_index.initialize()
         cfg = ActivationConfig()
         activation_store = MemoryActivationStore(cfg)
@@ -127,16 +128,17 @@ class TestEchoChamberSmoke:
         from engram.benchmark.echo_chamber import run_echo_chamber
         from engram.config import ActivationConfig
         from engram.storage.memory.activation import MemoryActivationStore
+
         graph_store = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph_store.initialize()
         search_index = HelixSearchIndex(
-     helix_config=HelixDBConfig(host="localhost", port=6969),
-     provider=NoopProvider(),
-     embed_config=EmbeddingConfig(),
-     storage_dim=0,
-     embed_provider="noop",
-     embed_model="noop",
- )
+            helix_config=HelixDBConfig(host="localhost", port=6969),
+            provider=NoopProvider(),
+            embed_config=EmbeddingConfig(),
+            storage_dim=0,
+            embed_provider="noop",
+            embed_model="noop",
+        )
         await search_index.initialize()
         cfg = ActivationConfig()
         activation_store = MemoryActivationStore(cfg)

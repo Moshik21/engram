@@ -31,9 +31,8 @@ def test_rest_client_parses_json_response(monkeypatch) -> None:
         seen["url"] = request.full_url
         seen["timeout"] = timeout
         seen["auth"] = request.headers.get("Authorization")
-        seen["client"] = (
-            request.get_header("X-Engram-Client")
-            or request.get_header("X-engram-client")
+        seen["client"] = request.get_header("X-Engram-Client") or request.get_header(
+            "X-engram-client"
         )
         return FakeResponse(b'{"status":"healthy"}')
 

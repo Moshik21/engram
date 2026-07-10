@@ -129,10 +129,7 @@ def test_adoption_evidence_requires_expected_report_kind() -> None:
     assert evidence["status"] == "failed"
     assert evidence["kind"] == "generic_adoption_report"
     assert evidence["failures"] == [
-        (
-            "invalid_adoption_report_kind"
-            "(generic_adoption_report!=engram_adoption_validation_report)"
-        )
+        ("invalid_adoption_report_kind(generic_adoption_report!=engram_adoption_validation_report)")
     ]
 
 
@@ -143,9 +140,7 @@ def test_adoption_evidence_requires_parseable_capture_timestamp() -> None:
     evidence = build_adoption_evidence(report)
 
     assert evidence["status"] == "failed"
-    assert evidence["failures"] == [
-        "invalid_adoption_captured_at(after the live run)"
-    ]
+    assert evidence["failures"] == ["invalid_adoption_captured_at(after the live run)"]
 
 
 def test_adoption_evidence_requires_traceable_transcript_source() -> None:
@@ -180,9 +175,7 @@ def test_adoption_evidence_rejects_synthetic_transcript_source() -> None:
     evidence = build_adoption_evidence(report)
 
     assert evidence["status"] == "failed"
-    assert evidence["failures"] == [
-        "synthetic_adoption_source(deterministic_smoke)"
-    ]
+    assert evidence["failures"] == ["synthetic_adoption_source(deterministic_smoke)"]
 
 
 def test_adoption_evidence_rejects_protocol_summary_without_calls() -> None:
@@ -224,9 +217,7 @@ def test_adoption_evidence_requires_context_and_recall_observed() -> None:
     evidence = build_adoption_evidence(report)
 
     assert evidence["status"] == "failed"
-    assert evidence["failures"] == [
-        "missing_adoption_core_before_answer_tools(get_context,recall)"
-    ]
+    assert evidence["failures"] == ["missing_adoption_core_before_answer_tools(get_context,recall)"]
 
 
 def test_adoption_evidence_requires_expected_client_gate() -> None:
@@ -265,15 +256,11 @@ def test_adoption_client_set_requires_each_expected_client_gate() -> None:
     assert evidence["status"] == "failed"
     assert evidence["required_clients"] == ["Cursor", "Windsurf"]
     assert evidence["observed_clients"] == ["Cursor", "Windsurf"]
-    assert evidence["failures"] == [
-        "missing_required_adoption_client_gate(Windsurf)"
-    ]
+    assert evidence["failures"] == ["missing_required_adoption_client_gate(Windsurf)"]
     assert adoption_client_set_failure_message(
         evidence,
         prefix="Adoption clients",
-    ) == (
-        "Adoption clients: ['missing_required_adoption_client_gate(Windsurf)']"
-    )
+    ) == ("Adoption clients: ['missing_required_adoption_client_gate(Windsurf)']")
 
 
 def test_load_adoption_evidence_records_report_hash(tmp_path: Path) -> None:
@@ -285,9 +272,7 @@ def test_load_adoption_evidence_records_report_hash(tmp_path: Path) -> None:
     assert evidence["status"] == "measured"
     assert evidence["artifact_path"] == str(report_path)
     assert evidence["gate_required_client"] == "Cursor"
-    assert evidence["artifact_sha256"] == hashlib.sha256(
-        report_path.read_bytes()
-    ).hexdigest()
+    assert evidence["artifact_sha256"] == hashlib.sha256(report_path.read_bytes()).hexdigest()
 
 
 def test_adoption_human_label_link_rejects_different_client_or_session() -> None:
@@ -303,12 +288,14 @@ def test_adoption_human_label_link_rejects_different_client_or_session() -> None
     linked = link_adoption_to_human_label_evidence(report)
 
     assert linked["adoption_evidence"]["status"] == "failed"
-    assert "human_label_client_mismatch(Claude Code!=Cursor)" in linked[
-        "adoption_evidence"
-    ]["failures"]
-    assert "human_label_session_id_mismatch(claude-session-1!=cursor-thread-1)" in linked[
-        "adoption_evidence"
-    ]["failures"]
+    assert (
+        "human_label_client_mismatch(Claude Code!=Cursor)"
+        in linked["adoption_evidence"]["failures"]
+    )
+    assert (
+        "human_label_session_id_mismatch(claude-session-1!=cursor-thread-1)"
+        in linked["adoption_evidence"]["failures"]
+    )
 
 
 @pytest.mark.asyncio
@@ -369,20 +356,23 @@ async def test_evaluate_cli_attaches_and_gates_adoption_report(
         "Windsurf",
     ]
     assert report["additional_adoption_evidence"][0]["client"] == "Windsurf"
-    assert report["adoption_evidence"]["artifact_sha256"] == hashlib.sha256(
-        adoption_path.read_bytes()
-    ).hexdigest()
+    assert (
+        report["adoption_evidence"]["artifact_sha256"]
+        == hashlib.sha256(adoption_path.read_bytes()).hexdigest()
+    )
     assert bundle["sources"]["adoption_report"] == str(adoption_path)
     assert bundle["sources"]["additional_adoption_reports"] == [str(windsurf_path)]
-    assert bundle["source_sha256"]["adoption_report"] == hashlib.sha256(
-        adoption_path.read_bytes()
-    ).hexdigest()
+    assert (
+        bundle["source_sha256"]["adoption_report"]
+        == hashlib.sha256(adoption_path.read_bytes()).hexdigest()
+    )
     assert bundle["source_sha256"]["additional_adoption_reports"] == [
         hashlib.sha256(windsurf_path.read_bytes()).hexdigest()
     ]
-    assert bundle["source_sha256"]["human_label_artifact"] == hashlib.sha256(
-        human_path.read_bytes()
-    ).hexdigest()
+    assert (
+        bundle["source_sha256"]["human_label_artifact"]
+        == hashlib.sha256(human_path.read_bytes()).hexdigest()
+    )
     assert bundle["gates"]["require_release_evidence"] is True
     assert bundle["status"] == "passed"
     assert bundle["gate_profile"] == "release"
@@ -426,8 +416,7 @@ async def test_evaluate_cli_rejects_missing_required_adoption_client_report(
         await run_evaluate_command(args)
 
     assert str(exc_info.value) == (
-        "Adoption client evidence failed gates: "
-        "['missing_required_adoption_client(Windsurf)']"
+        "Adoption client evidence failed gates: ['missing_required_adoption_client(Windsurf)']"
     )
 
 
@@ -467,8 +456,7 @@ async def test_evaluate_cli_release_gate_rejects_failed_additional_adoption_repo
         await run_evaluate_command(args)
 
     assert str(exc_info.value) == (
-        "Adoption client evidence failed gates: "
-        "['adoption_report_failed(Windsurf)']"
+        "Adoption client evidence failed gates: ['adoption_report_failed(Windsurf)']"
     )
 
 
@@ -570,9 +558,7 @@ async def test_evaluate_cli_rejects_missing_adoption_report_when_required(
     with pytest.raises(SystemExit) as exc_info:
         await run_evaluate_command(args)
 
-    assert str(exc_info.value) == (
-        "Adoption evidence failed gates: ['missing_adoption_evidence']"
-    )
+    assert str(exc_info.value) == ("Adoption evidence failed gates: ['missing_adoption_evidence']")
 
 
 @pytest.mark.asyncio
@@ -597,9 +583,7 @@ async def test_evaluate_cli_requires_adoption_report_for_client_gate(
     with pytest.raises(SystemExit) as exc_info:
         await run_evaluate_command(args)
 
-    assert str(exc_info.value) == (
-        "Adoption evidence failed gates: ['missing_adoption_evidence']"
-    )
+    assert str(exc_info.value) == ("Adoption evidence failed gates: ['missing_adoption_evidence']")
 
 
 @pytest.mark.asyncio
@@ -631,9 +615,10 @@ async def test_evaluate_cli_human_label_template_prefills_adoption_metadata(
     assert template["sessionId"] == "cursor-thread-1"
     assert template["adoptionReport"]["path"] == str(adoption_path)
     assert template["adoptionReport"]["status"] == "measured"
-    assert template["adoptionReport"]["sha256"] == hashlib.sha256(
-        adoption_path.read_bytes()
-    ).hexdigest()
+    assert (
+        template["adoptionReport"]["sha256"]
+        == hashlib.sha256(adoption_path.read_bytes()).hexdigest()
+    )
     assert f"--adoption-report {adoption_path}" in template["validationCommand"]
 
 
@@ -703,12 +688,8 @@ async def test_evaluate_cli_human_label_template_preserves_multi_client_gate(
     template = json.loads(capsys.readouterr().out)
     assert template["requiredAdoptionClients"] == ["Cursor", "Windsurf"]
     assert template["additionalAdoptionReports"][0]["client"] == "Windsurf"
-    assert f"--additional-adoption-report {windsurf_path}" in template[
-        "validationCommand"
-    ]
-    assert "--require-adoption-clients Cursor Windsurf" in template[
-        "validationCommand"
-    ]
+    assert f"--additional-adoption-report {windsurf_path}" in template["validationCommand"]
+    assert "--require-adoption-clients Cursor Windsurf" in template["validationCommand"]
 
 
 @pytest.mark.asyncio
@@ -774,8 +755,7 @@ async def test_evaluate_cli_human_label_template_rejects_blocked_additional_repo
         await run_evaluate_command(args)
 
     assert str(exc_info.value) == (
-        "Adoption client evidence failed gates: "
-        "['missing_required_adoption_client_gate(Windsurf)']"
+        "Adoption client evidence failed gates: ['missing_required_adoption_client_gate(Windsurf)']"
     )
 
 
@@ -875,13 +855,9 @@ def test_markdown_includes_adoption_evidence() -> None:
     assert "Cursor: measured" in markdown
     assert "## Adoption Client Evidence" in markdown
     assert "Required clients: Cursor, Windsurf | observed clients: Cursor, Windsurf" in markdown
+    assert "Report: Cursor measured | cursor-adoption-report.json | sha256 cursor123" in markdown
     assert (
-        "Report: Cursor measured | cursor-adoption-report.json | sha256 cursor123"
-        in markdown
-    )
-    assert (
-        "Report: Windsurf measured | windsurf-adoption-report.json | sha256 windsurf123"
-        in markdown
+        "Report: Windsurf measured | windsurf-adoption-report.json | sha256 windsurf123" in markdown
     )
     assert "Calls: 4 | captured 2026-05-18T23:00:00Z | session cursor-thread-1" in markdown
     assert "Artifact: adoption-report.json | sha256 abc123" in markdown

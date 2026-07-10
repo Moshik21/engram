@@ -280,9 +280,7 @@ class TestTokenBudget:
 @pytest.mark.asyncio
 class TestConfidenceTiers:
     async def test_semantic_tier_maps_to_known(self):
-        entity = _make_entity(
-            "Python", attributes={"mat_tier": "semantic"}
-        )
+        entity = _make_entity("Python", attributes={"mat_tier": "semantic"})
         manager = _make_manager(find_candidates_map={"Python": [entity]})
 
         results = await manager.recall_lite(
@@ -294,9 +292,7 @@ class TestConfidenceTiers:
         assert results[0]["confidence"] == "known"
 
     async def test_transitional_tier_maps_to_likely(self):
-        entity = _make_entity(
-            "Svelte", attributes={"mat_tier": "transitional"}
-        )
+        entity = _make_entity("Svelte", attributes={"mat_tier": "transitional"})
         manager = _make_manager(find_candidates_map={"Svelte": [entity]})
 
         results = await manager.recall_lite(
@@ -308,9 +304,7 @@ class TestConfidenceTiers:
         assert results[0]["confidence"] == "likely"
 
     async def test_episodic_tier_maps_to_recent(self):
-        entity = _make_entity(
-            "Bun", attributes={"mat_tier": "episodic"}
-        )
+        entity = _make_entity("Bun", attributes={"mat_tier": "episodic"})
         manager = _make_manager(find_candidates_map={"Bun": [entity]})
 
         results = await manager.recall_lite(
@@ -455,9 +449,7 @@ class TestMentionExtraction:
         """@-mentions should be extracted as mentions."""
         user = _make_entity("alice", entity_type="Person")
 
-        manager = _make_manager(
-            find_candidates_map={"alice": [user]}
-        )
+        manager = _make_manager(find_candidates_map={"alice": [user]})
 
         results = await manager.recall_lite(
             text="asked @alice to review the pull request today",
@@ -471,9 +463,7 @@ class TestMentionExtraction:
         """#hashtags should be extracted as mentions."""
         tag = _make_entity("backend", entity_type="Concept")
 
-        manager = _make_manager(
-            find_candidates_map={"backend": [tag]}
-        )
+        manager = _make_manager(find_candidates_map={"backend": [tag]})
 
         results = await manager.recall_lite(
             text="working on #backend improvements for performance",
@@ -487,9 +477,7 @@ class TestMentionExtraction:
         """Same entity mentioned multiple times should only appear once."""
         k8s = _make_entity("Kubernetes")
 
-        manager = _make_manager(
-            find_candidates_map={"Kubernetes": [k8s]}
-        )
+        manager = _make_manager(find_candidates_map={"Kubernetes": [k8s]})
 
         results = await manager.recall_lite(
             text="Kubernetes is great. Kubernetes handles scaling well with Kubernetes pods",

@@ -81,9 +81,7 @@ class ExtractionCache:
     ) -> None:
         self._inner = inner
         self._db_path = str(db_path)
-        self._model = extractor_model or getattr(
-            inner, "_model", type(inner).__name__
-        )
+        self._model = extractor_model or getattr(inner, "_model", type(inner).__name__)
         self._prompt_version = prompt_version
         # Hit/miss meters prove determinism in the eval report.
         self.hits = 0

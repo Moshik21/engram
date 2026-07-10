@@ -424,8 +424,7 @@ def _claude_hook_payload(
 def _capture_policy(capture: bool) -> str:
     if capture:
         return (
-            "explicit-opt-in; do not install transcript capture unless the user "
-            "requested --capture"
+            "explicit-opt-in; do not install transcript capture unless the user requested --capture"
         )
     return "disabled; read-only session-start context only"
 
@@ -658,7 +657,7 @@ def _recent_hook_trace_records(
     except OSError:
         return []
     records: list[dict[str, Any]] = []
-    for line in reversed(lines[-max(1, line_limit):]):
+    for line in reversed(lines[-max(1, line_limit) :]):
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
@@ -745,8 +744,7 @@ def _summarize_hook_trace_records(
         "degraded_count": sum(1 for record in records if _hook_trace_degraded(record)),
         "timeout_count": sum(1 for record in records if _hook_trace_timed_out(record)),
         "recent": [
-            _compact_hook_trace(record)
-            for record in records[:DEFAULT_HOOK_TRACE_RECENT_LIMIT]
+            _compact_hook_trace(record) for record in records[:DEFAULT_HOOK_TRACE_RECENT_LIMIT]
         ],
     }
 
@@ -955,7 +953,7 @@ def _hook_next_actions(client: str) -> list[dict[str, str]]:
                 "reason": "Codex reads hooks at session startup",
             },
             {
-                "cmd": "engram axi --project \"$PWD\" --budget 800 --timeout 3",
+                "cmd": 'engram axi --project "$PWD" --budget 800 --timeout 3',
                 "reason": "Manually inspect the same read-only packet",
             },
         ]
@@ -965,7 +963,7 @@ def _hook_next_actions(client: str) -> list[dict[str, str]]:
             "reason": "Claude Code reads SessionStart hooks at session startup",
         },
         {
-            "cmd": "engram axi --project \"$PWD\" --budget 800 --timeout 3",
+            "cmd": 'engram axi --project "$PWD" --budget 800 --timeout 3',
             "reason": "Manually inspect the same read-only packet",
         },
     ]

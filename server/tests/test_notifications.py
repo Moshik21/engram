@@ -723,9 +723,7 @@ class TestTemporalIntentionScanner:
         entity.attributes = {
             "trigger_text": "old task",
             "action_text": "Do something",
-            "expires_at": datetime.fromtimestamp(
-                time.time() - 100, tz=timezone.utc
-            ).isoformat(),
+            "expires_at": datetime.fromtimestamp(time.time() - 100, tz=timezone.utc).isoformat(),
         }
 
         graph_store = AsyncMock()
@@ -746,9 +744,7 @@ class TestTemporalIntentionScanner:
         entity.attributes = {
             "trigger_text": "future task",
             "action_text": "Do something",
-            "expires_at": datetime.fromtimestamp(
-                time.time() + 86400, tz=timezone.utc
-            ).isoformat(),
+            "expires_at": datetime.fromtimestamp(time.time() + 86400, tz=timezone.utc).isoformat(),
         }
 
         graph_store = AsyncMock()
@@ -769,9 +765,7 @@ class TestTemporalIntentionScanner:
         entity.attributes = {
             "trigger_text": "task",
             "action_text": "action",
-            "expires_at": datetime.fromtimestamp(
-                time.time() + 600, tz=timezone.utc
-            ).isoformat(),
+            "expires_at": datetime.fromtimestamp(time.time() + 600, tz=timezone.utc).isoformat(),
         }
 
         graph_store = AsyncMock()
@@ -829,9 +823,7 @@ class TestTemporalIntentionScanner:
         entity.attributes = {
             "trigger_text": "meeting",
             "action_text": "prepare",
-            "expires_at": datetime.fromtimestamp(
-                time.time() + 2700, tz=timezone.utc
-            ).isoformat(),
+            "expires_at": datetime.fromtimestamp(time.time() + 2700, tz=timezone.utc).isoformat(),
         }
 
         graph_store = AsyncMock()
@@ -855,9 +847,7 @@ class TestTemporalIntentionScanner:
         entity.attributes = {
             "trigger_text": "deadline",
             "action_text": "submit",
-            "expires_at": datetime.fromtimestamp(
-                time.time() + 7200, tz=timezone.utc
-            ).isoformat(),
+            "expires_at": datetime.fromtimestamp(time.time() + 7200, tz=timezone.utc).isoformat(),
         }
 
         graph_store = AsyncMock()

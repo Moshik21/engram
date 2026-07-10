@@ -422,9 +422,7 @@ async def analyze_chat_memory_need(
     """Analyze whether a knowledge-chat turn likely needs memory."""
     cfg = manager.get_memory_need_config()
     graph_probe = (
-        manager.get_recall_need_graph_probe()
-        if manager.recall_need_graph_probe_enabled()
-        else None
+        manager.get_recall_need_graph_probe() if manager.recall_need_graph_probe_enabled() else None
     )
     return await analyze_memory_need(
         message,

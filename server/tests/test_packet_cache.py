@@ -138,12 +138,15 @@ def test_packet_cache_expires_and_invalidates_by_source_ids() -> None:
         topic_hint="Phoenix",
         now=14.0,
     )
-    assert cache.get(
-        group_id="default",
-        scope="auto_recall_packet",
-        topic_hint="Phoenix",
-        now=16.0,
-    ) is None
+    assert (
+        cache.get(
+            group_id="default",
+            scope="auto_recall_packet",
+            topic_hint="Phoenix",
+            now=16.0,
+        )
+        is None
+    )
     invalidated = cache.invalidate(
         group_id="default",
         entity_ids=["ent_other"],
@@ -151,12 +154,15 @@ def test_packet_cache_expires_and_invalidates_by_source_ids() -> None:
     )
 
     assert invalidated == 1
-    assert cache.get(
-        group_id="default",
-        scope="auto_recall_packet",
-        topic_hint="Mesa",
-        now=18.0,
-    ) is None
+    assert (
+        cache.get(
+            group_id="default",
+            scope="auto_recall_packet",
+            topic_hint="Mesa",
+            now=18.0,
+        )
+        is None
+    )
 
 
 def test_packet_cache_can_preserve_project_file_packets_during_broad_invalidation() -> None:
@@ -194,19 +200,25 @@ def test_packet_cache_can_preserve_project_file_packets_during_broad_invalidatio
     )
 
     assert invalidated == 1
-    assert cache.get(
-        group_id="default",
-        scope="project_home",
-        topic_hint="Engram",
-        project_path="/repo/Engram",
-        now=21.0,
-    ) is not None
-    assert cache.get(
-        group_id="default",
-        scope="explicit_recall",
-        topic_hint="Engram",
-        now=21.0,
-    ) is None
+    assert (
+        cache.get(
+            group_id="default",
+            scope="project_home",
+            topic_hint="Engram",
+            project_path="/repo/Engram",
+            now=21.0,
+        )
+        is not None
+    )
+    assert (
+        cache.get(
+            group_id="default",
+            scope="explicit_recall",
+            topic_hint="Engram",
+            now=21.0,
+        )
+        is None
+    )
 
 
 def test_packet_cache_can_preserve_scopes_during_episode_invalidation() -> None:
@@ -243,18 +255,24 @@ def test_packet_cache_can_preserve_scopes_during_episode_invalidation() -> None:
     )
 
     assert invalidated == 1
-    assert cache.get(
-        group_id="default",
-        scope="session_recent",
-        now=21.0,
-        sync_persistent=False,
-    ) is not None
-    assert cache.get(
-        group_id="default",
-        scope="explicit_recall",
-        topic_hint="observe trace",
-        now=21.0,
-    ) is None
+    assert (
+        cache.get(
+            group_id="default",
+            scope="session_recent",
+            now=21.0,
+            sync_persistent=False,
+        )
+        is not None
+    )
+    assert (
+        cache.get(
+            group_id="default",
+            scope="explicit_recall",
+            topic_hint="observe trace",
+            now=21.0,
+        )
+        is None
+    )
 
 
 def test_packet_cache_clear_and_json_size_are_deterministic() -> None:

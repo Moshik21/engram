@@ -1891,8 +1891,7 @@ class SQLiteConsolidationStore:
     async def get_scheduler_tier_last_runs(self, group_id: str) -> dict[str, float]:
         """Return persisted per-tier last-run timestamps for a group."""
         cursor = await self.db.execute(
-            "SELECT tier, last_run_at FROM consolidation_scheduler_tiers "
-            "WHERE group_id = ?",
+            "SELECT tier, last_run_at FROM consolidation_scheduler_tiers WHERE group_id = ?",
             (group_id,),
         )
         rows = await cursor.fetchall()
@@ -1910,10 +1909,7 @@ class SQLiteConsolidationStore:
             "INSERT INTO consolidation_scheduler_tiers "
             "(group_id, tier, last_run_at) VALUES (?, ?, ?) "
             "ON CONFLICT(group_id, tier) DO UPDATE SET last_run_at = excluded.last_run_at",
-            [
-                (group_id, tier, last_run_at)
-                for tier, last_run_at in tier_times.items()
-            ],
+            [(group_id, tier, last_run_at) for tier, last_run_at in tier_times.items()],
         )
         await self.db.commit()
 

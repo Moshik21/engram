@@ -191,11 +191,9 @@ class ArtifactSearchService:
             if entity is None:
                 continue
             attrs = entity.attributes or {}
-            if (
-                project_path
-                and _normalize_project_path(attrs.get("project_path"))
-                != _normalize_project_path(project_path)
-            ):
+            if project_path and _normalize_project_path(
+                attrs.get("project_path")
+            ) != _normalize_project_path(project_path):
                 continue
             claims = [
                 self.claim_from_attr(claim_data)

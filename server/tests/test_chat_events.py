@@ -205,10 +205,10 @@ def test_raw_recall_from_chat_item_round_trips_chat_shapes() -> None:
 
 
 def test_build_chat_tool_result_message_preserves_tool_call_contract() -> None:
-    assert build_chat_tool_result_message("tool_1", "{\"ok\": true}") == {
+    assert build_chat_tool_result_message("tool_1", '{"ok": true}') == {
         "type": "tool_result",
         "tool_use_id": "tool_1",
-        "content": "{\"ok\": true}",
+        "content": '{"ok": true}',
     }
 
 

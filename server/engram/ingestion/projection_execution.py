@@ -103,8 +103,7 @@ class LegacyProjectionExecutor:
         bundle = await self._projector.project(plan)
         if bundle.is_error:
             raise ProjectionError(
-                f"extractor_{bundle.extractor_status}: "
-                f"{bundle.extractor_error or 'unknown_error'}",
+                f"extractor_{bundle.extractor_status}: {bundle.extractor_error or 'unknown_error'}",
                 retryable=bundle.retryable,
             )
 
@@ -213,11 +212,13 @@ class EvidenceProjectionExecutor:
         )
         if self._cfg.streaming_evidence_enabled:
             from engram.extraction.streaming_projector import StreamingEvidenceProjector
+
             streamer = StreamingEvidenceProjector(group_id)
             streamer.broadcast_extraction_start(episode.id)
             # Broadcast the initial discovery
             # We wrap the candidates in a mock ExtractionResult
             from engram.extraction.models import ExtractionResult
+
             mock_result = ExtractionResult(
                 entities=[c.entity for c in evidence_bundle.candidates if c.entity],
                 relationships=[

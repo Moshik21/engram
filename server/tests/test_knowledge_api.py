@@ -72,12 +72,8 @@ def _attach_public_surface_policy(manager, cfg: ActivationConfig) -> ActivationC
     service = PublicSurfacePolicyService(cfg)
     manager.get_memory_need_config.side_effect = service.activation_config
     manager.recall_need_graph_probe_enabled.side_effect = service.recall_need_graph_probe_enabled
-    manager.edge_adjudication_client_enabled.side_effect = (
-        service.edge_adjudication_client_enabled
-    )
-    manager.get_explicit_recall_packet_policy.side_effect = (
-        service.explicit_recall_packet_policy
-    )
+    manager.edge_adjudication_client_enabled.side_effect = service.edge_adjudication_client_enabled
+    manager.get_explicit_recall_packet_policy.side_effect = service.explicit_recall_packet_policy
     manager.get_chat_tool_recall_policy.side_effect = service.chat_tool_recall_policy
     manager.recall_usage_feedback_enabled.side_effect = service.recall_usage_feedback_enabled
     manager.recall_need_post_response_safety_net_enabled.side_effect = (
@@ -985,10 +981,7 @@ class TestChatMemoryNeedHelpers:
         assert "Memory is likely relevant" in guidance
 
     async def test_build_chat_messages_clamps_history(self):
-        history = [
-            ChatMessage(role="user", content=f"u{i}")
-            for i in range(12)
-        ]
+        history = [ChatMessage(role="user", content=f"u{i}") for i in range(12)]
 
         messages = build_chat_messages(
             history,
@@ -1069,9 +1062,7 @@ class TestChatMemoryNeedHelpers:
             stop_reason="end_turn",
             content=[SimpleNamespace(text="Engram uses the memory graph.")],
         )
-        client = SimpleNamespace(
-            messages=SimpleNamespace(create=AsyncMock(return_value=response))
-        )
+        client = SimpleNamespace(messages=SimpleNamespace(create=AsyncMock(return_value=response)))
         history = [
             ChatMessage(role="user", content="Earlier question"),
             ChatMessage(role="assistant", content="Earlier answer"),

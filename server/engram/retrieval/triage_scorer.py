@@ -339,9 +339,10 @@ class TriageScorer:
                             ent = await graph_store.get_entity(cid, group_id)
                             if ent:
                                 for domain_name, types in cfg.domain_groups.items():
-                                    if ent.entity_type in types and domain_scores.get(
-                                domain_name, 0.0
-                            ) > 0:
+                                    if (
+                                        ent.entity_type in types
+                                        and domain_scores.get(domain_name, 0.0) > 0
+                                    ):
                                         aligned_count += 1
                                         break
                         if candidate_ids:

@@ -427,12 +427,8 @@ class TestCueFeedbackSurvivesMerge:
         cue_episode to trigger feedback, but that swapped episode content for the
         cue snippet and dropped required evidence — reverted/deferred. Surfacing
         correctness wins; cue-promotion feedback needs a non-corrupting fix."""
-        episode = ScoredResult(
-            "ep1", 0.9, 0.9, 0.0, 0.0, 0.0, result_type="episode"
-        )
-        cue = ScoredResult(
-            "ep1", 0.4, 0.4, 0.0, 0.0, 0.0, result_type="cue_episode"
-        )
+        episode = ScoredResult("ep1", 0.9, 0.9, 0.0, 0.0, 0.0, result_type="episode")
+        cue = ScoredResult("ep1", 0.4, 0.4, 0.0, 0.0, 0.0, result_type="cue_episode")
         cfg = ActivationConfig(
             episode_retrieval_enabled=True,
             episode_retrieval_max=5,
@@ -451,12 +447,8 @@ class TestCueFeedbackSurvivesMerge:
 
     def test_merge_keeps_cue_when_cue_wins(self):
         """When the cue result outscores the episode, the cue result survives."""
-        episode = ScoredResult(
-            "ep1", 0.2, 0.2, 0.0, 0.0, 0.0, result_type="episode"
-        )
-        cue = ScoredResult(
-            "ep1", 0.8, 0.8, 0.0, 0.0, 0.0, result_type="cue_episode"
-        )
+        episode = ScoredResult("ep1", 0.2, 0.2, 0.0, 0.0, 0.0, result_type="episode")
+        cue = ScoredResult("ep1", 0.8, 0.8, 0.0, 0.0, 0.0, result_type="cue_episode")
         cfg = ActivationConfig(
             episode_retrieval_enabled=True,
             episode_retrieval_max=5,

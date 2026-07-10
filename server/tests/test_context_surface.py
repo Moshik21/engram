@@ -490,9 +490,7 @@ async def test_mcp_context_surface_enriches_session_recent_only_cache() -> None:
         "result_type": "cue_episode",
         "cue": {
             "episode_id": "ep_loaded",
-            "cue_text": (
-                "mentions: loaded-store recall performance packet cache older evidence"
-            ),
+            "cue_text": ("mentions: loaded-store recall performance packet cache older evidence"),
             "supporting_spans": [],
             "projection_state": "projected",
         },
@@ -614,8 +612,7 @@ async def test_mcp_context_surface_uses_specific_session_recent_without_enrichme
         manager,
         group_id="native_brain",
         topic_hint=(
-            "write side observe latency citrinemarker aquamarinemarker "
-            "20260528 dogfood evidence"
+            "write side observe latency citrinemarker aquamarinemarker 20260528 dogfood evidence"
         ),
         project_path="/Users/konnermoshier/Engram",
     )
@@ -801,8 +798,7 @@ async def test_mcp_context_surface_uses_project_files_when_stable_cache_is_irrel
     assert ("project_home", "packet cache recall latency", str(tmp_path)) in cache_keys
     assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
     assert all(
-        call.kwargs.get("persist") is True
-        for call in manager.cache_memory_packets.call_args_list
+        call.kwargs.get("persist") is True for call in manager.cache_memory_packets.call_args_list
     )
     sync_flags = [
         call.kwargs.get("sync_persistent")
@@ -990,11 +986,7 @@ async def test_mcp_context_surface_reuses_recent_relevant_project_file_cache(
     ):
         if scope == "identity_core":
             return SimpleNamespace(packets=[unrelated_identity_packet])
-        if (
-            scope == "project_home"
-            and topic_hint == "Engram"
-            and project_path == str(project_dir)
-        ):
+        if scope == "project_home" and topic_hint == "Engram" and project_path == str(project_dir):
             return SimpleNamespace(packets=[recent_packet])
         return None
 
@@ -1029,10 +1021,7 @@ async def test_mcp_context_surface_reuses_recent_relevant_project_file_cache(
         "scopes": {"project_file_recent_reuse": 1},
     }
     assert payload["cached_packets"][0]["summary"] == recent_packet["summary"]
-    assert (
-        payload["cached_packets"][0]["_project_file_fallback_recent_cache_reuse"]
-        is True
-    )
+    assert payload["cached_packets"][0]["_project_file_fallback_recent_cache_reuse"] is True
     manager.get_recent_cached_memory_packets.assert_called_once_with(
         "native_brain",
         scopes=("project_home",),
@@ -1173,11 +1162,7 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         sync_persistent=None,
         **_kwargs,
     ):
-        if (
-            scope == "project_home"
-            and topic_hint == "Engram"
-            and project_path == str(project_dir)
-        ):
+        if scope == "project_home" and topic_hint == "Engram" and project_path == str(project_dir):
             stable_lookup_sync_flags.append(sync_persistent)
             return SimpleNamespace(packets=[cached_packet])
         return None
@@ -1236,10 +1221,7 @@ async def test_mcp_context_surface_uses_project_file_cache_rescue_while_scan_run
         and call.kwargs.get("project_path") == str(project_dir)
     ]
     assert exact_cache_calls
-    assert (
-        exact_cache_calls[0].kwargs["packets"][0]["summary"]
-        == "Fresh project scan packet."
-    )
+    assert exact_cache_calls[0].kwargs["packets"][0]["summary"] == "Fresh project scan packet."
 
 
 @pytest.mark.asyncio
@@ -1363,11 +1345,7 @@ async def test_axi_context_waits_briefly_for_fresh_project_scan_before_cache_res
         project_path=None,
         **_kwargs,
     ):
-        if (
-            scope == "project_home"
-            and topic_hint == "Engram"
-            and project_path == str(project_dir)
-        ):
+        if scope == "project_home" and topic_hint == "Engram" and project_path == str(project_dir):
             return SimpleNamespace(packets=[cached_packet])
         return None
 
@@ -1403,16 +1381,10 @@ async def test_axi_context_waits_briefly_for_fresh_project_scan_before_cache_res
         "scopes": {"project_file_fallback": 1},
     }
     assert (
-        payload["cached_packets"][0]["summary"]
-        == "Fresh scan found the recall-priority evidence."
+        payload["cached_packets"][0]["summary"] == "Fresh scan found the recall-priority evidence."
     )
     assert "Stale stable project packet" not in payload["context"]
-    assert (
-        payload["diagnostics"]["stage_timings_ms"][
-            "project_file_fallback_soft_wait"
-        ]
-        >= 0
-    )
+    assert payload["diagnostics"]["stage_timings_ms"]["project_file_fallback_soft_wait"] >= 0
     manager.get_context.assert_not_awaited()
     group_id, sample = manager.record_memory_operation.call_args.args
     assert group_id == "native_brain"
@@ -1460,11 +1432,7 @@ async def test_context_cache_rescue_ignores_stable_packets_that_miss_topic(
         project_path=None,
         **_kwargs,
     ):
-        if (
-            scope == "project_home"
-            and topic_hint == "Engram"
-            and project_path == str(project_dir)
-        ):
+        if scope == "project_home" and topic_hint == "Engram" and project_path == str(project_dir):
             return SimpleNamespace(packets=[cached_packet])
         return None
 
@@ -1586,8 +1554,7 @@ async def test_mcp_context_surface_uses_loaded_store_preflight_before_project_fi
         "cue": {
             "episode_id": "ep_context",
             "cue_text": (
-                "mentions: did you get stuck Engram dogfood performance status "
-                "broad human update"
+                "mentions: did you get stuck Engram dogfood performance status broad human update"
             ),
             "supporting_spans": [],
             "projection_state": "projected",
@@ -1628,20 +1595,9 @@ async def test_mcp_context_surface_uses_loaded_store_preflight_before_project_fi
     assert payload["cached_packets"][0]["episode_ids"] == ["ep_context"]
     assert "Project File:" not in payload["context"]
     assert "Engram dogfood performance status" in payload["context"]
-    assert (
-        payload["diagnostics"]["stage_timings_ms"]["loaded_store_context_preflight"]
-        >= 0
-    )
-    assert (
-        payload["diagnostics"]["stage_timings_ms"]["loaded_store_context_search"]
-        >= 0
-    )
-    assert (
-        payload["diagnostics"]["stage_timings_ms"][
-            "loaded_store_context_packet_assembly"
-        ]
-        >= 0
-    )
+    assert payload["diagnostics"]["stage_timings_ms"]["loaded_store_context_preflight"] >= 0
+    assert payload["diagnostics"]["stage_timings_ms"]["loaded_store_context_search"] >= 0
+    assert payload["diagnostics"]["stage_timings_ms"]["loaded_store_context_packet_assembly"] >= 0
     manager.get_context.assert_not_awaited()
     manager.fast_recall_fallback.assert_awaited_once()
     cache_keys = {
@@ -1736,10 +1692,7 @@ async def test_axi_project_context_with_topic_skips_loaded_store_preflight(
     assert payload["status"] == "ok"
     assert payload["packet_cache"]["scopes"] == {"project_file_fallback": 2}
     assert "project_file_fallback" in payload["diagnostics"]["stage_timings_ms"]
-    assert (
-        "loaded_store_context_preflight"
-        not in payload["diagnostics"]["stage_timings_ms"]
-    )
+    assert "loaded_store_context_preflight" not in payload["diagnostics"]["stage_timings_ms"]
     manager.fast_recall_fallback.assert_not_awaited()
     manager.get_context.assert_not_awaited()
 
@@ -1954,9 +1907,7 @@ def test_project_file_fallback_uses_full_chained_window_for_evidence_lines(
     )
 
     assert packets[0]["title"] == "Project File: docs/CURRENT_HANDOFF.md"
-    assert packets[0]["evidence_lines"][0].startswith(
-        "`startup matrix 20260527 tiecheck diamond`"
-    )
+    assert packets[0]["evidence_lines"][0].startswith("`startup matrix 20260527 tiecheck diamond`")
     assert "project_file_recall_fallback" in packets[0]["evidence_lines"][0]
     assert not packets[0]["evidence_lines"][0].startswith("handoff evidence")
 
@@ -2054,9 +2005,7 @@ def test_project_file_fallback_public_wrapper_uses_bounded_topic_scan(
 
     monkeypatch.setattr(context_builder, "_read_project_file_prefix", tracking_read)
     manager = SimpleNamespace(
-        get_activation_config=lambda: ActivationConfig(
-            recall_packet_cache_enabled=False
-        )
+        get_activation_config=lambda: ActivationConfig(recall_packet_cache_enabled=False)
     )
 
     packets = project_file_fallback_packet_payloads(
@@ -2113,10 +2062,7 @@ def test_context_packet_relevance_ignores_generated_why_now() -> None:
     packet = {
         "packet_type": "episode_packet",
         "summary": "Engram dogfood performance continuation.",
-        "why_now": (
-            "Relevant to the recall query: xqzvplm brontide nonesuch "
-            "cymophane vellichor"
-        ),
+        "why_now": ("Relevant to the recall query: xqzvplm brontide nonesuch cymophane vellichor"),
         "evidence_lines": ["Trace fallback latency was fixed."],
     }
 
@@ -2280,8 +2226,7 @@ async def test_mcp_context_surface_uses_project_files_after_timeout_when_cache_c
     }
     assert ("project_home", tmp_path.name, str(tmp_path)) in cache_keys
     assert all(
-        call.kwargs.get("persist") is True
-        for call in manager.cache_memory_packets.call_args_list
+        call.kwargs.get("persist") is True for call in manager.cache_memory_packets.call_args_list
     )
 
 
@@ -2563,21 +2508,17 @@ async def test_memory_context_builder_uses_project_artifacts_when_recall_misses(
 
     assert "docs/memory-value-latency-plan.md" in result["context"]
     assert "Memory Value and Latency Plan" in result["context"]
-    assert result["context"].find("docs/memory-value-latency-plan.md") < result[
-        "context"
-    ].find("README.md")
+    assert result["context"].find("docs/memory-value-latency-plan.md") < result["context"].find(
+        "README.md"
+    )
     assert result["entity_count"] == 2
     assert result["packet_cache"]["hit"] is False
     assert cache_packets.called
     project_cache_writes = [
-        call
-        for call in cache_packets.call_args_list
-        if call.kwargs.get("scope") == "project_home"
+        call for call in cache_packets.call_args_list if call.kwargs.get("scope") == "project_home"
     ]
     assert project_cache_writes
-    assert project_cache_writes[0].kwargs["packets"][0]["entity_ids"] == [
-        "art_latency_plan"
-    ]
+    assert project_cache_writes[0].kwargs["packets"][0]["entity_ids"] == ["art_latency_plan"]
 
 
 @pytest.mark.asyncio

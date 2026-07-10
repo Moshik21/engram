@@ -50,9 +50,7 @@ def _create_embedding_provider(config: EngramConfig):
                 return provider
             except ImportError:
                 if provider_type == "gemini":
-                    logger.warning(
-                        "google-genai not installed — pip install google-genai"
-                    )
+                    logger.warning("google-genai not installed — pip install google-genai")
                 # Fall through to next provider
             except Exception as e:
                 logger.warning("GeminiProvider init failed: %s", e)
@@ -84,9 +82,7 @@ def _create_embedding_provider(config: EngramConfig):
             provider = FastEmbedProvider(
                 model=config.embedding.local_model,
                 dimensions=(
-                    config.embedding.dimensions
-                    if config.embedding.dimensions > 0
-                    else None
+                    config.embedding.dimensions if config.embedding.dimensions > 0 else None
                 ),
             )
             config.embedding.dimensions = provider.dimension()

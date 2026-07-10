@@ -194,8 +194,7 @@ class EpisodeCaptureService:
         except TimeoutError:
             stage_timings["capture_store_timeout"] = _elapsed_ms(started)
             logger.warning(
-                "Deferred raw episode storage for episode %s after %sms; "
-                "capture continuing",
+                "Deferred raw episode storage for episode %s after %sms; capture continuing",
                 episode.id,
                 timeout_ms,
             )
@@ -447,9 +446,7 @@ class EpisodeCaptureService:
 
     async def _wait_for_capture_quiet_period(self) -> float:
         """Keep best-effort cue vector writes out of the immediate live-turn window."""
-        quiet_ms = int(
-            getattr(self._cfg, "capture_cue_vector_index_quiet_period_ms", 0) or 0
-        )
+        quiet_ms = int(getattr(self._cfg, "capture_cue_vector_index_quiet_period_ms", 0) or 0)
         if quiet_ms <= 0:
             return 0.0
         started = time_perf_counter()

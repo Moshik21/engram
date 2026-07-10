@@ -268,10 +268,7 @@ async def test_helix_stats_prefers_bulk_cue_and_projected_entity_queries(
     assert stats["cue_metrics"]["cue_hit_count"] == 5
     assert stats["projection_metrics"]["state_counts"]["projected"] == 1
     assert stats["projection_metrics"]["yield"]["linked_entity_count"] == 2
-    assert (
-        stats["projection_metrics"]["yield"]["avg_linked_entities_per_projected_episode"]
-        == 2.0
-    )
+    assert stats["projection_metrics"]["yield"]["avg_linked_entities_per_projected_episode"] == 2.0
 
 
 @pytest.mark.asyncio
@@ -295,9 +292,7 @@ async def test_native_helix_fast_stats_use_count_routes_before_full_scans(monkey
             "find_pending_evidence",
             "find_pending_adjudications",
         }:
-            raise AssertionError(
-                f"recall fast stats must not scan adjudication queues: {endpoint}"
-            )
+            raise AssertionError(f"recall fast stats must not scan adjudication queues: {endpoint}")
         raise AssertionError(f"unexpected full Helix stats query {endpoint}")
 
     monkeypatch.setattr(store, "_query", fake_query)
@@ -336,9 +331,7 @@ async def test_native_helix_fast_stats_drive_recall_without_timeout(monkeypatch)
             "find_pending_adjudications",
         }:
             adjudication_calls += 1
-            raise AssertionError(
-                f"recall fast stats must not scan adjudication queues: {endpoint}"
-            )
+            raise AssertionError(f"recall fast stats must not scan adjudication queues: {endpoint}")
         raise AssertionError(f"unexpected Helix query {endpoint}")
 
     monkeypatch.setattr(store, "_query", fake_query)
@@ -1015,10 +1008,7 @@ async def test_helix_stats_counts_episodes_cues_and_projection_yield(monkeypatch
     assert stats["projection_metrics"]["avg_processing_duration_ms"] == 20
     assert stats["projection_metrics"]["avg_time_to_projection_ms"] == 1500
     assert stats["projection_metrics"]["yield"]["linked_entity_count"] == 2
-    assert (
-        stats["projection_metrics"]["yield"]["avg_linked_entities_per_projected_episode"]
-        == 2.0
-    )
+    assert stats["projection_metrics"]["yield"]["avg_linked_entities_per_projected_episode"] == 2.0
     assert stats["adjudication_metrics"]["open_evidence_count"] == 2
     assert stats["adjudication_metrics"]["pending_evidence_count"] == 1
     assert stats["adjudication_metrics"]["deferred_evidence_count"] == 1

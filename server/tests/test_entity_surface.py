@@ -33,9 +33,7 @@ async def test_entity_detail_surface_reads_active_group() -> None:
 @pytest.mark.asyncio
 async def test_entity_update_surface_builds_sparse_update_payload() -> None:
     manager = MagicMock()
-    manager.update_entity_profile = AsyncMock(
-        return_value={"id": "ent_1", "name": "Alice Updated"}
-    )
+    manager.update_entity_profile = AsyncMock(return_value={"id": "ent_1", "name": "Alice Updated"})
 
     result = await build_api_entity_update_surface(
         manager,

@@ -80,8 +80,10 @@ async def test_second_extract_is_cache_hit_no_inner_call(tmp_path):
 @pytest.mark.asyncio
 async def test_errors_are_not_cached(tmp_path):
     err = ExtractionResult(
-        entities=[], relationships=[],
-        status=ExtractionStatus.PARSE_ERROR, error="boom",
+        entities=[],
+        relationships=[],
+        status=ExtractionStatus.PARSE_ERROR,
+        error="boom",
     )
     inner = _CountingExtractor(err)
     cache = ExtractionCache(inner, tmp_path / "c.sqlite")

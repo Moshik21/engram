@@ -175,7 +175,10 @@ async def run_locomo(
             if not probe.question or not probe.answer:
                 continue
             results = await mgr.recall(
-                probe.question, group_id=gid, limit=limit, record_access=False,
+                probe.question,
+                group_id=gid,
+                limit=limit,
+                record_access=False,
             )
             evidence = _evidence_from_results(results, limit)
 

@@ -29,9 +29,7 @@ class FakeGraphStore:
             if episode.group_id != group_id
         }
         self.cues = {
-            episode_id: cue
-            for episode_id, cue in self.cues.items()
-            if cue.group_id != group_id
+            episode_id: cue for episode_id, cue in self.cues.items() if cue.group_id != group_id
         }
 
     async def update_episode(self, episode_id: str, updates: dict, group_id: str = "default"):

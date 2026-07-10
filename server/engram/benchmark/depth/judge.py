@@ -85,9 +85,7 @@ def judge_multi_hop(
     forbidden_hit = False
     if forbidden:
         norm_ev = [_normalize(e) for e in evidence]
-        forbidden_hit = any(
-            any(_normalize(f) in ev for ev in norm_ev) for f in forbidden
-        )
+        forbidden_hit = any(any(_normalize(f) in ev for ev in norm_ev) for f in forbidden)
 
     return JudgeVerdict(
         qid=qid,
@@ -181,9 +179,7 @@ def judge_synthesis(
     false_recall = False
     if forbidden_facts:
         norm_ev = [_normalize(e) for e in evidence]
-        false_recall = any(
-            any(_normalize(f) in ev for ev in norm_ev) for f in forbidden_facts
-        )
+        false_recall = any(any(_normalize(f) in ev for ev in norm_ev) for f in forbidden_facts)
 
     passed = coverage >= coverage_threshold and not false_recall
     return JudgeVerdict(

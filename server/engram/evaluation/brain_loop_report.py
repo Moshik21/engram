@@ -51,17 +51,13 @@ REQUIRED_EVALUATION_SIGNALS = set(EVALUATION_SIGNAL_ORDER)
 
 def has_recall_runtime_metrics(metrics: Mapping[str, Any] | None) -> bool:
     """Return whether recall metrics include real runtime gate coverage."""
-    total_analyses, _analyzer_p95, _surfaced = _recall_runtime_score(
-        _mapping(metrics or {})
-    )
+    total_analyses, _analyzer_p95, _surfaced = _recall_runtime_score(_mapping(metrics or {}))
     return total_analyses > 0
 
 
 def has_memory_operation_metrics(metrics: Mapping[str, Any] | None) -> bool:
     """Return whether metrics include real memory operation cost coverage."""
-    operation_count, _p95_ms, signal_count = _memory_operation_score(
-        _mapping(metrics or {})
-    )
+    operation_count, _p95_ms, signal_count = _memory_operation_score(_mapping(metrics or {}))
     return operation_count > 0 or signal_count > 0
 
 
@@ -73,9 +69,7 @@ def unmeasured_evaluation_signals(
     """Return required evaluation signals that are missing or not measured."""
     evaluation_signals = _mapping(report.get("evaluation_signals"))
     min_evidence_count = max(1, int(min_evidence_count))
-    missing_signals = [
-        name for name in EVALUATION_SIGNAL_ORDER if name not in evaluation_signals
-    ]
+    missing_signals = [name for name in EVALUATION_SIGNAL_ORDER if name not in evaluation_signals]
     failures = [f"{name}:missing" for name in missing_signals]
     for name in EVALUATION_SIGNAL_ORDER:
         if name in missing_signals:
@@ -206,8 +200,7 @@ def is_brain_loop_report_payload(payload: Any) -> bool:
     if not isinstance(payload, Mapping):
         return False
     return all(
-        isinstance(payload.get(section), Mapping)
-        for section in BRAIN_LOOP_REPORT_SECTION_KEYS
+        isinstance(payload.get(section), Mapping) for section in BRAIN_LOOP_REPORT_SECTION_KEYS
     )
 
 
@@ -623,9 +616,7 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
     adoption_evidence = _mapping(report.get("adoption_evidence"))
     if adoption_evidence:
         adoption_failures = list(adoption_evidence.get("failures") or [])
-        adoption_blockers = [
-            str(blocker) for blocker in adoption_evidence.get("blockers") or []
-        ]
+        adoption_blockers = [str(blocker) for blocker in adoption_evidence.get("blockers") or []]
         adoption_blocker_details = [
             str(detail) for detail in adoption_evidence.get("blocker_details") or []
         ]
@@ -672,35 +663,32 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
             if client_failures
             else ""
         )
-        required_clients = ", ".join(
-            str(client) for client in adoption_client_evidence.get("required_clients") or []
-        ) or "none"
-        observed_clients = ", ".join(
-            str(client) for client in adoption_client_evidence.get("observed_clients") or []
-        ) or "none"
+        required_clients = (
+            ", ".join(
+                str(client) for client in adoption_client_evidence.get("required_clients") or []
+            )
+            or "none"
+        )
+        observed_clients = (
+            ", ".join(
+                str(client) for client in adoption_client_evidence.get("observed_clients") or []
+            )
+            or "none"
+        )
         client_blockers = [
             str(blocker) for blocker in adoption_client_evidence.get("blockers") or []
         ]
         client_mcp_failures = [
-            str(server)
-            for server in adoption_client_evidence.get("mcp_server_failures") or []
+            str(server) for server in adoption_client_evidence.get("mcp_server_failures") or []
         ]
         lines.extend(
             [
                 "",
                 "## Adoption Client Evidence",
                 "",
-                (
-                    f"- Status: {adoption_client_evidence.get('status', 'unknown')}"
-                    f"{failure_text}"
-                ),
-                (
-                    f"- Required clients: {required_clients} | observed clients: "
-                    f"{observed_clients}"
-                ),
-                (
-                    f"- Reports: {adoption_client_evidence.get('report_count', 0)}"
-                ),
+                (f"- Status: {adoption_client_evidence.get('status', 'unknown')}{failure_text}"),
+                (f"- Required clients: {required_clients} | observed clients: {observed_clients}"),
+                (f"- Reports: {adoption_client_evidence.get('report_count', 0)}"),
             ]
         )
         if client_blockers:
@@ -710,14 +698,8 @@ def format_brain_loop_report_markdown(report: Mapping[str, Any]) -> str:
         for evidence_report in adoption_client_evidence.get("reports") or []:
             if not isinstance(evidence_report, Mapping):
                 continue
-            report_blockers = [
-                str(blocker) for blocker in evidence_report.get("blockers") or []
-            ]
-            blocker_text = (
-                f" | blockers {', '.join(report_blockers)}"
-                if report_blockers
-                else ""
-            )
+            report_blockers = [str(blocker) for blocker in evidence_report.get("blockers") or []]
+            blocker_text = f" | blockers {', '.join(report_blockers)}" if report_blockers else ""
             lines.append(
                 "- Report: "
                 f"{evidence_report.get('client') or 'unknown client'} "
@@ -832,12 +814,8 @@ def _release_adoption_client_component(evidence: Any) -> dict[str, Any]:
         "status": "measured" if status == "measured" and not failures else "failed",
         "missing": [],
         "failures": failures,
-        "required_clients": [
-            str(client) for client in payload.get("required_clients") or []
-        ],
-        "observed_clients": [
-            str(client) for client in payload.get("observed_clients") or []
-        ],
+        "required_clients": [str(client) for client in payload.get("required_clients") or []],
+        "observed_clients": [str(client) for client in payload.get("observed_clients") or []],
     }
     _copy_nonempty_list(component, payload, "blockers")
     _copy_nonempty_list(component, payload, "mcp_server_failures")
@@ -889,9 +867,7 @@ def _cue_summary(cue_metrics: Mapping[str, Any], episode_count: int) -> dict[str
         "used_rate": _ratio(used_count, surfaced_count),
         "near_miss_rate": _ratio(near_miss_count, surfaced_count),
         "avg_policy_score": _float(cue_metrics.get("avg_policy_score")),
-        "projection_conversion_rate": _float(
-            cue_metrics.get("cue_to_projection_conversion_rate")
-        ),
+        "projection_conversion_rate": _float(cue_metrics.get("cue_to_projection_conversion_rate")),
     }
 
 
@@ -918,12 +894,8 @@ def _project_summary(projection_metrics: Mapping[str, Any]) -> dict[str, Any]:
         "attempted_episode_count": _int(projection_metrics.get("attempted_episode_count")),
         "total_attempts": _int(projection_metrics.get("total_attempts")),
         "failure_rate": _float(projection_metrics.get("failure_rate")),
-        "avg_processing_duration_ms": _float(
-            projection_metrics.get("avg_processing_duration_ms")
-        ),
-        "avg_time_to_projection_ms": _float(
-            projection_metrics.get("avg_time_to_projection_ms")
-        ),
+        "avg_processing_duration_ms": _float(projection_metrics.get("avg_processing_duration_ms")),
+        "avg_time_to_projection_ms": _float(projection_metrics.get("avg_time_to_projection_ms")),
         "yield": {
             "linked_entity_count": _int(yield_metrics.get("linked_entity_count")),
             "relationship_count": _int(yield_metrics.get("relationship_count")),
@@ -957,9 +929,7 @@ def _recall_summary(
         min(max(0, sample.corrected_packets), max(0, sample.packets_surfaced))
         for sample in recall_eval_samples
     )
-    need_labeled = [
-        sample for sample in recall_eval_samples if sample.recall_needed is not None
-    ]
+    need_labeled = [sample for sample in recall_eval_samples if sample.recall_needed is not None]
     needed = [sample for sample in need_labeled if sample.recall_needed is True]
     missed = [sample for sample in needed if not sample.recall_triggered]
 
@@ -971,9 +941,7 @@ def _recall_summary(
         "needed_count": len(needed),
         "missed_count": len(missed),
         "memory_need_precision": (
-            round(memory_need_precision(recall_eval_samples), 4)
-            if recall_eval_samples
-            else None
+            round(memory_need_precision(recall_eval_samples), 4) if recall_eval_samples else None
         ),
         "memory_need_recall": (
             round(memory_need_recall(recall_eval_samples), 4) if need_labeled else None
@@ -999,19 +967,13 @@ def _recall_summary(
         "status": "measured" if continuity_samples else "needs_samples",
         "sample_count": len(continuity_samples),
         "session_continuity_lift": (
-            round(session_continuity_lift(continuity_samples), 4)
-            if continuity_samples
-            else None
+            round(session_continuity_lift(continuity_samples), 4) if continuity_samples else None
         ),
         "open_loop_recovery_rate": (
-            round(open_loop_recovery_rate(continuity_samples), 4)
-            if continuity_samples
-            else None
+            round(open_loop_recovery_rate(continuity_samples), 4) if continuity_samples else None
         ),
         "temporal_correctness": (
-            round(temporal_correctness(continuity_samples), 4)
-            if continuity_samples
-            else None
+            round(temporal_correctness(continuity_samples), 4) if continuity_samples else None
         ),
     }
 
@@ -1095,9 +1057,7 @@ def _memory_operation_cost_summary(
     )
     budget = _latency_summary(_get(metrics, "budget_ms", "budgetMs", default={}))
     status_counts = dict(_mapping(_get(metrics, "status_counts", "statusCounts")))
-    skip_reason_counts = dict(
-        _mapping(_get(metrics, "skip_reason_counts", "skipReasonCounts"))
-    )
+    skip_reason_counts = dict(_mapping(_get(metrics, "skip_reason_counts", "skipReasonCounts")))
     operation_counts = dict(_mapping(_get(metrics, "operation_counts", "operationCounts")))
     source_counts = dict(_mapping(_get(metrics, "source_counts", "sourceCounts")))
     raw_recent_problem_samples = _get(
@@ -1159,9 +1119,7 @@ def _memory_operation_cost_summary(
         "p95_added_latency_ms": duration["p95_ms"],
         "avg_budget_ms": budget["avg_ms"],
         "p95_budget_ms": budget["p95_ms"],
-        "avg_budget_tokens": _int(
-            _get(metrics, "avg_budget_tokens", "avgBudgetTokens")
-        ),
+        "avg_budget_tokens": _int(_get(metrics, "avg_budget_tokens", "avgBudgetTokens")),
         "completed_count": completed_count,
         "skipped_count": skipped_count,
         "error_count": error_count,
@@ -1216,9 +1174,7 @@ def _memory_operation_benefit_summary(recall: Mapping[str, Any]) -> dict[str, An
     recall_measured = recall_eval.get("status") == "measured"
     continuity_measured = continuity.get("status") == "measured"
     return {
-        "status": "measured"
-        if recall_measured or continuity_measured
-        else "needs_samples",
+        "status": "measured" if recall_measured or continuity_measured else "needs_samples",
         "recall_sample_count": _int(recall_eval.get("sample_count")),
         "session_sample_count": _int(continuity.get("sample_count")),
         "memory_need_precision": recall_eval.get("memory_need_precision"),
@@ -1382,9 +1338,7 @@ def _calibration_summary(snapshots: Sequence[Any]) -> dict[str, Any]:
         )
         totals["snapshots"] += 1
         totals["total_traces"] += _int(_get(snapshot, "total_traces", "totalTraces"))
-        totals["labeled_examples"] += _int(
-            _get(snapshot, "labeled_examples", "labeledExamples")
-        )
+        totals["labeled_examples"] += _int(_get(snapshot, "labeled_examples", "labeledExamples"))
         totals["oracle_examples"] += _int(_get(snapshot, "oracle_examples", "oracleExamples"))
         totals["abstain_count"] += _int(_get(snapshot, "abstain_count", "abstainCount"))
         _append_optional_float(totals["accuracy_values"], _get(snapshot, "accuracy"))
@@ -1478,9 +1432,7 @@ def _coverage_gaps(
         "needs_quality",
     }:
         gaps.append("consolidation calibration needs saved calibration snapshots")
-    elif calibration_status == "needs_quality" or not _calibration_quality_measured(
-        calibration
-    ):
+    elif calibration_status == "needs_quality" or not _calibration_quality_measured(calibration):
         gaps.append("consolidation calibration quality needs labeled decision outcomes")
     return gaps
 
@@ -1509,11 +1461,7 @@ def _evaluation_signals(
     return {
         "cue_usefulness": _signal_readiness(
             status=(
-                "measured"
-                if cue_surfaced > 0
-                else "needs_feedback"
-                if cue_count
-                else "needs_data"
+                "measured" if cue_surfaced > 0 else "needs_feedback" if cue_count else "needs_data"
             ),
             evidence_count=cue_surfaced,
             metric=cue.get("used_rate"),
@@ -1665,9 +1613,7 @@ def _adjudication_summary(
     adjudication_metrics: Mapping[str, Any],
 ) -> dict[str, Any]:
     adjudication_phase_totals = {
-        phase: totals
-        for phase, totals in phase_totals.items()
-        if phase in ADJUDICATION_PHASES
+        phase: totals for phase, totals in phase_totals.items() if phase in ADJUDICATION_PHASES
     }
     runs = sum(_int(totals.get("runs")) for totals in adjudication_phase_totals.values())
     items_processed = sum(
@@ -1882,17 +1828,11 @@ def _recall_control_summary(recall_metrics: Mapping[str, Any]) -> dict[str, Any]
     thresholds = _mapping(_get(recall_metrics, "thresholds", default={}))
     return {
         "used_count": _int(_get(recall_metrics, "used_count", "usedCount")),
-        "dismissed_count": _int(
-            _get(recall_metrics, "dismissed_count", "dismissedCount")
-        ),
+        "dismissed_count": _int(_get(recall_metrics, "dismissed_count", "dismissedCount")),
         "surfaced_count": _int(_get(recall_metrics, "surfaced_count", "surfacedCount")),
         "selected_count": _int(_get(recall_metrics, "selected_count", "selectedCount")),
-        "confirmed_count": _int(
-            _get(recall_metrics, "confirmed_count", "confirmedCount")
-        ),
-        "corrected_count": _int(
-            _get(recall_metrics, "corrected_count", "correctedCount")
-        ),
+        "confirmed_count": _int(_get(recall_metrics, "confirmed_count", "confirmedCount")),
+        "corrected_count": _int(_get(recall_metrics, "corrected_count", "correctedCount")),
         "graph_override_count": _int(
             _get(recall_metrics, "graph_override_count", "graphOverrideCount")
         ),

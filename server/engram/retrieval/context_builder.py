@@ -49,9 +49,7 @@ _SECRET_ASSIGNMENT_RE = re.compile(
 _SECRET_TOKEN_RE = re.compile(r"\b(?:sk|pk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_\-]{8,}\b")
 # Session-start / topic-less get_context still needs a probe that can find
 # high-signal Decisions/Preferences without requiring the agent to craft a query.
-_DEFAULT_DURABLE_CONTEXT_QUERY = (
-    "durable decisions preferences goals commitments corrections"
-)
+_DEFAULT_DURABLE_CONTEXT_QUERY = "durable decisions preferences goals commitments corrections"
 
 
 def invalidate_durable_context_cache(group_id: str | None = None) -> int:
@@ -234,12 +232,10 @@ async def build_mcp_context_surface(
         started=started,
     )
     if durable_payload is not None:
-        durable_payload.setdefault("diagnostics", {}).setdefault(
-            "stage_timings_ms", {}
-        )["durable_context"] = _elapsed_ms(durable_started)
-        durable_cache_hit = bool(
-            (durable_payload.get("packet_cache") or {}).get("hit")
-        )
+        durable_payload.setdefault("diagnostics", {}).setdefault("stage_timings_ms", {})[
+            "durable_context"
+        ] = _elapsed_ms(durable_started)
+        durable_cache_hit = bool((durable_payload.get("packet_cache") or {}).get("hit"))
         await record_manager_memory_operation(
             manager,
             group_id,
@@ -298,10 +294,13 @@ async def build_mcp_context_surface(
         topic_hint=topic_hint,
         project_path=project_path,
     )
-    if _topic_specific_context_requested(
-        topic_hint=cache_topic_hint,
-        project_path=project_path,
-    ) or fast_project_context:
+    if (
+        _topic_specific_context_requested(
+            topic_hint=cache_topic_hint,
+            project_path=project_path,
+        )
+        or fast_project_context
+    ):
         project_file_task = _start_project_file_context_fallback_task(
             topic_hint=cache_topic_hint,
             project_path=project_path,
@@ -335,9 +334,7 @@ async def build_mcp_context_surface(
                     budget_ms=budget.budget_ms,
                     budget_tokens=budget.budget_tokens,
                     cache_hit=True,
-                    packet_count=len(
-                        early_project_file_payload.get("cached_packets") or []
-                    ),
+                    packet_count=len(early_project_file_payload.get("cached_packets") or []),
                 ),
             )
             return early_project_file_payload
@@ -362,9 +359,7 @@ async def build_mcp_context_surface(
                 project_file_task=project_file_task,
                 soft_wait_seconds=_context_fast_preflight_soft_wait_seconds(cfg),
             )
-            loaded_store_preflight_duration_ms = _elapsed_ms(
-                loaded_store_preflight_started
-            )
+            loaded_store_preflight_duration_ms = _elapsed_ms(loaded_store_preflight_started)
             if loaded_store_task is not None and not loaded_store_task.done():
                 loaded_store_task.add_done_callback(_consume_loaded_store_context_task)
         if loaded_store_payload is not None:
@@ -416,9 +411,7 @@ async def build_mcp_context_surface(
                     duration_ms=_elapsed_ms(started),
                     budget_ms=budget.budget_ms,
                     budget_tokens=budget.budget_tokens,
-                    cache_hit=bool(
-                        (project_file_payload.get("packet_cache") or {}).get("hit")
-                    ),
+                    cache_hit=bool((project_file_payload.get("packet_cache") or {}).get("hit")),
                     packet_count=len(project_file_payload.get("cached_packets") or []),
                 ),
             )
@@ -661,10 +654,14 @@ class MemoryContextBuilder:
     ) -> str:
         """Render a brief deterministic narrative from structured context."""
         growth_key = (
-            int(growth_stats.get("episodes") or 0),
-            int(growth_stats.get("cues") or 0),
-            int(growth_stats.get("promotions") or 0),
-        ) if growth_stats else ()
+            (
+                int(growth_stats.get("episodes") or 0),
+                int(growth_stats.get("cues") or 0),
+                int(growth_stats.get("promotions") or 0),
+            )
+            if growth_stats
+            else ()
+        )
         cache_key = (group_id, topic_hint, growth_key)
         now = time.time()
         if cache_key in self._briefing_cache:
@@ -1037,8 +1034,8 @@ class MemoryContextBuilder:
                     except Exception:
                         continue
 
-                    intention_state: ActivationState | None = (
-                        await self._activation.get_activation(intention_entity.id)
+                    intention_state: ActivationState | None = await self._activation.get_activation(
+                        intention_entity.id
                     )
                     activation = 0.0
                     if intention_state:
@@ -1352,8 +1349,7 @@ class MemoryContextBuilder:
             summary = _redact_packet_text(str(packet.get("summary") or "").strip())
             if summary:
                 lines.append(
-                    f"- [{source}/{freshness}] {title} — "
-                    f"{_truncate_packet_text(summary, 180)}"
+                    f"- [{source}/{freshness}] {title} — {_truncate_packet_text(summary, 180)}"
                 )
             else:
                 lines.append(f"- [{source}/{freshness}] {title}")
@@ -1405,7 +1401,7 @@ class MemoryContextBuilder:
                                 "_cache_topic_hint": scope_topic,
                                 "_cache_project_path": scope_project,
                             }
-                        )
+                        ),
                     )
         return packets
 
@@ -1640,8 +1636,7 @@ def _artifact_context_score(
         return 0.0
     rel_path = str(attrs.get("rel_path") or artifact.name).lower()
     return float(
-        sum(text.count(term) for term in terms)
-        + sum(3 for term in terms if term in rel_path)
+        sum(text.count(term) for term in terms) + sum(3 for term in terms if term in rel_path)
     )
 
 
@@ -1883,10 +1878,7 @@ async def _durable_context_payload_from_manager(
         except Exception:
             logger.debug("Durable type listing failed", exc_info=True)
             typed = []
-        seen = {
-            str((r.get("entity") or {}).get("id") or "")
-            for r in results
-        }
+        seen = {str((r.get("entity") or {}).get("id") or "") for r in results}
         for item in typed:
             eid = str((item.get("entity") or {}).get("id") or "")
             if eid and eid not in seen:
@@ -1947,9 +1939,7 @@ async def _durable_context_payload_from_manager(
         return None
 
     packet_payloads = [
-        _redact_packet_payload(
-            {**packet.to_dict(), "_cache_scope": DURABLE_CONTEXT_PACKET_SCOPE}
-        )
+        _redact_packet_payload({**packet.to_dict(), "_cache_scope": DURABLE_CONTEXT_PACKET_SCOPE})
         for packet in packets
     ]
     entity_ids: set[str] = set()
@@ -2047,9 +2037,7 @@ def _finalize_durable_context_payload(
     if format == "briefing":
         payload["format"] = "briefing"
         payload["context"] = _render_durable_briefing(packet_payloads)
-        payload["token_estimate"] = MemoryContextBuilder.estimate_tokens(
-            str(payload["context"])
-        )
+        payload["token_estimate"] = MemoryContextBuilder.estimate_tokens(str(payload["context"]))
     return payload
 
 
@@ -2605,10 +2593,7 @@ def _project_file_pending_context_packets(
         return []
     try:
         project_dir = Path(project_path).expanduser()
-        if (
-            not project_dir.is_dir()
-            or str(project_dir) in {str(Path.home()), "/"}
-        ):
+        if not project_dir.is_dir() or str(project_dir) in {str(Path.home()), "/"}:
             return []
     except OSError:
         return []
@@ -2619,11 +2604,7 @@ def _project_file_pending_context_packets(
         if (project_dir / marker).exists()
     ]
     topic_text = f" for `{topic_hint}`" if topic_hint else ""
-    marker_text = (
-        f" Detected project markers: {', '.join(markers[:4])}."
-        if markers
-        else ""
-    )
+    marker_text = f" Detected project markers: {', '.join(markers[:4])}." if markers else ""
     summary = (
         f"Project {project_dir.name} at {project_dir} has local file context "
         f"warming in the background{topic_text}.{marker_text}"
@@ -2682,9 +2663,7 @@ def _project_file_cache_rescue_packets_from_manager(
         return []
     get_cached_packets = getattr(manager, "get_cached_memory_packets", None)
     cfg = _manager_activation_config(manager)
-    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(
-        get_cached_packets
-    ):
+    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(get_cached_packets):
         return []
 
     stable_topic = _derive_context_topic_hint(None, project_path)
@@ -2852,11 +2831,7 @@ def project_file_fallback_packet_payloads(
     candidate_read_limit: int | None = None,
     cache: bool = True,
 ) -> list[dict[str, Any]]:
-    scan_chars = (
-        _PROJECT_FILE_TOPIC_SCAN_CHARS
-        if topic_scan_chars is None
-        else topic_scan_chars
-    )
+    scan_chars = _PROJECT_FILE_TOPIC_SCAN_CHARS if topic_scan_chars is None else topic_scan_chars
     packets = _project_file_fallback_packets(
         project_path=project_path,
         topic_hint=topic_hint,
@@ -3055,9 +3030,7 @@ def _load_cached_context_packets_from_manager(
 ) -> list[dict[str, Any]]:
     get_cached_packets = getattr(manager, "get_cached_memory_packets", None)
     cfg = _manager_activation_config(manager)
-    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(
-        get_cached_packets
-    ):
+    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(get_cached_packets):
         return []
     packets: list[dict[str, Any]] = []
     seen_packets: set[tuple[str, str, str]] = set()
@@ -3094,7 +3067,7 @@ def _load_cached_context_packets_from_manager(
                             "_cache_topic_hint": scope_topic,
                             "_cache_project_path": scope_project,
                         }
-                    )
+                    ),
                 )
     if _should_attempt_recent_project_file_cache_reuse(
         packets,
@@ -3156,9 +3129,7 @@ def _recent_project_file_cache_reuse_packets_from_manager(
         return []
     get_recent_packets = getattr(manager, "get_recent_cached_memory_packets", None)
     cfg = _manager_activation_config(manager)
-    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(
-        get_recent_packets
-    ):
+    if not getattr(cfg, "recall_packet_cache_enabled", False) or not callable(get_recent_packets):
         return []
     try:
         recent_packets = get_recent_packets(
@@ -3350,9 +3321,7 @@ def schedule_project_file_prefix_warmup(
     )
     _PROJECT_FILE_PREFIX_WARMUP_TASKS[task_key] = task
     task.add_done_callback(
-        lambda done_task, key=task_key: _consume_project_file_prefix_warmup_task(
-            key, done_task
-        )
+        lambda done_task, key=task_key: _consume_project_file_prefix_warmup_task(key, done_task)
     )
     return True
 
@@ -3364,10 +3333,7 @@ def _warm_project_file_prefix_cache(
 ) -> None:
     try:
         project_dir = Path(project_path).expanduser()
-        if (
-            not project_dir.is_dir()
-            or str(project_dir) in {str(Path.home()), "/"}
-        ):
+        if not project_dir.is_dir() or str(project_dir) in {str(Path.home()), "/"}:
             return
     except OSError:
         return
@@ -3415,10 +3381,7 @@ def _project_file_fallback_packets(
         return []
     project_dir = Path(project_path).expanduser()
     try:
-        if (
-            not project_dir.is_dir()
-            or str(project_dir) in {str(Path.home()), "/"}
-        ):
+        if not project_dir.is_dir() or str(project_dir) in {str(Path.home()), "/"}:
             return []
     except OSError:
         return []
@@ -3564,10 +3527,7 @@ def _project_file_fallback_reason(skip_reason: str | None) -> str:
             "Graph context timed out; this packet was synthesized from local "
             "project files without loaded-store reads."
         )
-    return (
-        "This packet was synthesized from local project files without "
-        "loaded-store reads."
-    )
+    return "This packet was synthesized from local project files without loaded-store reads."
 
 
 def _project_file_fallback_timings(
@@ -3580,11 +3540,7 @@ def _project_file_fallback_timings(
     timings = {"project_file_fallback": fallback_duration_ms}
     if extra_timings:
         timings.update(
-            {
-                key: value
-                for key, value in extra_timings.items()
-                if isinstance(value, int | float)
-            }
+            {key: value for key, value in extra_timings.items() if isinstance(value, int | float)}
         )
     if skip_reason:
         timings[skip_reason] = pre_fallback_duration_ms
@@ -3734,16 +3690,13 @@ def _select_relevant_context_packets(
     if not relevant:
         return []
     # Durable graph facts always win over session recap packets.
-    durable_relevant = [
-        packet for packet in relevant if _context_packet_is_durable_fact(packet)
-    ]
+    durable_relevant = [packet for packet in relevant if _context_packet_is_durable_fact(packet)]
     if durable_relevant:
         # Keep durable first, then other non-recap, then recap as filler.
         non_recap = [
             packet
             for packet in relevant
-            if not _context_packet_is_session_recent(packet)
-            and packet not in durable_relevant
+            if not _context_packet_is_session_recent(packet) and packet not in durable_relevant
         ]
         return durable_relevant + non_recap
 
@@ -3826,9 +3779,7 @@ def _session_recent_packets_strongly_answer_topic(
 
     matches: set[str] = set()
     for packet in packets:
-        if not isinstance(packet, Mapping) or not _context_packet_is_session_recent(
-            packet
-        ):
+        if not isinstance(packet, Mapping) or not _context_packet_is_session_recent(packet):
             continue
         matches.update(_context_packet_query_matches(packet, tokens))
 
@@ -3927,21 +3878,13 @@ def _context_packet_is_exact_project_file_cache_hit(
         source = str(trust.get("source") or "")
     if source != "project_file":
         return False
-    if (
-        packet.get("_project_file_fallback_version")
-        != _PROJECT_FILE_FALLBACK_PACKET_VERSION
-    ):
+    if packet.get("_project_file_fallback_version") != _PROJECT_FILE_FALLBACK_PACKET_VERSION:
         return False
-    return (
-        _normalize_context_cache_value(
-            packet.get("_project_file_fallback_topic_hint")
-        )
-        == _normalize_context_cache_value(topic_hint)
-        and _normalize_context_cache_value(
-            packet.get("_project_file_fallback_project_path")
-        )
-        == _normalize_context_cache_value(project_path)
-    )
+    return _normalize_context_cache_value(
+        packet.get("_project_file_fallback_topic_hint")
+    ) == _normalize_context_cache_value(topic_hint) and _normalize_context_cache_value(
+        packet.get("_project_file_fallback_project_path")
+    ) == _normalize_context_cache_value(project_path)
 
 
 def _context_packet_is_recent_project_file_cache_reuse_hit(
@@ -3973,15 +3916,10 @@ def _context_packet_is_project_file_cache_rescue_candidate(
         source = str(trust.get("source") or "")
     if source != "project_file":
         return False
-    if (
-        packet.get("_project_file_fallback_version")
-        != _PROJECT_FILE_FALLBACK_PACKET_VERSION
-    ):
+    if packet.get("_project_file_fallback_version") != _PROJECT_FILE_FALLBACK_PACKET_VERSION:
         return False
     expected_path = _normalize_context_cache_value(project_path)
-    packet_path = _normalize_context_cache_value(
-        packet.get("_project_file_fallback_project_path")
-    )
+    packet_path = _normalize_context_cache_value(packet.get("_project_file_fallback_project_path"))
     cache_path = _normalize_context_cache_value(cache_project_path)
     if not expected_path:
         return False
@@ -4067,10 +4005,7 @@ def _context_specific_relevance_tokens(tokens: set[str]) -> set[str]:
     return {
         token
         for token in tokens
-        if any(char.isdigit() for char in token)
-        or "-" in token
-        or "_" in token
-        or len(token) >= 10
+        if any(char.isdigit() for char in token) or "-" in token or "_" in token or len(token) >= 10
     }
 
 
@@ -4329,10 +4264,7 @@ def _project_file_summary(
                 f"{project_name} file {rel_path} — {heading_lines[0]}; "
                 f"{_truncate_packet_text(matched_lines[0], 200)}"
             )
-        return (
-            f"{project_name} file {rel_path} — "
-            f"{_truncate_packet_text(matched_lines[0], 240)}"
-        )
+        return f"{project_name} file {rel_path} — {_truncate_packet_text(matched_lines[0], 240)}"
     if heading_lines:
         return f"{project_name} file {rel_path} — " + "; ".join(heading_lines[:3])
     if lines:
@@ -4431,8 +4363,7 @@ def _redact_packet_text(text: str) -> str:
         return text
     redacted = _SECRET_ASSIGNMENT_RE.sub(
         lambda match: (
-            f"{match.group(1)}{match.group(2)}"
-            f"{' ' if match.group(2) == ':' else ''}[redacted]"
+            f"{match.group(1)}{match.group(2)}{' ' if match.group(2) == ':' else ''}[redacted]"
         ),
         text,
     )

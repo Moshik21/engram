@@ -14,6 +14,7 @@ from engram.retrieval.scorer import ScoredResult, score_candidates, score_candid
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_candidates():
     return [("ent_a", 0.9), ("ent_b", 0.8)]
 

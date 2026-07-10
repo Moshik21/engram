@@ -202,10 +202,7 @@ def configure_dogfood_parser(parser: argparse.ArgumentParser) -> None:
         "--context",
         type=int,
         default=1,
-        help=(
-            "Neighboring parsed transcript turns to include when --include-content "
-            "is used."
-        ),
+        help=("Neighboring parsed transcript turns to include when --include-content is used."),
     )
     review.add_argument(
         "--require-ready",
@@ -725,11 +722,7 @@ async def build_dogfood_replay_report(
             4,
         )
 
-    status = (
-        "measured"
-        if replay_turns or trace_evidence.get("status") == "measured"
-        else "empty"
-    )
+    status = "measured" if replay_turns or trace_evidence.get("status") == "measured" else "empty"
     return {
         "kind": DOGFOOD_REPORT_KIND,
         "status": status,
@@ -831,9 +824,7 @@ async def prepare_dogfood_review_bundle(
     label_turn_count = len(label_template.get("turns") or [])
     trace_status = (replay_report.get("trace_evidence") or {}).get("status")
     prepare_status = (
-        "trace_only"
-        if label_turn_count == 0 and trace_status == "measured"
-        else "prepared"
+        "trace_only" if label_turn_count == 0 and trace_status == "measured" else "prepared"
     )
     next_commands = {
         "review": _shell_join(
@@ -1256,9 +1247,7 @@ def build_dogfood_trace_evidence(
         ),
         "status_counts": _count_values(statuses),
         "origin_counts": _count_values(origins),
-        "client_counts": _count_values(
-            _optional_str(record.get("client")) for record in records
-        ),
+        "client_counts": _count_values(_optional_str(record.get("client")) for record in records),
         "duration_ms": _duration_summary(durations),
         "timeout_count": sum(1 for record in records if _trace_timed_out(record)),
         "degraded_count": sum(
@@ -1641,22 +1630,16 @@ def dogfood_memory_operation_metrics_from_replay_report(
     timeout_count = _int(trace.get("timeout_count"))
     degraded_count = _int(trace.get("degraded_count"))
     status_counts = (
-        trace.get("status_counts")
-        if isinstance(trace.get("status_counts"), dict)
-        else {}
+        trace.get("status_counts") if isinstance(trace.get("status_counts"), dict) else {}
     )
     operation_counts = (
         trace.get("operation_counts") if isinstance(trace.get("operation_counts"), dict) else {}
     )
     client_counts = (
-        trace.get("client_counts")
-        if isinstance(trace.get("client_counts"), dict)
-        else {}
+        trace.get("client_counts") if isinstance(trace.get("client_counts"), dict) else {}
     )
     origin_counts = (
-        trace.get("origin_counts")
-        if isinstance(trace.get("origin_counts"), dict)
-        else {}
+        trace.get("origin_counts") if isinstance(trace.get("origin_counts"), dict) else {}
     )
     source_counts = dict(
         client_counts or origin_counts or {"dogfood_replay_trace": operation_count}
@@ -1679,9 +1662,7 @@ def dogfood_memory_operation_metrics_from_replay_report(
         "cache_miss_count": cache_miss_count,
         "status_counts": {str(key): _int(value) for key, value in status_counts.items()},
         "skip_reason_counts": {},
-        "operation_counts": {
-            str(key): _int(value) for key, value in operation_counts.items()
-        },
+        "operation_counts": {str(key): _int(value) for key, value in operation_counts.items()},
         "source_counts": {str(key): _int(value) for key, value in source_counts.items()},
         "result_count": result_count,
         "packet_count": packet_count,
@@ -1974,10 +1955,7 @@ def build_dogfood_turn_inspection_report(
         ],
         "label_command": label_command,
         "notes": [
-            (
-                "Content is omitted by default. Rerun with --include-content for "
-                "local human review."
-            )
+            ("Content is omitted by default. Rerun with --include-content for local human review.")
             if not include_content
             else "Content is included because --include-content was provided.",
             "This command is read-only and does not import or export evidence.",
@@ -2119,9 +2097,7 @@ def update_dogfood_turn_label(
 
     decisions = selected_turn.get("decisions") or []
     decision_modes = {
-        mode
-        for mode in (_optional_str(decision.get("mode")) for decision in decisions)
-        if mode
+        mode for mode in (_optional_str(decision.get("mode")) for decision in decisions) if mode
     }
     existing_labels = selected_turn.get("labels") or {}
     label_payload = {
@@ -2219,12 +2195,10 @@ def build_dogfood_human_label_evidence_artifact(
         "sessionId": session_id or f"dogfood:{transcript_hash[:12]}",
         "labeler": labeler,
         "recallSamples": [
-            _recall_sample_to_human_label(sample, source=source)
-            for sample in recall_samples
+            _recall_sample_to_human_label(sample, source=source) for sample in recall_samples
         ],
         "sessionSamples": [
-            _session_sample_to_human_label(sample, source=source)
-            for sample in session_samples
+            _session_sample_to_human_label(sample, source=source) for sample in session_samples
         ],
         "dogfood": {
             "transcriptHash": transcript_hash,
@@ -2893,11 +2867,7 @@ def render_dogfood_review_markdown(report: dict[str, Any]) -> str:
         f"- Ready: {report.get('ready')}",
         f"- Group: {report.get('group_id')}",
         f"- Transcript hash: {report.get('transcript_hash')}",
-        (
-            "- Reviewed turns: "
-            f"{review.get('reviewed_turn_count', 0)}/"
-            f"{review.get('turn_count', 0)}"
-        ),
+        (f"- Reviewed turns: {review.get('reviewed_turn_count', 0)}/{review.get('turn_count', 0)}"),
         (
             "- Importable turns: "
             f"{review.get('importable_turn_count', 0)}/"
@@ -2916,16 +2886,11 @@ def render_dogfood_review_markdown(report: dict[str, Any]) -> str:
                 f"- Queue: {summary.get('total')} turn(s)",
                 f"- By reason: {_format_counts(summary.get('by_reason'))}",
                 f"- By need type: {_format_counts(summary.get('by_need_type'))}",
-                (
-                    "- Redacted query hints: "
-                    f"{summary.get('redacted_query_hint_count', 0)}"
-                ),
+                (f"- Redacted query hints: {summary.get('redacted_query_hint_count', 0)}"),
                 "",
             ]
         )
-    if label_commands.get("need_type_filter") or label_commands.get(
-        "omitted_turn_command_count"
-    ):
+    if label_commands.get("need_type_filter") or label_commands.get("omitted_turn_command_count"):
         focus = label_commands.get("need_type_filter") or "all"
         turn_command_count = label_commands.get(
             "turn_command_count",
@@ -3025,9 +2990,7 @@ def render_dogfood_review_markdown(report: dict[str, Any]) -> str:
                 lines.append("")
             for item in context_turns:
                 marker = " <- target" if item.get("selected") else ""
-                lines.append(
-                    f"##### {item.get('role')} {item.get('content_hash')}{marker}"
-                )
+                lines.append(f"##### {item.get('role')} {item.get('content_hash')}{marker}")
                 lines.append("")
                 if "content" in item:
                     lines.append("```text")
@@ -3056,10 +3019,7 @@ def render_dogfood_review_markdown(report: dict[str, Any]) -> str:
         lines.extend(["## Invalid Session Samples", ""])
         for item in invalid_session_samples[:20]:
             reasons = ", ".join(str(reason) for reason in item.get("reasons") or [])
-            lines.append(
-                "- "
-                f"session sample {item.get('index')}: {reasons}"
-            )
+            lines.append(f"- session sample {item.get('index')}: {reasons}")
         if len(invalid_session_samples) > 20:
             lines.append(f"- ... {len(invalid_session_samples) - 20} more")
         lines.append("")
@@ -3166,9 +3126,7 @@ def render_dogfood_turn_inspection_markdown(report: dict[str, Any]) -> str:
         lines.extend(["## Context", ""])
         for item in context_turns:
             marker = " <- target" if item.get("selected") else ""
-            lines.append(
-                f"### {item.get('role')} {item.get('content_hash')}{marker}"
-            )
+            lines.append(f"### {item.get('role')} {item.get('content_hash')}{marker}")
             lines.append("")
             if "content" in item:
                 lines.append("```text")
@@ -3904,10 +3862,7 @@ def _dogfood_label_review_details(
             if (
                 unsupported_modes
                 or unreplayed_modes
-                or any(
-                    str(reason).startswith("placeholder_")
-                    for reason in reasons
-                )
+                or any(str(reason).startswith("placeholder_") for reason in reasons)
             ):
                 invalid_turns.append(
                     {
@@ -4212,10 +4167,7 @@ def render_dogfood_candidate_markdown(report: dict[str, Any]) -> str:
                     ),
                     f"- Labelable turns: {item.get('labelable_turn_count', 0)}",
                     f"- Assistant turns: {item.get('assistant_turn_count', 0)}",
-                    (
-                        "- Trace: "
-                        f"{item.get('trace_status')} ({item.get('trace_count', 0)})"
-                    ),
+                    (f"- Trace: {item.get('trace_status')} ({item.get('trace_count', 0)})"),
                     f"- Transcript hash: {item.get('transcript_hash')}",
                 ]
             )

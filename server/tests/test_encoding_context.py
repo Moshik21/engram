@@ -181,9 +181,7 @@ async def test_sqlite_graph_initialize_migrates_legacy_entity_table_before_index
         entity_cursor = await store.db.execute("PRAGMA table_info(entities)")
         entity_columns = {row[1] for row in await entity_cursor.fetchall()}
         relationship_cursor = await store.db.execute("PRAGMA table_info(relationships)")
-        relationship_columns = {
-            row[1] for row in await relationship_cursor.fetchall()
-        }
+        relationship_columns = {row[1] for row in await relationship_cursor.fetchall()}
         index_cursor = await store.db.execute("PRAGMA index_list(entities)")
         indexes = {row[1] for row in await index_cursor.fetchall()}
     finally:

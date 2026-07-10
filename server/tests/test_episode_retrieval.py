@@ -455,6 +455,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_stats_timeout_falls_back_to_default_pool_sizes(self):
         """Slow corpus stats do not consume the recall budget."""
+
         async def slow_stats(_group_id):
             await asyncio.sleep(0.2)
             return {"entity_count": 100_000}
@@ -484,6 +485,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_graph_query_expansion_timeout_uses_original_query(self, monkeypatch):
         """Slow graph expansion is bounded before primary search."""
+
         async def slow_expand(*_args, **_kwargs):
             await asyncio.sleep(0.2)
             return "expanded query"
@@ -736,6 +738,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_probe_timeout_skips_secondary_graph_scoring(self, monkeypatch):
         """State/current-value paths return without post-probe graph reads."""
+
         async def slow_expand(*_args, **_kwargs):
             await asyncio.sleep(0.2)
             return "expanded query"
@@ -876,6 +879,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_primary_timeout_empty_candidates_skips_planner_and_entity_match(self):
         """A no-evidence primary timeout avoids secondary graph-heavy miss probes."""
+
         async def slow_find_entities(**_kwargs):
             await asyncio.sleep(0.2)
             return []
@@ -1004,6 +1008,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_activation_state_timeout_preserves_search_results(self):
         """Slow activation-state loading is bounded and recall still scores results."""
+
         async def slow_batch_get(_entity_ids):
             await asyncio.sleep(0.2)
             return {}
@@ -1037,6 +1042,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_entity_match_timeout_preserves_empty_result(self):
         """Slow name-match fallback is bounded when semantic search returns nothing."""
+
         async def slow_find_entities(**_kwargs):
             await asyncio.sleep(0.2)
             return []
@@ -1068,6 +1074,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_spread_timeout_preserves_search_results(self, monkeypatch):
         """Slow graph spreading is bounded and recall still returns semantic results."""
+
         async def slow_spread(*_args, **_kwargs):
             await asyncio.sleep(0.2)
             return {"e2": 0.5}, {"e2": 1}
@@ -1100,6 +1107,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_entity_attributes_timeout_preserves_search_results(self):
         """Slow entity-attribute loading is bounded and recall still returns results."""
+
         async def slow_get_entity(_entity_id, _group_id):
             await asyncio.sleep(0.2)
             return Entity(
@@ -1138,6 +1146,7 @@ class TestPipelineEpisodeRetrieval:
     @pytest.mark.asyncio
     async def test_graph_similarity_timeout_preserves_search_results(self):
         """Slow graph-structural similarity is bounded and recall still returns results."""
+
         async def slow_graph_embeddings(*_args, **_kwargs):
             await asyncio.sleep(0.2)
             return {}

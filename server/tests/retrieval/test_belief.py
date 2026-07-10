@@ -14,13 +14,11 @@ def test_belief_map_scoring():
     assert belief.evidence_density == 1.0
 
     # Test temporal polarity (negation)
-    entity_data_negated = {
-        "evidence_count": 10,
-        "relationships": [{"polarity": "negative"}]
-    }
+    entity_data_negated = {"evidence_count": 10, "relationships": [{"polarity": "negative"}]}
     belief_negated = scorer.calculate_belief(entity_data_negated, relevance=0.9, activation=0.8)
     assert belief_negated.temporal_stability < 1.0
     assert belief_negated.composite_confidence < belief.composite_confidence
+
 
 def test_belief_map_disabled():
     cfg = ActivationConfig()

@@ -133,7 +133,6 @@ def identity_core_blocks_merge(entity_a: object, entity_b: object) -> bool:
     return compute_similarity(name_a, name_b) < 0.92
 
 
-
 @dataclass
 class PromotionFilterResult:
     """Outcome of filtering agent proposals for sparse promotion."""
@@ -242,7 +241,9 @@ def filter_promotion_proposals(
                 rel["source_span"] = phrase
 
     if prefer_high_signal and raw_entities:
-        high = [e for e in raw_entities if is_high_signal_entity_type(str(e.get("entity_type") or ""))]
+        high = [
+            e for e in raw_entities if is_high_signal_entity_type(str(e.get("entity_type") or ""))
+        ]
         # Keep high-signal first; if any exist, drop pure noise Concept/Artifact bulk
         # beyond the cap by sorting high-signal ahead.
         raw_entities = sorted(
@@ -425,7 +426,9 @@ def resolve_promotion_window(
     started = float(getattr(session, "promotion_window_started_at", 0.0) or 0.0)
     last = getattr(session, "last_remember_at", None)
     last_f = float(last) if last is not None else None
-    reset_reason = str(getattr(session, "promotion_window_reset_reason", "session_start") or "session_start")
+    reset_reason = str(
+        getattr(session, "promotion_window_reset_reason", "session_start") or "session_start"
+    )
 
     should_reset = False
     reason = reset_reason
@@ -480,7 +483,9 @@ def resolve_promotion_window(
     )
 
 
-def record_promotion_in_window(session: object, window: PromotionWindowState, *, now: float | None = None) -> PromotionWindowState:
+def record_promotion_in_window(
+    session: object, window: PromotionWindowState, *, now: float | None = None
+) -> PromotionWindowState:
     """Increment the window's remember count after a successful promotion."""
     import time
 

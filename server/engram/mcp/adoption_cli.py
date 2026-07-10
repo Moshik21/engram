@@ -326,10 +326,7 @@ def build_live_adoption_transcript_template(
         ),
         "instructions": [
             "Run the real MCP client after saving the matching claim_authority response.",
-            (
-                "For Claude Code, capture raw stream-json with "
-                f"{capture_commands[0]['command']}."
-            ),
+            (f"For Claude Code, capture raw stream-json with {capture_commands[0]['command']}."),
             (
                 "For Cursor, Windsurf, or copied MCP UI logs, update "
                 "manual_transcript_markdown with observed metadata and actual "
@@ -337,10 +334,7 @@ def build_live_adoption_transcript_template(
             ),
             "Replace metadata placeholders with observed live client metadata.",
             "Replace or confirm calls with the actual Engram tool calls from the client log.",
-            (
-                "Validate a single wrapper transcript with "
-                f"{validation_commands[0]['command']}."
-            ),
+            (f"Validate a single wrapper transcript with {validation_commands[0]['command']}."),
             (
                 "Validate Claude stream-json plus AutoCapture hooks with "
                 f"{validation_commands[1]['command']}."
@@ -417,9 +411,7 @@ def _manual_transcript_markdown(
         if call.get("phase") == "before_answer" and call.get("tool")
     ]
     capture = [
-        call.get("tool")
-        for call in calls
-        if call.get("phase") == "capture" and call.get("tool")
+        call.get("tool") for call in calls if call.get("phase") == "capture" and call.get("tool")
     ]
     for tool in before_answer:
         lines.append(f"- {tool}")
@@ -638,13 +630,10 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- Blockers: `{report.get('evidence', {}).get('blockers')}`")
     if report.get("evidence", {}).get("mcp_server_failures"):
         lines.append(
-            "- MCP server failures: "
-            f"`{report.get('evidence', {}).get('mcp_server_failures')}`"
+            f"- MCP server failures: `{report.get('evidence', {}).get('mcp_server_failures')}`"
         )
     if report.get("evidence", {}).get("blocker_details"):
-        lines.append(
-            f"- Blocker details: `{report.get('evidence', {}).get('blocker_details')}`"
-        )
+        lines.append(f"- Blocker details: `{report.get('evidence', {}).get('blocker_details')}`")
     lines.extend(
         [
             "",
@@ -680,34 +669,21 @@ def render_adoption_validation_markdown(report: dict[str, Any]) -> str:
                 "",
                 "## Release Evidence Next Steps",
                 f"- Status: `{release_evidence.get('status')}`",
-                (
-                    "- Adoption report path: "
-                    f"`{release_evidence.get('adoption_report_path')}`"
-                ),
+                (f"- Adoption report path: `{release_evidence.get('adoption_report_path')}`"),
             ]
         )
         human_label_metadata = release_evidence.get("human_label_metadata")
         if isinstance(human_label_metadata, dict):
             lines.extend(
                 [
-                    (
-                        "- Human-label client: "
-                        f"`{human_label_metadata.get('client')}`"
-                    ),
-                    (
-                        "- Human-label captured at: "
-                        f"`{human_label_metadata.get('capturedAt')}`"
-                    ),
-                    (
-                        "- Human-label session: "
-                        f"`{human_label_metadata.get('sessionId')}`"
-                    ),
+                    (f"- Human-label client: `{human_label_metadata.get('client')}`"),
+                    (f"- Human-label captured at: `{human_label_metadata.get('capturedAt')}`"),
+                    (f"- Human-label session: `{human_label_metadata.get('sessionId')}`"),
                 ]
             )
             if human_label_metadata.get("requiredClient"):
                 lines.append(
-                    "- Required adoption client: "
-                    f"`{human_label_metadata.get('requiredClient')}`"
+                    f"- Required adoption client: `{human_label_metadata.get('requiredClient')}`"
                 )
         if isinstance(commands, dict):
             lines.extend(["", "### Commands"])
@@ -833,19 +809,13 @@ def _protocol_example_calls(protocol: dict[str, Any]) -> list[dict[str, str]]:
 def _build_release_evidence_guidance(report: dict[str, Any]) -> dict[str, Any]:
     """Return the next commands that turn a live adoption report into release evidence."""
     evidence = report.get("evidence") if isinstance(report.get("evidence"), dict) else {}
-    validation = (
-        report.get("validation") if isinstance(report.get("validation"), dict) else {}
-    )
-    validation_failures = [
-        str(failure) for failure in validation.get("failures") or []
-    ]
+    validation = report.get("validation") if isinstance(report.get("validation"), dict) else {}
+    validation_failures = [str(failure) for failure in validation.get("failures") or []]
     missing_evidence = [str(item) for item in evidence.get("missing") or []]
     requires_live_evidence = evidence.get("required") is True
     status = (
         "ready_for_human_labels"
-        if report.get("status") == "passed"
-        and requires_live_evidence
-        and not missing_evidence
+        if report.get("status") == "passed" and requires_live_evidence and not missing_evidence
         else "blocked"
     )
     notes = [
@@ -1081,8 +1051,7 @@ def _filter_records_for_session(
     return [
         record
         for record in records
-        if not isinstance(record, dict)
-        or _record_matches_session(record, session_id_filter)
+        if not isinstance(record, dict) or _record_matches_session(record, session_id_filter)
     ]
 
 
@@ -1154,8 +1123,7 @@ def _normalize_calls_payload(calls: list[Any]) -> list[dict[str, Any]]:
 
 def _is_claude_stream_json(records: list[Any]) -> bool:
     return any(
-        isinstance(record, dict)
-        and record.get("type") in {"system", "assistant", "user", "result"}
+        isinstance(record, dict) and record.get("type") in {"system", "assistant", "user", "result"}
         for record in records
     )
 
@@ -1192,9 +1160,7 @@ def _parse_claude_stream_json_calls(records: list[Any]) -> list[dict[str, Any]]:
             calls.append(
                 {
                     "phase": (
-                        "capture"
-                        if normalized_tool in ENGRAM_CAPTURE_TOOLS
-                        else "before_answer"
+                        "capture" if normalized_tool in ENGRAM_CAPTURE_TOOLS else "before_answer"
                     ),
                     "tool": normalized_tool,
                     "source": "claude_stream_json",
@@ -1346,9 +1312,7 @@ def _build_live_evidence_report(
 def _client_matches_required(observed_client: str | None, required_client: str) -> bool:
     if _looks_like_placeholder(observed_client):
         return False
-    return _normalize_client_label(observed_client) == _normalize_client_label(
-        required_client
-    )
+    return _normalize_client_label(observed_client) == _normalize_client_label(required_client)
 
 
 def _normalize_client_label(value: str | None) -> str:
@@ -1362,11 +1326,7 @@ def _live_evidence_session_ids(evidence: dict[str, str]) -> list[str]:
             continue
         for value in raw.split(","):
             session_id = value.strip()
-            if (
-                session_id
-                and not _looks_like_placeholder(session_id)
-                and session_id not in values
-            ):
+            if session_id and not _looks_like_placeholder(session_id) and session_id not in values:
                 values.append(session_id)
     return values
 

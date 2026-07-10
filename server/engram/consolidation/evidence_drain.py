@@ -109,18 +109,21 @@ def audit_deferred_evidence(rows: list[dict[str, Any]]) -> DrainAuditSummary:
     keep = 0
     reject = 0
     by_reason: Counter[str] = Counter()
-    samples: dict[str, list[dict[str, Any]]] = {key: [] for key in (
-        "unknown_name",
-        "path_like_name",
-        "file_reference_name",
-        "harness_path_name",
-        "harness_uuid_path",
-        "low_confidence_identity",
-        "bootstrap_span",
-        "html_nav_fragment",
-        "path_like_span",
-        "markdown_fragment_name",
-    )}
+    samples: dict[str, list[dict[str, Any]]] = {
+        key: []
+        for key in (
+            "unknown_name",
+            "path_like_name",
+            "file_reference_name",
+            "harness_path_name",
+            "harness_uuid_path",
+            "low_confidence_identity",
+            "bootstrap_span",
+            "html_nav_fragment",
+            "path_like_span",
+            "markdown_fragment_name",
+        )
+    }
 
     for row in rows:
         result = classify_deferred_evidence(row)
@@ -160,7 +163,6 @@ async def load_deferred_evidence(graph_store: Any, group_id: str) -> list[dict[s
 
     query_rows = getattr(graph_store, "_query_open_status_rows", None)
     if callable(query_rows):
-
         rows = await query_rows(
             "find_evidence_by_status",
             "find_pending_evidence",

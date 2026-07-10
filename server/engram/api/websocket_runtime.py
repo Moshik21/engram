@@ -58,9 +58,7 @@ async def _run_dashboard_activation_snapshots(
                     group_id=group_id,
                     limit=20,
                 )
-                await websocket.send_json(
-                    build_dashboard_activation_snapshot_message(snapshot)
-                )
+                await websocket.send_json(build_dashboard_activation_snapshot_message(snapshot))
             except Exception as exc:
                 logger.debug("Activation snapshot error: %s", exc)
     except asyncio.CancelledError:

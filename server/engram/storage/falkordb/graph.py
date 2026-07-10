@@ -2023,8 +2023,7 @@ class FalkorDBGraphStore:
             last_projection_reason=props.get("last_projection_reason"),
             last_projected_at=_parse_dt(props.get("last_projected_at")),
             attachments=[
-                Attachment(**a)
-                for a in json.loads(props.get("attachments_json", "[]") or "[]")
+                Attachment(**a) for a in json.loads(props.get("attachments_json", "[]") or "[]")
             ],
         )
 

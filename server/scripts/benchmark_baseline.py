@@ -38,7 +38,7 @@ BASELINE_SYSTEM_PROMPT = (
     "You are given the full conversation history as context. "
     "Answer based ONLY on the provided conversations. "
     "If the conversations don't contain enough information, say exactly: "
-    "\"I don't have enough information to answer this question.\" "
+    '"I don\'t have enough information to answer this question." '
     "Be concise - answer in 1-2 sentences maximum."
 )
 
@@ -61,10 +61,14 @@ def _query_claude_cli(prompt: str, model: str = "sonnet") -> str:
     result = subprocess.run(
         [
             CLAUDE_CLI,
-            "-p", "Answer the question in the provided context below.",
-            "--model", model,
-            "--output-format", "text",
-            "--append-system-prompt", BASELINE_SYSTEM_PROMPT,
+            "-p",
+            "Answer the question in the provided context below.",
+            "--model",
+            model,
+            "--output-format",
+            "text",
+            "--append-system-prompt",
+            BASELINE_SYSTEM_PROMPT,
             "--no-session-persistence",
         ],
         input=prompt,
@@ -104,6 +108,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 
     # Load .env for GEMINI_API_KEY (embedding judge only — not Anthropic)
     from dotenv import load_dotenv
+
     load_dotenv(Path.home() / ".engram" / ".env", override=False)
     load_dotenv()
     # Re-clear ANTHROPIC_API_KEY in case .env set it
@@ -113,6 +118,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
     embed_fn = None
     try:
         from engram.embeddings.provider import GeminiProvider
+
         provider = GeminiProvider()
         embed_fn = provider.embed
         logger.info("Embedding provider ready for containment scoring")
@@ -121,9 +127,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
 
     start = time.perf_counter()
 
-    dataset = load_dataset(
-        args.dataset, max_instances=args.max_instances, variant="auto"
-    )
+    dataset = load_dataset(args.dataset, max_instances=args.max_instances, variant="auto")
     if args.types:
         dataset = dataset.filter_types(args.types.split(","))
     if args.n_per_type:
@@ -237,18 +241,18 @@ async def cmd_run(args: argparse.Namespace) -> None:
     for r in results:
         by_type.setdefault(r["question_type"], []).append(r)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("LongMemEval BASELINE (No Engram)")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Model: {args.model}")
     print(f"CLI: {CLAUDE_CLI} (Max subscription)")
     print(f"Instances: {total}")
-    print(f"Accuracy: {correct}/{total} = {accuracy*100:.1f}%")
+    print(f"Accuracy: {correct}/{total} = {accuracy * 100:.1f}%")
     print(f"Elapsed: {elapsed:.0f}s")
     print()
     for t, items in sorted(by_type.items()):
         c = sum(1 for i in items if i["correct"])
-        print(f"  {t}: {c}/{len(items)} ({100*c/len(items):.0f}%)")
+        print(f"  {t}: {c}/{len(items)} ({100 * c / len(items):.0f}%)")
 
     if args.output:
         output = {

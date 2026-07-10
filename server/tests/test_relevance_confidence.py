@@ -15,6 +15,7 @@ from engram.retrieval.scorer import ScoredResult
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
+
 def _unit_vec(dim: int, idx: int) -> list[float]:
     """Create a unit vector with 1.0 at position idx."""
     v = [0.0] * dim
@@ -68,6 +69,7 @@ class FakeProvider:
 
 # ── cosine_similarity tests ──────────────────────────────────────────
 
+
 def test_cosine_same_vector():
     v = [1.0, 2.0, 3.0]
     assert cosine_similarity(v, v) == pytest.approx(1.0, abs=1e-6)
@@ -84,6 +86,7 @@ def test_cosine_zero_vector():
 
 
 # ── RelevanceScorer tests ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_entity_uses_semantic_similarity():
@@ -109,10 +112,13 @@ async def test_episode_with_chunk_gets_embedded():
     query_vec = [1.0, 0.0, 0.0, 0.0]
     chunk_vec = [0.9, 0.1, 0.0, 0.0]  # high similarity to query
 
-    provider = FakeProvider(dim=dim, vectors={
-        "test query": query_vec,
-        "relevant chunk text": chunk_vec,
-    })
+    provider = FakeProvider(
+        dim=dim,
+        vectors={
+            "test query": query_vec,
+            "relevant chunk text": chunk_vec,
+        },
+    )
     scorer = RelevanceScorer(provider)
 
     sr = _make_sr("ep1", "episode", sem_sim=0.3)
@@ -210,10 +216,13 @@ async def test_multiple_results_mixed_types():
     dim = 4
     query_vec = [1.0, 0.0, 0.0, 0.0]
 
-    provider = FakeProvider(dim=dim, vectors={
-        "test": query_vec,
-        "episode text": [0.8, 0.2, 0.0, 0.0],
-    })
+    provider = FakeProvider(
+        dim=dim,
+        vectors={
+            "test": query_vec,
+            "episode text": [0.8, 0.2, 0.0, 0.0],
+        },
+    )
     scorer = RelevanceScorer(provider)
 
     entity = _make_sr("e1", "entity", sem_sim=0.9)
@@ -239,9 +248,12 @@ async def test_cue_episode_scored():
     query_vec = [1.0, 0.0, 0.0, 0.0]
     chunk_vec = [0.7, 0.3, 0.0, 0.0]
 
-    provider = FakeProvider(dim=dim, vectors={
-        "cue chunk": chunk_vec,
-    })
+    provider = FakeProvider(
+        dim=dim,
+        vectors={
+            "cue chunk": chunk_vec,
+        },
+    )
     scorer = RelevanceScorer(provider)
 
     sr = _make_sr("ep1", "cue_episode", sem_sim=0.2)
@@ -258,6 +270,7 @@ async def test_cue_episode_scored():
 
 
 # ── compute_answer_containment tests ─────────────────────────────────
+
 
 def test_containment_identical():
     """Identical vectors should give 1.0."""
@@ -293,6 +306,7 @@ def test_containment_orthogonal():
 
 # ── packets._confidence integration ──────────────────────────────────
 
+
 def test_confidence_with_relevance():
     """_confidence should prefer relevance when available."""
     from engram.retrieval.packets import _confidence
@@ -311,6 +325,7 @@ def test_confidence_capped_at_099():
 
 
 # ── ScoredResult.relevance_confidence field ──────────────────────────
+
 
 def test_scored_result_has_relevance():
     sr = ScoredResult(

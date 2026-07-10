@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Diagnose why graph-ON failed m3 (Japan->Priya->Director). Inspects the actual
 graph state in the /tmp/cd-on native store for group longmemeval_m3."""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,15 +39,17 @@ async def main() -> None:
         for h in hits:
             rels = await graph.get_relationships(h.id, direction="both", group_id=gid)
             for r in rels:
-                print(f"     {r.subject if hasattr(r,'subject') else '?'} "
-                      f"-[{getattr(r,'predicate','?')}]-> "
-                      f"{getattr(r,'object', getattr(r,'target',None))}")
+                print(
+                    f"     {r.subject if hasattr(r, 'subject') else '?'} "
+                    f"-[{getattr(r, 'predicate', '?')}]-> "
+                    f"{getattr(r, 'object', getattr(r, 'target', None))}"
+                )
 
     # Episodes: is the Director (s7) content present + what entities link to it?
     eps = await graph.get_episodes(group_id=gid, limit=50)
     print(f"\n=== {len(eps)} episodes; ones mentioning 'Director' or 'promoted' ===")
     for ep in eps:
-        c = (ep.content or "")
+        c = ep.content or ""
         if "Director" in c or "promoted" in c:
             print(f"  ep {ep.id[:12]}: {c[:90]!r}")
 

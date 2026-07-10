@@ -76,7 +76,9 @@ async def test_project_bootstrap_surface_invalidates_runtime_cache() -> None:
 @pytest.mark.asyncio
 async def test_project_bootstrap_surface_skips_cache_invalidation_when_skipped() -> None:
     manager = MagicMock()
-    manager.bootstrap_project = AsyncMock(return_value={"status": "skipped", "reason": "invalid_path"})
+    manager.bootstrap_project = AsyncMock(
+        return_value={"status": "skipped", "reason": "invalid_path"}
+    )
     runtime_service = MagicMock()
     manager._runtime_state_service = runtime_service
 
@@ -316,9 +318,10 @@ async def test_memory_authority_surface_recommends_bootstrap_for_fresh_runtime()
         "--calls live-harness-transcript.json --require-live-evidence"
     )
     assert result["agent_protocol"]["verification"]["capture_required"] is True
-    assert result["agent_protocol"]["verification"]["transcript_schema"][
-        "required_fields"
-    ] == ["phase", "tool"]
+    assert result["agent_protocol"]["verification"]["transcript_schema"]["required_fields"] == [
+        "phase",
+        "tool",
+    ]
     assert result["agent_protocol"]["verification"]["transcript_schema"]["example"] == [
         {"phase": "before_answer", "tool": "bootstrap_project"},
         {"phase": "before_answer", "tool": "get_context"},
@@ -430,9 +433,9 @@ async def test_memory_authority_protocol_keeps_task_scratch_project_local() -> N
     assert result["agent_protocol"]["verification"]["transcript_schema"]["example"] == [
         {"phase": "before_answer", "tool": "get_context"},
     ]
-    assert result["agent_protocol"]["verification"]["live_evidence_schema"]["example"][
-        "calls"
-    ] == [{"phase": "before_answer", "tool": "get_context"}]
+    assert result["agent_protocol"]["verification"]["live_evidence_schema"]["example"]["calls"] == [
+        {"phase": "before_answer", "tool": "get_context"}
+    ]
 
 
 @pytest.mark.asyncio

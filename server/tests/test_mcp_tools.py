@@ -1371,10 +1371,7 @@ class TestJSONResponses:
         assert data["recall"]["control"]["graph_override_count"] == 1
         assert data["recall"]["control"]["thresholds"]["resonance"] == 0.52
         assert data["recall"]["continuity"]["session_continuity_lift"] == 0.5
-        assert {
-            signal["status"]
-            for signal in data["evaluation_signals"].values()
-        } == {"measured"}
+        assert {signal["status"] for signal in data["evaluation_signals"].values()} == {"measured"}
         assert data["evaluation_signals"]["cue_usefulness"]["evidence_count"] == 1
         assert data["evaluation_signals"]["projection_yield"]["metric"] == 2.0
         assert data["evaluation_signals"]["false_recall"]["metric"] == 0.3333

@@ -286,9 +286,7 @@ def test_brain_loop_report_summarizes_full_loop() -> None:
     assert report["memory_value"]["cost"]["avg_budget_tokens"] == 300
     assert report["memory_value"]["cost"]["skipped_count"] == 1
     assert report["memory_value"]["cost"]["error_count"] == 1
-    assert report["memory_value"]["cost"]["skip_reason_counts"] == {
-        "skipped_low_signal": 1
-    }
+    assert report["memory_value"]["cost"]["skip_reason_counts"] == {"skipped_low_signal": 1}
     assert report["memory_value"]["cost"]["operation_counts"]["auto_recall_gate"] == 1
     assert report["memory_value"]["cost"]["source_counts"]["auto_recall"] == 1
     assert report["memory_value"]["cost"]["recent_problem_samples"][0]["mode"] == "medium"
@@ -493,14 +491,16 @@ def test_evaluation_signal_failure_message_formats_failures() -> None:
     for signal in threshold_report["evaluation_signals"].values():
         signal["evidence_count"] = 2
     threshold_report["evaluation_signals"]["recall_quality"]["evidence_count"] = 1
-    assert evaluation_signal_failure_message(
-        threshold_report,
-        prefix="Operator gate",
-        min_evidence_count=2,
-    ) == "Operator gate: ['recall_quality:insufficient_evidence(1<2)']"
     assert (
-        evaluation_signal_failure_message(_measured_signal_report(), prefix="Operator gate")
-        is None
+        evaluation_signal_failure_message(
+            threshold_report,
+            prefix="Operator gate",
+            min_evidence_count=2,
+        )
+        == "Operator gate: ['recall_quality:insufficient_evidence(1<2)']"
+    )
+    assert (
+        evaluation_signal_failure_message(_measured_signal_report(), prefix="Operator gate") is None
     )
 
 
@@ -519,8 +519,7 @@ def test_memory_value_failure_message_formats_failures() -> None:
         "memory_value.benefit:needs_samples",
     ]
     assert memory_value_failure_message(report, prefix="Memory value") == (
-        "Memory value: ['memory_value:needs_benefit_labels', "
-        "'memory_value.benefit:needs_samples']"
+        "Memory value: ['memory_value:needs_benefit_labels', 'memory_value.benefit:needs_samples']"
     )
     markdown = format_memory_value_markdown(report)
     assert "# Engram Memory Value" in markdown
@@ -634,12 +633,8 @@ def test_release_evidence_summary_preserves_live_harness_blockers() -> None:
         "system:error: Not logged in - Please run /login"
     ]
     assert summary["components"]["adoption"]["mcp_server_failures"] == ["engram"]
-    assert summary["components"]["adoption_clients"]["blockers"] == [
-        "authentication_failed"
-    ]
-    assert summary["components"]["adoption_clients"]["mcp_server_failures"] == [
-        "engram"
-    ]
+    assert summary["components"]["adoption_clients"]["blockers"] == ["authentication_failed"]
+    assert summary["components"]["adoption_clients"]["mcp_server_failures"] == ["engram"]
 
 
 def test_brain_loop_report_artifact_shape_helpers() -> None:
@@ -726,9 +721,9 @@ def test_brain_loop_report_flags_missing_recall_gate_runtime_coverage() -> None:
         session_samples=[session_sample],
     )
 
-    assert "recall quality needs labeled recall_samples input" not in no_gate_report[
-        "coverage_gaps"
-    ]
+    assert (
+        "recall quality needs labeled recall_samples input" not in no_gate_report["coverage_gaps"]
+    )
     assert "recall gate needs runtime analyses" in no_gate_report["coverage_gaps"]
 
     missing_latency_report = build_brain_loop_report(
@@ -742,13 +737,8 @@ def test_brain_loop_report_flags_missing_recall_gate_runtime_coverage() -> None:
         session_samples=[session_sample],
     )
 
-    assert "recall gate needs runtime analyses" not in missing_latency_report[
-        "coverage_gaps"
-    ]
-    assert (
-        "recall gate latency needs analyzer samples"
-        in missing_latency_report["coverage_gaps"]
-    )
+    assert "recall gate needs runtime analyses" not in missing_latency_report["coverage_gaps"]
+    assert "recall gate latency needs analyzer samples" in missing_latency_report["coverage_gaps"]
 
 
 def test_brain_loop_report_flags_false_recall_without_surfaced_packets() -> None:
@@ -811,10 +801,7 @@ def test_brain_loop_report_flags_false_recall_without_surfaced_packets() -> None
         "metric": 0.0,
         "gap": "false recall needs labeled surfaced packet counts",
     }
-    assert (
-        "false recall needs labeled surfaced packet counts"
-        in report["coverage_gaps"]
-    )
+    assert "false recall needs labeled surfaced packet counts" in report["coverage_gaps"]
 
 
 def test_brain_loop_report_flags_memory_value_without_cost_samples() -> None:
@@ -841,10 +828,7 @@ def test_brain_loop_report_flags_memory_value_without_cost_samples() -> None:
     assert report["memory_value"]["status"] == "needs_cost_samples"
     assert report["memory_value"]["cost"]["status"] == "needs_samples"
     assert report["memory_value"]["benefit"]["status"] == "measured"
-    assert (
-        "memory value needs memory operation cost samples"
-        in report["coverage_gaps"]
-    )
+    assert "memory value needs memory operation cost samples" in report["coverage_gaps"]
 
 
 def test_brain_loop_report_flags_unscored_calibration_snapshots() -> None:
@@ -887,8 +871,7 @@ def test_brain_loop_report_flags_unscored_calibration_snapshots() -> None:
     assert report["consolidate"]["status"] == "attention"
     assert report["consolidate"]["calibration"]["status"] == "needs_quality"
     assert (
-        "consolidation calibration needs saved calibration snapshots"
-        not in report["coverage_gaps"]
+        "consolidation calibration needs saved calibration snapshots" not in report["coverage_gaps"]
     )
     assert (
         "consolidation calibration quality needs labeled decision outcomes"
@@ -926,10 +909,7 @@ def test_brain_loop_report_marks_consolidate_attention_without_calibration_snaps
 
     assert report["consolidate"]["status"] == "attention"
     assert report["consolidate"]["calibration"]["status"] == "needs_snapshots"
-    assert (
-        "consolidation calibration needs saved calibration snapshots"
-        in report["coverage_gaps"]
-    )
+    assert "consolidation calibration needs saved calibration snapshots" in report["coverage_gaps"]
 
 
 def test_brain_loop_report_marks_open_adjudication_work_as_attention() -> None:

@@ -324,9 +324,7 @@ class ConsolidationTriggerService:
         self._cfg = cfg
         self._extractor = extractor
         self._nerve_center_cfg = (
-            nerve_center_cfg
-            or getattr(cfg, "nerve_center", None)
-            or NerveCenterConfig()
+            nerve_center_cfg or getattr(cfg, "nerve_center", None) or NerveCenterConfig()
         )
 
     async def trigger_consolidation_cycle(

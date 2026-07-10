@@ -181,7 +181,7 @@ def test_adoption_validation_report_accepts_claude_stream_json_tool_use(
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": "{\"adoption_protocol_followed\": true}",
+                                    "text": '{"adoption_protocol_followed": true}',
                                 }
                             ]
                         },
@@ -943,8 +943,7 @@ def test_generated_prompt_hook_trace_validates_with_session_filtered_stream(
                 "path": "/api/knowledge/auto-observe",
                 "body": {
                     "content": (
-                        "[user|Engram] Please remember that Engram should be "
-                        "cross-context memory."
+                        "[user|Engram] Please remember that Engram should be cross-context memory."
                     ),
                     "source": "auto:prompt",
                     "project": "Engram",
@@ -1187,8 +1186,7 @@ def test_adoption_validation_report_accepts_required_client_case_insensitive(
     assert report["validation"]["failures"] == []
     assert report["release_evidence"]["human_label_metadata"]["requiredClient"] == "cursor"
     assert (
-        "--require-adoption-client cursor"
-        in report["release_evidence"]["commands"]["release_gate"]
+        "--require-adoption-client cursor" in report["release_evidence"]["commands"]["release_gate"]
     )
     assert "Required adoption client: `cursor`" in markdown
 
@@ -1591,12 +1589,8 @@ def test_adoption_validation_report_classifies_self_reported_file_memory_bypass(
 
     assert report["status"] == "failed"
     assert report["callCount"] == 1
-    assert report["validation"]["required_tools_before_answer"]["observed"] == [
-        "read_file_memory"
-    ]
-    assert report["validation"]["file_memory"]["observed_tools"] == [
-        "read_file_memory"
-    ]
+    assert report["validation"]["required_tools_before_answer"]["observed"] == ["read_file_memory"]
+    assert report["validation"]["file_memory"]["observed_tools"] == ["read_file_memory"]
     assert "missing_required_before_answer_tools" in report["validation"]["failures"]
     assert "file_memory_used_as_substitute" in report["validation"]["failures"]
     assert "missing_required_capture_tool" in report["validation"]["failures"]
@@ -1623,12 +1617,8 @@ def test_adoption_command_classifies_copied_claude_file_memory_bypass_transcript
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "failed"
     assert payload["callCount"] == 1
-    assert payload["validation"]["required_tools_before_answer"]["observed"] == [
-        "read_file_memory"
-    ]
-    assert payload["validation"]["file_memory"]["observed_tools"] == [
-        "read_file_memory"
-    ]
+    assert payload["validation"]["required_tools_before_answer"]["observed"] == ["read_file_memory"]
+    assert payload["validation"]["file_memory"]["observed_tools"] == ["read_file_memory"]
     assert "missing_required_before_answer_tools" in payload["validation"]["failures"]
     assert "file_memory_used_as_substitute" in payload["validation"]["failures"]
     assert "missing_required_capture_tool" in payload["validation"]["failures"]

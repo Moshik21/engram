@@ -21,9 +21,7 @@ def flatten_dashboard_event(event: Mapping[str, Any]) -> dict[str, Any]:
     return flat
 
 
-def build_dashboard_pong_surface(
-    *, now: Callable[[], float] = time.time
-) -> dict[str, Any]:
+def build_dashboard_pong_surface(*, now: Callable[[], float] = time.time) -> dict[str, Any]:
     """Return the dashboard WebSocket pong payload."""
     return {
         "type": "pong",

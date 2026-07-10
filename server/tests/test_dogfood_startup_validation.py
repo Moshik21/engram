@@ -327,9 +327,7 @@ def test_resolve_openclaw_command_prefers_configured_command(monkeypatch) -> Non
     assert runner.resolve_openclaw_command() == ["npx", "-y", "openclaw"]
 
 
-def test_openclaw_check_requires_streamable_http_transport(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_openclaw_check_requires_streamable_http_transport(tmp_path: Path, monkeypatch) -> None:
     runner = _load_runner()
     bin_dir = tmp_path / "bin"
     home = tmp_path / "home"
@@ -351,9 +349,7 @@ exit 2
     fake_openclaw.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
-    check = runner.check_openclaw(
-        home, "http://127.0.0.1:8100/mcp", require_openclaw=True
-    )
+    check = runner.check_openclaw(home, "http://127.0.0.1:8100/mcp", require_openclaw=True)
 
     assert check.status == "pass"
 
@@ -367,9 +363,7 @@ exit 2
 """
     )
 
-    check = runner.check_openclaw(
-        home, "http://127.0.0.1:8100/mcp", require_openclaw=True
-    )
+    check = runner.check_openclaw(home, "http://127.0.0.1:8100/mcp", require_openclaw=True)
 
     assert check.status == "fail"
     assert "streamable-http transport" in check.detail

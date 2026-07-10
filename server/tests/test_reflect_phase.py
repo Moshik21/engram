@@ -164,7 +164,8 @@ async def test_low_importance_cluster_skipped():
     episodes = [_ep("ep_1", "a"), _ep("ep_2", "b"), _ep("ep_3", "c")]
     episode_entities = {"ep_1": ["e1"], "ep_2": ["e1"], "ep_3": ["e1"]}
     graph_store, activation_store, search_index = _make_deps(
-        episodes=episodes, episode_entities=episode_entities,
+        episodes=episodes,
+        episode_entities=episode_entities,
         entities=[_entity("e1", "Alice", role="Engineer")],
     )
     cfg = ActivationConfig(observer_reflect_enabled=True)
@@ -197,14 +198,14 @@ async def test_creates_observation_episode_shape():
     episode_entities = {"ep_1": ["e1"], "ep_2": ["e1"], "ep_3": ["e1"]}
     alice = _entity("e1", "Alice Johnson", role="Senior Staff Engineer")
     graph_store, activation_store, search_index = _make_deps(
-        episodes=episodes, episode_entities=episode_entities, entities=[alice],
+        episodes=episodes,
+        episode_entities=episode_entities,
+        entities=[alice],
     )
     cfg = ActivationConfig(observer_reflect_enabled=True)
     context = CycleContext()
 
-    result, records = await _run(
-        graph_store, activation_store, search_index, cfg, context=context
-    )
+    result, records = await _run(graph_store, activation_store, search_index, cfg, context=context)
 
     assert len(records) == 1
     rec = records[0]
@@ -236,7 +237,9 @@ async def test_idempotent_rerun():
     episode_entities = {"ep_1": ["e1"], "ep_2": ["e1"], "ep_3": ["e1"]}
     alice = _entity("e1", "Alice Johnson", role="Senior Staff Engineer")
     graph_store, activation_store, search_index = _make_deps(
-        episodes=episodes, episode_entities=episode_entities, entities=[alice],
+        episodes=episodes,
+        episode_entities=episode_entities,
+        entities=[alice],
     )
     cfg = ActivationConfig(observer_reflect_enabled=True)
 
@@ -262,7 +265,9 @@ async def test_dry_run_no_writes():
     episode_entities = {"ep_1": ["e1"], "ep_2": ["e1"], "ep_3": ["e1"]}
     alice = _entity("e1", "Alice Johnson", role="Senior Staff Engineer")
     graph_store, activation_store, search_index = _make_deps(
-        episodes=episodes, episode_entities=episode_entities, entities=[alice],
+        episodes=episodes,
+        episode_entities=episode_entities,
+        entities=[alice],
     )
     cfg = ActivationConfig(observer_reflect_enabled=True)
 

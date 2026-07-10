@@ -165,9 +165,7 @@ def judge_by_containment(
     if embed_match:
         parts.append(f"containment={containment_score:.4f}>={threshold}")
     if not parts:
-        parts.append(
-            f"token_overlap=no, containment={containment_score:.4f}<{threshold}"
-        )
+        parts.append(f"token_overlap=no, containment={containment_score:.4f}<{threshold}")
     raw = f"{' + '.join(parts)} -> {'correct' if correct else 'incorrect'}"
 
     return JudgeVerdict(
@@ -179,10 +177,9 @@ def judge_by_containment(
     )
 
 
-def _token_overlap_match(
-    gold: str, predicted: str, threshold: float = 0.5
-) -> bool:
+def _token_overlap_match(gold: str, predicted: str, threshold: float = 0.5) -> bool:
     """Check if gold answer tokens appear in the predicted answer."""
+
     def normalize(text: str) -> set[str]:
         text = text.lower()
         text = re.sub(r"\b(a|an|the)\b", " ", text)

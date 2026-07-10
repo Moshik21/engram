@@ -146,10 +146,7 @@ def format_authority_markdown(
         f"- Should bootstrap: `{onboarding.get('should_bootstrap', False)}`",
         f"- File memory substitute: `{protocol.get('file_memory_is_substitute', False)}`",
         f"- Required before-answer tools: `{required}`",
-        (
-            "- Capture: "
-            f"`{capture.get('destination')}` via `{capture.get('tool')}`"
-        ),
+        (f"- Capture: `{capture.get('destination')}` via `{capture.get('tool')}`"),
     ]
     if output_path is not None:
         lines.append(f"- JSON written: `{output_path.expanduser()}`")

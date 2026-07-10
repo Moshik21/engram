@@ -155,9 +155,7 @@ class TestScorerGraphStructural:
         # consolidation off (default) -> gated to 0 (no dead weight)
         assert ActivationConfig().weight_graph_structural == 0.0
         # consolidation-enabling profile -> restored to 0.1
-        assert (
-            ActivationConfig(consolidation_profile="standard").weight_graph_structural == 0.1
-        )
+        assert ActivationConfig(consolidation_profile="standard").weight_graph_structural == 0.1
         # explicit value respected even with consolidation off
         assert ActivationConfig(weight_graph_structural=0.2).weight_graph_structural == 0.2
 

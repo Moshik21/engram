@@ -178,8 +178,7 @@ class ActivationConfig(BaseModel):
     retrieval_skip_secondary_graph_after_probe_timeout: bool = Field(
         default=True,
         description=(
-            "Skip graph-heavy recall enhancers when graph preflight probes already "
-            "timed out."
+            "Skip graph-heavy recall enhancers when graph preflight probes already timed out."
         ),
     )
     retrieval_stats_timeout_ms: int = Field(
@@ -302,8 +301,7 @@ class ActivationConfig(BaseModel):
         ge=0,
         le=5000,
         description=(
-            "Substage timeout for graph spreading during recall. "
-            "0 disables the substage timeout."
+            "Substage timeout for graph spreading during recall. 0 disables the substage timeout."
         ),
     )
     retrieval_entity_attributes_timeout_ms: int = Field(
@@ -404,9 +402,7 @@ class ActivationConfig(BaseModel):
     )
     graph_query_expansion_skip_after_stats_timeout: bool = Field(
         default=True,
-        description=(
-            "Skip graph query expansion when recall corpus stats already timed out."
-        ),
+        description=("Skip graph query expansion when recall corpus stats already timed out."),
     )
     template_reformulation_enabled: bool = Field(
         default=True,
@@ -447,10 +443,7 @@ class ActivationConfig(BaseModel):
         default=50,
         ge=0,
         le=5000,
-        description=(
-            "Substage timeout for recall MMR diversity. "
-            "0 disables the substage timeout."
-        ),
+        description=("Substage timeout for recall MMR diversity. 0 disables the substage timeout."),
     )
 
     # --- Implicit feedback ---
@@ -520,8 +513,7 @@ class ActivationConfig(BaseModel):
     recall_tier_aware_truncation_enabled: bool = Field(
         default=False,
         description=(
-            "Vary truncation by memory tier: episodic=full,"
-            " transitional=gist, semantic=summary"
+            "Vary truncation by memory tier: episodic=full, transitional=gist, semantic=summary"
         ),
     )
     recall_transitional_content_limit: int = Field(
@@ -800,8 +792,7 @@ class ActivationConfig(BaseModel):
         ge=0.0,
         le=300.0,
         description=(
-            "Maximum time to spend on opportunistic shutdown consolidation; "
-            "0 disables the timeout."
+            "Maximum time to spend on opportunistic shutdown consolidation; 0 disables the timeout."
         ),
     )
 
@@ -1749,8 +1740,7 @@ class ActivationConfig(BaseModel):
         ge=0,
         le=5000,
         description=(
-            "Maximum budget for the bounded episode/cue preflight before deep "
-            "explicit recall"
+            "Maximum budget for the bounded episode/cue preflight before deep explicit recall"
         ),
     )
     context_fast_preflight_timeout_ms: int = Field(
@@ -2533,8 +2523,7 @@ class ActivationConfig(BaseModel):
         ge=0,
         le=5000,
         description=(
-            "Substage timeout for recall graph-connected MMR. "
-            "0 disables the substage timeout."
+            "Substage timeout for recall graph-connected MMR. 0 disables the substage timeout."
         ),
     )
 

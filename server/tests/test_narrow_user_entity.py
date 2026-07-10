@@ -29,9 +29,7 @@ def test_first_person_relationship_through_pipeline_seeds_user_entity():
     committed = [(c, _decision(c)) for c in bundle.candidates]
     entities, claims = EvidenceBridge().bridge(committed)
 
-    works_at = [
-        c for c in claims if c.subject_text == "User" and c.predicate == "WORKS_AT"
-    ]
+    works_at = [c for c in claims if c.subject_text == "User" and c.predicate == "WORKS_AT"]
     assert works_at, "expected a User WORKS_AT claim"
     assert works_at[0].object_text == "TechCorp"
 
@@ -99,9 +97,7 @@ def test_existing_user_attribute_entity_not_duplicated():
         extractor_name="relationship_pattern",
         payload={"subject": "User", "predicate": "WORKS_AT", "object": "TechCorp"},
     )
-    entities, _ = EvidenceBridge().bridge(
-        [(attr, _decision(attr)), (rel, _decision(rel))]
-    )
+    entities, _ = EvidenceBridge().bridge([(attr, _decision(attr)), (rel, _decision(rel))])
     assert [e.name for e in entities].count("User") == 1
 
 

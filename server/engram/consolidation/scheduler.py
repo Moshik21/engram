@@ -18,9 +18,7 @@ _TIER_POLL_INTERVAL = 30.0  # seconds — check tiers every 30s
 
 PHASE_TIERS = CONSOLIDATION_PHASE_TIERS
 _WARM_TIER_PHASES = frozenset(
-    phase_name
-    for phase_name, tier in PHASE_TIERS.items()
-    if tier == "warm"
+    phase_name for phase_name, tier in PHASE_TIERS.items() if tier == "warm"
 )
 
 
@@ -116,9 +114,7 @@ class ConsolidationScheduler:
         if not callable(saver):
             return
         payload = {
-            tier: self._last_tier_time[tier]
-            for tier in tiers
-            if tier in self._last_tier_time
+            tier: self._last_tier_time[tier] for tier in tiers if tier in self._last_tier_time
         }
         if not payload:
             return

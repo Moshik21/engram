@@ -89,10 +89,7 @@ async def test_projected_consolidated_smoke_produces_full_report(tmp_path) -> No
     assert report["smoke"]["cycle_count"] == 1
     assert report["smoke"]["cue_feedback_checks"] == 1
     assert report["smoke"]["gate_recall_checks"] == 1
-    assert {
-        signal["status"]
-        for signal in report["evaluation_signals"].values()
-    } == {"measured"}
+    assert {signal["status"] for signal in report["evaluation_signals"].values()} == {"measured"}
     assert "cue_checks=1" in format_smoke_report(report)
     assert "gate_checks=1" in format_smoke_report(report)
 
@@ -612,10 +609,7 @@ async def test_evaluate_cli_require_evaluation_signals_accepts_measured_from_jso
 
     report = json.loads(capsys.readouterr().out)
     assert _coverage_gaps_without_memory_cost(report) == []
-    assert {
-        signal["status"]
-        for signal in report["evaluation_signals"].values()
-    } == {"measured"}
+    assert {signal["status"] for signal in report["evaluation_signals"].values()} == {"measured"}
     assert report["evaluation_signals"]["cue_usefulness"]["evidence_count"] == 2
     assert report["evaluation_signals"]["false_recall"]["metric"] == 0.0
 

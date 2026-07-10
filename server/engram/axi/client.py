@@ -41,8 +41,8 @@ class AxiRestClient:
         resolved_url = server_url or os.environ.get("ENGRAM_AXI_SERVER_URL") or DEFAULT_SERVER_URL
         self.server_url = resolved_url.rstrip("/")
         self.timeout_seconds = timeout_seconds or DEFAULT_TIMEOUT_SECONDS
-        self.auth_token = auth_token if auth_token is not None else os.environ.get(
-            "ENGRAM_AUTH__BEARER_TOKEN"
+        self.auth_token = (
+            auth_token if auth_token is not None else os.environ.get("ENGRAM_AUTH__BEARER_TOKEN")
         )
 
     def health(self) -> dict[str, Any]:

@@ -125,9 +125,7 @@ class RecallService:
                 budget_profile=budget_profile_for_source(interaction_source),
             )
         except asyncio.CancelledError:
-            stage_timings_ms["recall_retrieve_cancelled"] = _elapsed_ms(
-                retrieve_started
-            )
+            stage_timings_ms["recall_retrieve_cancelled"] = _elapsed_ms(retrieve_started)
             raise
         stage_timings_ms["recall_retrieve"] = _elapsed_ms(retrieve_started)
 
@@ -144,8 +142,8 @@ class RecallService:
             stage_timings_ms,
         )
         if graph_timeout_seconds is not None:
-            stage_timings_ms["recall_materialize_graph_effective_timeout_ms"] = (
-                round(graph_timeout_seconds * 1000.0, 4)
+            stage_timings_ms["recall_materialize_graph_effective_timeout_ms"] = round(
+                graph_timeout_seconds * 1000.0, 4
             )
         try:
             primary_materialization = await self._primary_materializer.materialize(
@@ -165,9 +163,7 @@ class RecallService:
                 stage_timings_ms=stage_timings_ms,
             )
         except asyncio.CancelledError:
-            stage_timings_ms["recall_materialize_cancelled"] = _elapsed_ms(
-                materialize_started
-            )
+            stage_timings_ms["recall_materialize_cancelled"] = _elapsed_ms(materialize_started)
             raise
         stage_timings_ms["recall_materialize"] = _elapsed_ms(materialize_started)
 
@@ -196,9 +192,7 @@ class RecallService:
                 stage_timings_ms=stage_timings_ms,
             )
         except asyncio.CancelledError:
-            stage_timings_ms["recall_post_process_cancelled"] = _elapsed_ms(
-                post_started
-            )
+            stage_timings_ms["recall_post_process_cancelled"] = _elapsed_ms(post_started)
             raise
         stage_timings_ms["recall_post_process"] = _elapsed_ms(post_started)
 
@@ -269,8 +263,7 @@ def _materialize_graph_timeout_seconds(
     if timeout_ms <= 0:
         return None
     probe_timed_out = (
-        "recall_stats_timeout" in stage_timings_ms
-        or "graph_expand_timeout" in stage_timings_ms
+        "recall_stats_timeout" in stage_timings_ms or "graph_expand_timeout" in stage_timings_ms
     )
     adaptive_cap_ms = int(
         getattr(

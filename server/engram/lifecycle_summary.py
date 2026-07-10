@@ -382,10 +382,7 @@ async def build_lifecycle_summary(
         "consolidate": {
             "status": "attention"
             if latest_cycle
-            and (
-                latest_cycle.get("status") == "failed"
-                or _cycle_has_phase_issue(latest_cycle)
-            )
+            and (latest_cycle.get("status") == "failed" or _cycle_has_phase_issue(latest_cycle))
             else "active"
             if engine_running
             else "ready",

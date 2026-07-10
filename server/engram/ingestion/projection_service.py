@@ -391,9 +391,7 @@ class EpisodeProjectionService:
         if self._record_storage_counts is None:
             return
         relationship_count = sum(
-            1
-            for result in apply_outcome.relationship_results
-            if getattr(result, "created", False)
+            1 for result in apply_outcome.relationship_results if getattr(result, "created", False)
         )
         auto_created_endpoints = sum(
             len(getattr(result, "metadata", {}).get("auto_created_endpoints", []))

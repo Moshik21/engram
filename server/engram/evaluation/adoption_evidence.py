@@ -74,8 +74,7 @@ def build_adoption_evidence(
     failures: list[str] = []
     if kind != ADOPTION_VALIDATION_REPORT_KIND:
         failures.append(
-            "invalid_adoption_report_kind"
-            f"({kind or 'missing'}!={ADOPTION_VALIDATION_REPORT_KIND})"
+            f"invalid_adoption_report_kind({kind or 'missing'}!={ADOPTION_VALIDATION_REPORT_KIND})"
         )
     if payload.get("status") != "passed":
         failures.append("adoption_status_not_passed")
@@ -103,15 +102,11 @@ def build_adoption_evidence(
         failures.append("missing_adoption_observed_before_answer_tools")
     else:
         missing_core_tools = [
-            tool
-            for tool in ("get_context", "recall")
-            if tool not in observed_before_answer
+            tool for tool in ("get_context", "recall") if tool not in observed_before_answer
         ]
         if missing_core_tools:
             failures.append(
-                "missing_adoption_core_before_answer_tools("
-                + ",".join(missing_core_tools)
-                + ")"
+                "missing_adoption_core_before_answer_tools(" + ",".join(missing_core_tools) + ")"
             )
     if required_tools.get("missing"):
         failures.append("missing_adoption_required_tools")
@@ -134,8 +129,7 @@ def build_adoption_evidence(
     if gate_required_client:
         if not _client_matches(client, gate_required_client):
             failures.append(
-                "adoption_client_mismatch"
-                f"({_client_label(client)}!={gate_required_client})"
+                f"adoption_client_mismatch({_client_label(client)}!={gate_required_client})"
             )
         if not report_required_client:
             failures.append("missing_required_adoption_client_gate")
@@ -179,9 +173,7 @@ def build_adoption_evidence(
         },
         "file_memory": {
             "present": file_memory.get("present"),
-            "substituted_for_engram": bool(
-                file_memory.get("substituted_for_engram")
-            ),
+            "substituted_for_engram": bool(file_memory.get("substituted_for_engram")),
         },
         "failures": failures,
     }
@@ -211,18 +203,10 @@ def build_adoption_client_set_evidence(
     """Summarize adoption evidence across multiple live MCP clients."""
     required_labels = _dedupe_labels(required_clients)
     observed_clients = _dedupe_labels(
-        [
-            str(evidence.get("client"))
-            for evidence in evidences
-            if evidence.get("client")
-        ]
+        [str(evidence.get("client")) for evidence in evidences if evidence.get("client")]
     )
     blockers = _dedupe_labels(
-        [
-            str(blocker)
-            for evidence in evidences
-            for blocker in evidence.get("blockers") or []
-        ]
+        [str(blocker) for evidence in evidences for blocker in evidence.get("blockers") or []]
     )
     mcp_server_failures = _dedupe_labels(
         [
@@ -239,10 +223,7 @@ def build_adoption_client_set_evidence(
             client_or_path = _string(evidence.get("client")) or _string(
                 evidence.get("artifact_path")
             )
-            failures.append(
-                "adoption_report_failed"
-                f"({_client_label(client_or_path)})"
-            )
+            failures.append(f"adoption_report_failed({_client_label(client_or_path)})")
     for required_client in required_labels:
         matching = [
             evidence
@@ -256,9 +237,7 @@ def build_adoption_client_set_evidence(
             _client_matches(_string(evidence.get("required_client")), required_client)
             for evidence in matching
         ):
-            failures.append(
-                f"missing_required_adoption_client_gate({required_client})"
-            )
+            failures.append(f"missing_required_adoption_client_gate({required_client})")
 
     return {
         "status": "failed" if failures else "measured",
@@ -276,9 +255,7 @@ def build_adoption_client_set_evidence(
                 "session_id": evidence.get("session_id"),
                 "blockers": list(evidence.get("blockers") or []),
                 "blocker_details": list(evidence.get("blocker_details") or []),
-                "mcp_server_failures": list(
-                    evidence.get("mcp_server_failures") or []
-                ),
+                "mcp_server_failures": list(evidence.get("mcp_server_failures") or []),
                 "failures": list(evidence.get("failures") or []),
             }
             for evidence in evidences
@@ -404,9 +381,7 @@ def _looks_synthetic(source: str) -> bool:
 
 
 def _client_matches(observed_client: str | None, required_client: str) -> bool:
-    return _normalize_client_label(observed_client) == _normalize_client_label(
-        required_client
-    )
+    return _normalize_client_label(observed_client) == _normalize_client_label(required_client)
 
 
 def _normalize_client_label(value: str | None) -> str:

@@ -187,9 +187,7 @@ async def test_doctor_checks_mcp_streamable_http_endpoint(tmp_path, monkeypatch)
 
     monkeypatch.setattr("engram.doctor.request.urlopen", fake_urlopen)
 
-    report = await build_doctor_report(
-        _parse_doctor_args("--mode", "lite", "--no-smoke")
-    )
+    report = await build_doctor_report(_parse_doctor_args("--mode", "lite", "--no-smoke"))
 
     checks = {check["name"]: check for check in report["checks"]}
     assert checks["server"]["status"] == "pass"
@@ -242,9 +240,7 @@ async def test_doctor_smoke_metadata_reports_unmeasured_evaluation_signals(
     )
     monkeypatch.setattr("engram.doctor.run_projected_consolidated_smoke_for_args", fake_smoke)
 
-    report = await build_doctor_report(
-        _parse_doctor_args("--mode", "lite", "--skip-server")
-    )
+    report = await build_doctor_report(_parse_doctor_args("--mode", "lite", "--skip-server"))
 
     checks = {check["name"]: check for check in report["checks"]}
     assert report["status"] == "fail"
@@ -285,10 +281,7 @@ async def test_doctor_json_output_includes_evaluation_signal_metadata(
                             "measured": len(EVALUATION_SIGNAL_ORDER),
                             "ready": True,
                             "unmeasured": [],
-                            "statuses": {
-                                signal: "measured"
-                                for signal in EVALUATION_SIGNAL_ORDER
-                            },
+                            "statuses": {signal: "measured" for signal in EVALUATION_SIGNAL_ORDER},
                         }
                     },
                 }
@@ -332,10 +325,7 @@ async def test_doctor_command_exits_nonzero_for_failed_report(
                             "ready": False,
                             "unmeasured": ["false_recall:needs_labels"],
                             "statuses": {
-                                **{
-                                    signal: "measured"
-                                    for signal in EVALUATION_SIGNAL_ORDER
-                                },
+                                **{signal: "measured" for signal in EVALUATION_SIGNAL_ORDER},
                                 "false_recall": "needs_labels",
                             },
                         }
@@ -413,9 +403,7 @@ async def test_doctor_lifecycle_snapshot_supports_helix_mode(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_doctor_warns_when_lifecycle_snapshot_times_out(
-    tmp_path, monkeypatch
-) -> None:
+async def test_doctor_warns_when_lifecycle_snapshot_times_out(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
 
     async def slow_lifecycle_summary(*args, **kwargs):
@@ -445,9 +433,7 @@ async def test_doctor_warns_when_lifecycle_snapshot_times_out(
 
 
 @pytest.mark.asyncio
-async def test_doctor_warns_when_brain_loop_smoke_times_out(
-    tmp_path, monkeypatch
-) -> None:
+async def test_doctor_warns_when_brain_loop_smoke_times_out(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
 
     async def fake_lifecycle_summary(*args, **kwargs):
@@ -487,9 +473,7 @@ async def test_doctor_warns_when_brain_loop_smoke_times_out(
 
 
 @pytest.mark.asyncio
-async def test_doctor_warns_when_lifecycle_snapshot_has_attention(
-    tmp_path, monkeypatch
-) -> None:
+async def test_doctor_warns_when_lifecycle_snapshot_has_attention(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
 
     async def fake_lifecycle_summary(*args, **kwargs):
@@ -530,8 +514,7 @@ async def test_doctor_warns_when_lifecycle_snapshot_has_attention(
     assert report["status"] == "warn"
     assert checks["lifecycle_snapshot"]["status"] == "warn"
     assert (
-        checks["lifecycle_snapshot"]["detail"]
-        == "lifecycle snapshot loaded with attention: "
+        checks["lifecycle_snapshot"]["detail"] == "lifecycle snapshot loaded with attention: "
         "consolidate (graph_embed: optional vector index unavailable)"
     )
     assert (
@@ -600,8 +583,7 @@ def test_doctor_markdown_includes_lifecycle_phase_issue() -> None:
     )
 
     assert (
-        "Consolidate: `attention` | error "
-        "`graph_embed: optional vector index unavailable`"
+        "Consolidate: `attention` | error `graph_embed: optional vector index unavailable`"
     ) in rendered
 
 
@@ -625,10 +607,7 @@ def test_doctor_markdown_lists_brain_loop_smoke_coverage_gaps() -> None:
 
     assert "- Coverage gaps: 2" in rendered
     assert "  - recall gate needs runtime analyses" in rendered
-    assert (
-        "  - consolidation calibration quality needs labeled decision outcomes"
-        in rendered
-    )
+    assert "  - consolidation calibration quality needs labeled decision outcomes" in rendered
 
 
 def test_doctor_markdown_lists_brain_loop_smoke_evaluation_signal_summary() -> None:

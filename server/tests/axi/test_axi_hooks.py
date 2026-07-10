@@ -21,8 +21,7 @@ def test_hook_command_is_read_only_session_start_packet() -> None:
     )
 
     assert command == (
-        "engram axi hook-run --server-url http://127.0.0.1:8100 "
-        "--budget 500 --timeout 3"
+        "engram axi hook-run --server-url http://127.0.0.1:8100 --budget 500 --timeout 3"
     )
     assert "observe" not in command
     assert "remember" not in command
@@ -243,7 +242,7 @@ def test_hook_status_flags_drifted_managed_hook(tmp_path) -> None:
                                 {
                                     "id": MANAGED_HOOK_ID,
                                     "type": "command",
-                                    "command": "engram axi --project \"$PWD\"",
+                                    "command": 'engram axi --project "$PWD"',
                                 }
                             ],
                         }
@@ -531,9 +530,9 @@ def test_hook_status_reports_latest_healthy_followup_streak(tmp_path) -> None:
         + "\n"
     )
 
-    streak = build_hook_status_payload("codex", home=tmp_path).payload[
-        "followup_summary"
-    ]["latest_healthy_streak"]
+    streak = build_hook_status_payload("codex", home=tmp_path).payload["followup_summary"][
+        "latest_healthy_streak"
+    ]
 
     assert streak["status"] == "measured"
     assert streak["trace_count"] == 2

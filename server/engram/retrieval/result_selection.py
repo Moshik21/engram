@@ -33,9 +33,7 @@ def _query_relevant_entity(result: dict[str, Any], query_tokens: set[str]) -> bo
     entity = result.get("entity") or {}
     name = entity.get("name") or ""
     name_tokens = {
-        match.group(0)
-        for match in re.finditer(r"[a-z]+", name.lower())
-        if len(match.group(0)) >= 4
+        match.group(0) for match in re.finditer(r"[a-z]+", name.lower()) if len(match.group(0)) >= 4
     }
     return bool((name_tokens & query_tokens) - _CURRENT_STATE_TOKENS)
 
@@ -58,9 +56,7 @@ def filter_current_state_results(query: str, results: list[dict[str, Any]]) -> l
     if not any(_query_relevant_entity(result, query_tokens) for result in results):
         return results
     return [
-        result
-        for result in results
-        if result.get("result_type") not in {"episode", "cue_episode"}
+        result for result in results if result.get("result_type") not in {"episode", "cue_episode"}
     ]
 
 

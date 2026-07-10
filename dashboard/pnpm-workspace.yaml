@@ -1,0 +1,8 @@
+# Single-package workspace config for pnpm 10+/11 build-script policy.
+# CI pins pnpm 9.15.0; this keeps newer pnpm from hard-failing on esbuild/clerk scripts.
+packages:
+  - "."
+
+allowBuilds:
+  esbuild: true
+  "@clerk/shared": true

@@ -838,9 +838,7 @@ class TestHelixTagCacheRepopulation:
 
         store._query = fake_query  # type: ignore[assignment]
 
-        tags = await store.get_confirmed_tags(
-            min_age_cycles=1, current_cycle=5, group_id="default"
-        )
+        tags = await store.get_confirmed_tags(min_age_cycles=1, current_cycle=5, group_id="default")
         assert len(tags) == 1
         assert tags[0]["id"] == 7
 

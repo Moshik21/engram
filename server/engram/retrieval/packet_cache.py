@@ -90,9 +90,7 @@ class MemoryPacketCache:
         self._max_entries = max(1, int(max_entries))
         self._default_ttl_seconds = max(0.0, float(default_ttl_seconds))
         self._entries: OrderedDict[str, MemoryPacketCacheEntry] = OrderedDict()
-        self._persistence_path = (
-            Path(persistence_path).expanduser() if persistence_path else None
-        )
+        self._persistence_path = Path(persistence_path).expanduser() if persistence_path else None
         self._persistence_timeout_seconds = max(
             0.001,
             float(persistence_timeout_seconds),
@@ -204,9 +202,7 @@ class MemoryPacketCache:
             expires_at=None if ttl <= 0 else timestamp + ttl,
             build_duration_ms=build_duration_ms,
             persisted=bool(
-                persist
-                and self._persistence_path is not None
-                and not self._persistence_failed
+                persist and self._persistence_path is not None and not self._persistence_failed
             ),
             last_persistent_sync_at=timestamp if persist else None,
         )

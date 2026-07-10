@@ -110,9 +110,7 @@ class EpistemicRouteService:
                 session_entity_names=session_entity_names or [],
                 mode="chat" if surface == "rest" else "auto_recall",
                 graph_probe=(
-                    self._get_graph_probe()
-                    if self._cfg.recall_need_graph_probe_enabled
-                    else None
+                    self._get_graph_probe() if self._cfg.recall_need_graph_probe_enabled else None
                 ),
                 group_id=group_id,
                 conv_context=self._conv_context,

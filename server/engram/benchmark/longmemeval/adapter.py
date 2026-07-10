@@ -67,8 +67,8 @@ def _parse_session_date(raw: str) -> datetime | None:
     cleaned = re.sub(r"\s*\([A-Za-z]+\)\s*", " ", raw).strip()
 
     for fmt in (
-        "%Y/%m/%d %H:%M",    # LongMemEval primary format
-        "%Y/%m/%d",           # date-only variant
+        "%Y/%m/%d %H:%M",  # LongMemEval primary format
+        "%Y/%m/%d",  # date-only variant
         "%Y-%m-%dT%H:%M:%S",  # ISO with time
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",

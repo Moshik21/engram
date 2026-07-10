@@ -170,9 +170,7 @@ async def create_borrowed_consolidation_store_for_graph(graph_store: Any | None)
     """Create a consolidation store over a graph store's borrowed SQLite DB."""
     if graph_store is None:
         return None
-    return await create_borrowed_sqlite_consolidation_store(
-        borrowed_sqlite_db(graph_store)
-    )
+    return await create_borrowed_sqlite_consolidation_store(borrowed_sqlite_db(graph_store))
 
 
 async def create_conversation_store_for_graph(

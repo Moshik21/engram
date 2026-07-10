@@ -60,9 +60,7 @@ class HelixClient:
             except (ImportError, RuntimeError) as e:
                 if self._config.transport == "native":
                     raise  # User explicitly requested native, don't fall back
-                logger.debug(
-                    "Native transport unavailable (%s), trying other transports", e
-                )
+                logger.debug("Native transport unavailable (%s), trying other transports", e)
                 self._native_transport = None
 
         # HTTP client for non-native transports
@@ -257,9 +255,7 @@ class HelixClient:
             async with sem:
                 return await self.query(endpoint, payload)
 
-        return list(
-            await asyncio.gather(*[_one(ep, pl) for ep, pl in queries])
-        )
+        return list(await asyncio.gather(*[_one(ep, pl) for ep, pl in queries]))
 
     async def _fallback_concurrent(
         self,
@@ -272,9 +268,7 @@ class HelixClient:
             async with sem:
                 return await self.query(endpoint, payload)
 
-        return list(
-            await asyncio.gather(*[_one(ep, pl) for ep, pl in queries])
-        )
+        return list(await asyncio.gather(*[_one(ep, pl) for ep, pl in queries]))
 
     async def batch(
         self,
@@ -300,12 +294,7 @@ class HelixClient:
         if not queries:
             return []
 
-        payload = {
-            "queries": [
-                {"name": endpoint, "body": body}
-                for endpoint, body in queries
-            ]
-        }
+        payload = {"queries": [{"name": endpoint, "body": body} for endpoint, body in queries]}
 
         try:
             resp = await self._client.post(

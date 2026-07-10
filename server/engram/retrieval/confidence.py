@@ -65,9 +65,7 @@ async def apply_relevance_confidence(
     entity_summaries: dict[str, str] = {}
     episode_contents: dict[str, str] = {}
     chunk_texts: dict[str, str] = {}
-    should_embed_episode_text = bool(
-        cfg.relevance_confidence_episode_text_embeddings_enabled
-    )
+    should_embed_episode_text = bool(cfg.relevance_confidence_episode_text_embeddings_enabled)
 
     for result in results:
         result_type = result.get("result_type", "entity")

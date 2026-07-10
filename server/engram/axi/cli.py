@@ -19,7 +19,6 @@ from engram.axi.hooks import (
     install_hook,
     uninstall_hook,
 )
-from engram.retrieval.artifacts import _normalize_project_path as _resolve_project_path
 from engram.axi.surfaces import (
     VALUE_TIMEOUT_SECONDS,
     AxiResult,
@@ -35,6 +34,7 @@ from engram.axi.surfaces import (
     build_write_payload,
 )
 from engram.axi.toon import render_toon
+from engram.retrieval.artifacts import _normalize_project_path as _resolve_project_path
 
 
 def configure_axi_parser(parser: argparse.ArgumentParser) -> None:

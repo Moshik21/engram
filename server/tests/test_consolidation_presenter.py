@@ -43,9 +43,7 @@ def test_serialize_cycle_summary_includes_cycle_and_phase_errors():
     assert payload["summary"] == {
         "total_processed": 3,
         "total_affected": 1,
-        "description": (
-            "Dry run failed cycle: 3 items processed, 1 affected across 1 phases"
-        ),
+        "description": ("Dry run failed cycle: 3 items processed, 1 affected across 1 phases"),
     }
     assert payload["phases"] == [
         {
@@ -149,9 +147,7 @@ def test_cycle_totals_and_description_use_failed_cycle_wording():
     assert cycle_operator_summary(cycle) == {
         "total_processed": 7,
         "total_affected": 3,
-        "description": (
-            "Live failed cycle: 7 items processed, 3 affected across 2 phases"
-        ),
+        "description": ("Live failed cycle: 7 items processed, 3 affected across 2 phases"),
     }
     assert cycle_description(cycle) == (
         "Live failed cycle: 7 items processed, 3 affected across 2 phases"
@@ -176,6 +172,5 @@ def test_cycle_description_reports_completed_cycle_with_phase_warning():
 
     assert cycle_phase_issue_text(cycle) == "graph_embed: optional vector index unavailable"
     assert cycle_description(cycle) == (
-        "Dry run cycle with warnings: 1 items processed, "
-        "0 affected across 1 phases"
+        "Dry run cycle with warnings: 1 items processed, 0 affected across 1 phases"
     )

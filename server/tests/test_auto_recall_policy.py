@@ -896,9 +896,7 @@ async def test_drain_mcp_triggered_intentions_supports_sync_manager_facade() -> 
 @pytest.mark.asyncio
 async def test_drain_mcp_triggered_intentions_supports_async_manager_facade() -> None:
     manager = Mock()
-    manager.drain_triggered_intention_views = AsyncMock(
-        return_value=[{"trigger": "meeting"}]
-    )
+    manager.drain_triggered_intention_views = AsyncMock(return_value=[{"trigger": "meeting"}])
 
     result = await drain_mcp_triggered_intentions(manager)
 

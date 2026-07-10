@@ -279,9 +279,7 @@ class TestSearchNoop:
         assert isinstance(results, list)
 
     async def test_search_episodes_returns_list(self, helix_search_index, test_group_id):
-        results = await helix_search_index.search_episodes(
-            "Python", group_id=test_group_id
-        )
+        results = await helix_search_index.search_episodes("Python", group_id=test_group_id)
         assert isinstance(results, list)
 
     async def test_compute_similarity_empty_without_embeddings(
@@ -302,9 +300,7 @@ class TestSearchNoop:
 @pytest.mark.requires_helix
 @_helix_skip
 class TestIndexingWithEmbeddings:
-    async def test_index_entity_with_embedding(
-        self, helix_search_with_embeddings, test_group_id
-    ):
+    async def test_index_entity_with_embedding(self, helix_search_with_embeddings, test_group_id):
         entity = Entity(
             id=f"ent_{_uid()}",
             name="Python",
@@ -314,9 +310,7 @@ class TestIndexingWithEmbeddings:
         )
         await helix_search_with_embeddings.index_entity(entity)
 
-    async def test_index_episode_with_embedding(
-        self, helix_search_with_embeddings, test_group_id
-    ):
+    async def test_index_episode_with_embedding(self, helix_search_with_embeddings, test_group_id):
         episode = Episode(
             id=f"ep_{_uid()}",
             content="Python is used in data science and AI",
@@ -340,9 +334,7 @@ class TestIndexingWithEmbeddings:
         count = await helix_search_with_embeddings.batch_index_entities(entities)
         assert count == 3
 
-    async def test_batch_index_empty_list(
-        self, helix_search_with_embeddings, test_group_id
-    ):
+    async def test_batch_index_empty_list(self, helix_search_with_embeddings, test_group_id):
         count = await helix_search_with_embeddings.batch_index_entities([])
         assert count == 0
 
@@ -386,9 +378,7 @@ class TestVectorSearch:
         )
         await index.index_episode(episode)
 
-        results = await index.search_episodes(
-            "FastAPI meeting", group_id=test_group_id, limit=10
-        )
+        results = await index.search_episodes("FastAPI meeting", group_id=test_group_id, limit=10)
         assert isinstance(results, list)
         for eid, score in results:
             assert isinstance(eid, str)
@@ -421,9 +411,7 @@ class TestHybridSearch:
         for _eid, score in results:
             assert 0.0 <= score <= 1.0
 
-    async def test_hybrid_search_respects_limit(
-        self, helix_search_with_embeddings, test_group_id
-    ):
+    async def test_hybrid_search_respects_limit(self, helix_search_with_embeddings, test_group_id):
         index = helix_search_with_embeddings
         for i in range(5):
             await index.index_entity(
@@ -466,9 +454,7 @@ class TestDeletion:
 @pytest.mark.requires_helix
 @_helix_skip
 class TestComputeSimilarity:
-    async def test_compute_similarity_empty_ids(
-        self, helix_search_with_embeddings, test_group_id
-    ):
+    async def test_compute_similarity_empty_ids(self, helix_search_with_embeddings, test_group_id):
         result = await helix_search_with_embeddings.compute_similarity(
             "Python", [], group_id=test_group_id
         )
@@ -488,9 +474,7 @@ class TestComputeSimilarity:
         )
         await index.index_entity(entity)
 
-        result = await index.compute_similarity(
-            "Python language", [eid], group_id=test_group_id
-        )
+        result = await index.compute_similarity("Python language", [eid], group_id=test_group_id)
         assert isinstance(result, dict)
         # Entity may or may not be found via zero-vector sweep depending on
         # Helix index state; we only check the type contract.
@@ -879,9 +863,7 @@ async def test_native_chunk_search_uses_client_side_vector_query():
     )
 
     assert results[0]["episode_id"] == "ep-native"
-    assert [endpoint for endpoint, _payload in calls] == [
-        "search_episode_chunks_filtered"
-    ]
+    assert [endpoint for endpoint, _payload in calls] == ["search_episode_chunks_filtered"]
     assert calls[0][1]["gid"] == "brain"
 
 

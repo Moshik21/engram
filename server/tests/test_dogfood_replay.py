@@ -164,10 +164,7 @@ def test_parse_transcript_text_skips_codex_bootstrap_user_messages() -> None:
                         "content": [
                             {
                                 "type": "input_text",
-                                "text": (
-                                    "Can Engram prepare dogfood labels from this "
-                                    "transcript?"
-                                ),
+                                "text": ("Can Engram prepare dogfood labels from this transcript?"),
                             }
                         ],
                     },
@@ -1221,7 +1218,7 @@ def test_dogfood_turn_inspection_uses_local_source_only_on_explicit_content(
                         "query_hint_redacted": True,
                         "decisions": [{"mode": "cached", "decision": "triggered"}],
                         "labels": {"memory_was_needed": None},
-                    }
+                    },
                 ],
             }
         ),
@@ -1912,9 +1909,7 @@ def test_build_dogfood_human_label_evidence_artifact_is_gate_compatible() -> Non
     )
     assert lite["correctedPackets"] == 1
     deep = next(
-        sample
-        for sample in artifact["recallSamples"]
-        if sample["notes"].endswith("mode=deep")
+        sample for sample in artifact["recallSamples"] if sample["notes"].endswith("mode=deep")
     )
     assert deep["stalePackets"] == 1
     assert "Private transcript body" not in json.dumps(artifact)
@@ -2224,9 +2219,10 @@ def test_dogfood_closeout_report_builds_native_memory_value_commands(tmp_path) -
     assert report["reviewed_labels"]["recall_sample_count"] == 1
     assert report["reviewed_labels"]["session_sample_count"] == 1
     assert report["human_label_evidence"]["status"] == "measured"
-    assert "ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native" in report["commands"][
-        "native_memory_value"
-    ]
+    assert (
+        "ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native"
+        in report["commands"]["native_memory_value"]
+    )
     assert "--require-memory-value" in report["commands"]["native_memory_value"]
     assert "--sqlite-path" in report["commands"]["import_labels"]
     assert "<human-reviewer>" in report["commands"]["export_evidence"]
@@ -2320,8 +2316,7 @@ def test_dogfood_closeout_report_treats_missing_evidence_path_as_missing(
     assert report["ready"] is False
     assert "missing_human_label_artifact" in report["failures"]
     assert not any(
-        failure.startswith("invalid_human_label_artifact")
-        for failure in report["failures"]
+        failure.startswith("invalid_human_label_artifact") for failure in report["failures"]
     )
     assert report["reviewed_labels"]["status"] == "measured"
     assert report["human_label_evidence"] == {
@@ -2627,9 +2622,7 @@ async def test_finalize_dogfood_labels_skip_evaluate_requires_manual_gate(
     assert report["evaluation"]["status"] == "skipped"
     assert report["failures"] == ["native_memory_value_evaluation_skipped"]
     assert report["manual_evaluation_command"] == report["evaluation"]["command"]
-    assert "ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native" in report[
-        "manual_evaluation_command"
-    ]
+    assert "ENGRAM_MODE=helix ENGRAM_HELIX__TRANSPORT=native" in report["manual_evaluation_command"]
     assert "## Manual Evaluation Required" in markdown
     assert evidence_path.exists()
 

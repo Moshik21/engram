@@ -561,9 +561,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
             # Create relationship
             rel_id = None
             if not dry_run:
-                valid_to = utc_now() + timedelta(
-                    days=cfg.consolidation_dream_assoc_ttl_days
-                )
+                valid_to = utc_now() + timedelta(days=cfg.consolidation_dream_assoc_ttl_days)
                 rel = Relationship(
                     id=f"rel_{uuid.uuid4().hex[:12]}",
                     source_id=src_id,

@@ -49,10 +49,7 @@ async def test_worker_router_skips_already_projecting_or_done_states() -> None:
     assert await router.should_skip_projection("ep", "brain") is True
     assert await router.should_skip_projection("ep", "brain") is True
     assert await router.should_skip_projection("ep", "brain") is True
-    assert (
-        await router.should_skip_projection("ep", "brain", skip_scheduled=True)
-        is True
-    )
+    assert await router.should_skip_projection("ep", "brain", skip_scheduled=True) is True
     assert await router.should_skip_projection("ep", "brain") is False
 
 

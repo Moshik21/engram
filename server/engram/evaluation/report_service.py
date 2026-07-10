@@ -420,8 +420,7 @@ def _fallback_runtime_stats(manager: Any, group_id: str) -> dict[str, Any]:
             group_id,
         )
         or {},
-        "packet_cache": _call_optional(manager, "get_memory_packet_cache_summary", group_id)
-        or {},
+        "packet_cache": _call_optional(manager, "get_memory_packet_cache_summary", group_id) or {},
     }
 
 

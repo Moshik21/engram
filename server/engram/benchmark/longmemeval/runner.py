@@ -105,7 +105,8 @@ class LongMemEvalResult:
                 "llm_judge" if self.judge_mode == "llm" else "embedding_containment"
             ),
             "reader": (
-                f"llm:{self.reader_model}" if self.reader_mode == "llm"
+                f"llm:{self.reader_model}"
+                if self.reader_mode == "llm"
                 else "none (deterministic embedding containment, no LLM)"
             ),
             "judge_mode": self.judge_mode,
@@ -254,7 +255,10 @@ async def run_longmemeval(
 
         reader_judge = LLMReaderJudge(model=reader_model)
         logger.info(
-            "LLM reader/judge enabled: model=%s reader=%s judge=%s", reader_model, reader, judge,
+            "LLM reader/judge enabled: model=%s reader=%s judge=%s",
+            reader_model,
+            reader,
+            judge,
         )
 
     # Load checkpoint if resuming
@@ -389,7 +393,8 @@ async def _process_instance(
     # instead of raw retrieval containment.
     if reader == "llm" and reader_judge is not None:
         query_result.hypothesis = await reader_judge.read(
-            instance.question, query_result.evidence,
+            instance.question,
+            query_result.evidence,
         )
 
     # Compute embedding-based containment score (retrieval-side metric, always reported)

@@ -132,7 +132,5 @@ class RecallNearMissMaterializer:
                 )
                 or near_miss_context.cue
             )
-            near_misses.append(
-                self._near_miss_builder.cue_near_miss(cue, scored_result)
-            )
+            near_misses.append(self._near_miss_builder.cue_near_miss(cue, scored_result))
         return near_misses

@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from engram.config import ActivationConfig, EngramConfig
+from engram.config import EngramConfig
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.retrieval.context_builder import build_mcp_context_surface
@@ -139,7 +139,9 @@ async def run_continuity_golden_path_smoke(
         recall_payload = await build_api_recall_surface(
             manager,
             group_id=group_id,
-            query="what strategy decisions did we make about LongMemEval and sparse agent promotion?",
+            query=(
+                "what strategy decisions did we make about LongMemEval and sparse agent promotion?"
+            ),
             limit=5,
             project_path=None,
             operation_source="api_recall",

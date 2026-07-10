@@ -165,9 +165,7 @@ def test_consolidation_lifecycle_result_payloads_preserve_legacy_keys():
         id="cyc_warning",
     )
     assert (
-        ConsolidationCycleLifecycleResult.from_cycle(warning_cycle).event_payload()[
-            "phase_issue"
-        ]
+        ConsolidationCycleLifecycleResult.from_cycle(warning_cycle).event_payload()["phase_issue"]
         == "graph_embed: optional vector index unavailable"
     )
 

@@ -368,10 +368,7 @@ async def test_bootstrap_refresh_skips_unchanged_artifact_decision_materializati
             "last_bootstrapped": stale_ts,
         },
     )
-    artifact_id = (
-        "art_"
-        + hashlib.sha256(f"default:{tmp_path}:README.md".encode()).hexdigest()[:12]
-    )
+    artifact_id = "art_" + hashlib.sha256(f"default:{tmp_path}:README.md".encode()).hexdigest()[:12]
     artifact = Entity(
         id=artifact_id,
         name="README.md",
