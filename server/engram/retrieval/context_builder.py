@@ -37,7 +37,7 @@ SESSION_RECENT_PACKET_SCOPE = "session_recent"
 # Process-level durable pack cache: session-start get_context should be ~ms after
 # the first cold pack within a short TTL. Independent of packet-cache config.
 _DURABLE_CONTEXT_PROCESS_CACHE_TTL_SECONDS = 45.0
-_DURABLE_CONTEXT_HARD_BUDGET_SECONDS = 1.0
+_DURABLE_CONTEXT_HARD_BUDGET_SECONDS = 2.0
 # key -> (expires_at_monotonic, packets, entity_ids)
 _durable_context_process_cache: dict[
     tuple[str, str],
@@ -1811,12 +1811,15 @@ async def _durable_context_payload_from_manager(
     """
     from engram.retrieval.recall_surface import _durable_entity_name_rescue
 
-    query = (topic_hint or "").strip() or _derive_context_topic_hint(None, project_path)
+    raw_topic = (topic_hint or "").strip()
+    query = raw_topic or _derive_context_topic_hint(None, project_path)
     if not query or query.casefold() in {"engram", "default", "project"}:
         query = _DEFAULT_DURABLE_CONTEXT_QUERY
-    else:
-        # Blend topic with durable cues so short project names still probe decisions.
+    elif len(query.split()) <= 3:
+        # Short project names: blend durable cues so probes still hit Decisions.
         query = f"{query} decisions preferences goals"
+    # Long topic strings (full Decision names) keep their exact text so
+    # exact-name rescue can hit without BM25 thrash.
 
     cfg = _manager_activation_config(manager)
     max_packets = max(1, min(5, int(getattr(cfg, "recall_packet_explicit_limit", 3) or 3)))
@@ -1840,52 +1843,44 @@ async def _durable_context_payload_from_manager(
 
     hard_budget = _DURABLE_CONTEXT_HARD_BUDGET_SECONDS
     # Per-probe cap is a fraction of the hard wall so rescue+type stay inside budget.
-    probe_timeout = min(0.85, max(0.25, hard_budget * 0.85))
+    probe_timeout = min(0.75, max(0.2, hard_budget * 0.4))
 
     async def _collect_durable_results() -> list[dict[str, Any]]:
-        rescue_task = asyncio.create_task(
-            _durable_entity_name_rescue(
+        # 1) identity_core list first (product continuity core, usually small/fast)
+        results: list[dict[str, Any]] = []
+        try:
+            typed = await _list_durable_entities_by_type(
+                manager,
+                group_id=group_id,
+                limit=max_packets,
+                timeout_seconds=probe_timeout,
+            )
+            if isinstance(typed, list):
+                results.extend(typed)
+        except Exception:
+            logger.debug("Durable type listing failed", exc_info=True)
+        if len(results) >= max_packets:
+            return results[:max_packets]
+        # 2) name rescue only if type/identity path was thin
+        try:
+            rescue = await _durable_entity_name_rescue(
                 manager,
                 group_id=group_id,
                 query=query,
                 limit=max_packets,
                 timeout_seconds=probe_timeout,
             )
-        )
-        type_task = asyncio.create_task(
-            _list_durable_entities_by_type(
-                manager,
-                group_id=group_id,
-                limit=max_packets,
-                timeout_seconds=probe_timeout,
-            )
-        )
-        results: list[dict[str, Any]] = []
-        try:
-            rescue = await rescue_task
             if isinstance(rescue, list):
-                results.extend(rescue)
+                seen = {str((r.get("entity") or {}).get("id") or "") for r in results}
+                for item in rescue:
+                    eid = str((item.get("entity") or {}).get("id") or "")
+                    if eid and eid not in seen:
+                        results.append(item)
+                        seen.add(eid)
+                    if len(results) >= max_packets:
+                        break
         except Exception:
             logger.debug("Durable context name rescue failed", exc_info=True)
-            rescue_task.cancel()
-        if len(results) >= max_packets:
-            type_task.cancel()
-            return results[:max_packets]
-        try:
-            typed = await type_task
-            if not isinstance(typed, list):
-                typed = []
-        except Exception:
-            logger.debug("Durable type listing failed", exc_info=True)
-            typed = []
-        seen = {str((r.get("entity") or {}).get("id") or "") for r in results}
-        for item in typed:
-            eid = str((item.get("entity") or {}).get("id") or "")
-            if eid and eid not in seen:
-                results.append(item)
-                seen.add(eid)
-            if len(results) >= max_packets:
-                break
         return results
 
     timed_out = False
@@ -2107,39 +2102,113 @@ async def _list_durable_entities_by_type(
     limit: int = 5,
     timeout_seconds: float = 1.5,
 ) -> list[dict[str, Any]]:
-    """List Decision/Preference/… entities, dropping decision_statement scrap."""
+    """List Decision/Preference/… entities, dropping decision_statement scrap.
+
+    Prefer graph ``find_entities_by_type`` / identity_core listing over hybrid
+    search — search thrash on large native brains regularly blows the 1s
+    durable-context budget and leaves get_context empty.
+    """
     from engram.extraction.promotion import durable_result_boost, is_durable_recall_entity_type
     from engram.retrieval.recall_surface import _is_decision_statement_noise
 
+    graph = getattr(manager, "_graph", None) or getattr(manager, "graph_store", None)
+    find_by_type = getattr(graph, "find_entities_by_type", None) if graph is not None else None
+    get_identity = (
+        getattr(graph, "get_identity_core_entities", None) if graph is not None else None
+    )
     search = getattr(manager, "search_entities", None)
-    if not callable(search):
+    if not callable(find_by_type) and not callable(search) and not callable(get_identity):
         return []
 
     types = ("Decision", "Preference", "Goal", "Commitment", "Correction", "Person")
 
     async def _fetch_type(entity_type: str) -> list[Any]:
         try:
-            value = search(
-                group_id=group_id,
-                entity_type=entity_type,
-                limit=max(limit, 8),
-            )
-            if inspect.isawaitable(value):
-                value = await asyncio.wait_for(value, timeout=timeout_seconds)
-            return value if isinstance(value, list) else []
+            if callable(find_by_type):
+                value = find_by_type(entity_type, group_id, limit=max(limit, 8))
+                if inspect.isawaitable(value):
+                    value = await asyncio.wait_for(value, timeout=timeout_seconds)
+                if isinstance(value, list) and value:
+                    return value
+            if callable(search):
+                value = search(
+                    group_id=group_id,
+                    entity_type=entity_type,
+                    limit=max(limit, 8),
+                )
+                if inspect.isawaitable(value):
+                    value = await asyncio.wait_for(value, timeout=timeout_seconds)
+                return value if isinstance(value, list) else []
         except Exception:
             return []
+        return []
+
+    hits: list[dict[str, Any]] = []
+    # Identity core first (usually small and continuity-critical).
+    if callable(get_identity):
+        try:
+            core = get_identity(group_id)
+            if inspect.isawaitable(core):
+                core = await asyncio.wait_for(core, timeout=min(timeout_seconds, 0.5))
+            for ent in core or []:
+                if isinstance(ent, Mapping):
+                    name = str(ent.get("name") or "")
+                    et = str(ent.get("entity_type") or ent.get("type") or "")
+                    eid = str(ent.get("id") or "")
+                    summary = str(ent.get("summary") or "")
+                else:
+                    name = str(getattr(ent, "name", "") or "")
+                    et = str(getattr(ent, "entity_type", "") or "")
+                    eid = str(getattr(ent, "id", "") or "")
+                    summary = str(getattr(ent, "summary", "") or "")
+                if not eid or not name or _is_decision_statement_noise(name):
+                    continue
+                if not is_durable_recall_entity_type(et):
+                    continue
+                hits.append(
+                    {
+                        "result_type": "entity",
+                        "score": 0.95,
+                        "entity": {
+                            "id": eid,
+                            "name": name,
+                            "type": et,
+                            "summary": summary,
+                        },
+                        "relationships": [],
+                        "score_breakdown": {"source": "identity_core_list"},
+                        "source": "durable_type_list",
+                    }
+                )
+                if len(hits) >= limit:
+                    return hits[:limit]
+        except Exception:
+            logger.debug("identity_core list for durable context failed", exc_info=True)
 
     # Parallel type probes keep session-start get_context under ~1s on loaded brains.
     typed_rows = await asyncio.gather(*(_fetch_type(entity_type) for entity_type in types))
-    hits: list[dict[str, Any]] = []
     for entity_type, value in zip(types, typed_rows):
         for row in value:
-            if not isinstance(row, Mapping):
+            if not isinstance(row, Mapping) and not hasattr(row, "name"):
                 continue
-            name = str(row.get("name") or "")
+            if isinstance(row, Mapping):
+                name = str(row.get("name") or "")
+                et = str(row.get("entity_type") or row.get("type") or entity_type)
+            else:
+                name = str(getattr(row, "name", "") or "")
+                et = str(getattr(row, "entity_type", "") or entity_type)
             if not name or _is_decision_statement_noise(name):
                 continue
+            # Normalize entity rows into Mapping-like for the original loop body.
+            if not isinstance(row, Mapping):
+                row = {
+                    "id": getattr(row, "id", ""),
+                    "name": name,
+                    "entity_type": et,
+                    "summary": getattr(row, "summary", "") or "",
+                    "identity_core": bool(getattr(row, "identity_core", False)),
+                    "activation_score": 0.0,
+                }
             et = str(row.get("entity_type") or row.get("type") or entity_type)
             if not is_durable_recall_entity_type(et):
                 continue

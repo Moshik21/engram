@@ -1232,9 +1232,10 @@ async def _durable_entity_name_rescue(
     )
 
     graph = getattr(manager, "_graph", None) or getattr(manager, "graph_store", None)
+    find_exact = getattr(graph, "find_entities_exact_name", None) if graph is not None else None
     find = getattr(graph, "find_entity_candidates", None) if graph is not None else None
     search_entities = getattr(manager, "search_entities", None)
-    if not callable(find) and not callable(search_entities):
+    if not callable(find) and not callable(search_entities) and not callable(find_exact):
         return []
 
     tokens = _rescue_query_tokens(query)
@@ -1246,9 +1247,21 @@ async def _durable_entity_name_rescue(
 
     async def _probe(name: str) -> list[Any]:
         probes: list[Any] = []
+        # Prefer exact-name only (fast on large native brains). Full fuzzy candidate
+        # search (BM25+CONTAINS) regularly burns 1s+ per probe and misses the 2s budget.
+        try:
+            if callable(find_exact):
+                value = find_exact(name, group_id, limit=5)
+                if inspect.isawaitable(value):
+                    value = await asyncio.wait_for(value, timeout=min(timeout_seconds, 0.4))
+                if isinstance(value, list):
+                    probes.extend(value)
+        except Exception:
+            pass
+        if probes:
+            return probes
         try:
             if callable(find):
-                # Pass limit=5 so BM25/contain phases stop early after exact hits.
                 try:
                     value = find(name, group_id, limit=5)
                 except TypeError:

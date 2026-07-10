@@ -1116,6 +1116,37 @@ class HelixGraphStore:
         )
         return entities[:limit]
 
+    async def find_entities_exact_name(
+        self,
+        name: str,
+        group_id: str,
+        limit: int = 10,
+    ) -> list[Entity]:
+        """Exact-name only lookup (no BM25/CONTAINS). Fast path for continuity rescue."""
+        stripped = (name or "").strip()
+        if not stripped:
+            return []
+        rows = await self._query(
+            "find_entities_exact_name",
+            {"name_exact": stripped, "gid": group_id},
+        )
+        results: list[Entity] = []
+        seen: set[str] = set()
+        for d in rows or []:
+            if len(results) >= limit:
+                break
+            row_group = str(d.get("group_id") or group_id)
+            if row_group != group_id:
+                continue
+            if d.get("is_deleted") or d.get("deleted_at"):
+                continue
+            entity = self._dict_to_entity(d, group_id)
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            results.append(entity)
+        return results
+
     async def find_entity_candidates(
         self,
         name: str,
