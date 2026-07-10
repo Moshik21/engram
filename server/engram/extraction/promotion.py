@@ -99,6 +99,40 @@ def should_protect_as_identity_core(entity_type: str | None, *, client_proposal:
     return bool(client_proposal and is_high_signal_entity_type(entity_type))
 
 
+def identity_core_blocks_merge(entity_a: object, entity_b: object) -> bool:
+    """Return True when merge would destroy a protected high-signal identity.
+
+    Rules:
+    - Unprotected pairs never block here.
+    - Never merge identity_core into decision_statement scrap or GOLDEN_ noise.
+    - Two identity_core entities only merge when names normalize equal.
+    - One identity_core requires near-exact name similarity to absorb the other.
+    """
+    from engram.extraction.resolver import compute_similarity, normalize_name
+
+    a_core = bool(getattr(entity_a, "identity_core", False))
+    b_core = bool(getattr(entity_b, "identity_core", False))
+    if not a_core and not b_core:
+        return False
+
+    name_a = str(getattr(entity_a, "name", "") or "")
+    name_b = str(getattr(entity_b, "name", "") or "")
+    if is_decision_statement_noise(name_a) or is_decision_statement_noise(name_b):
+        return True
+
+    # Don't let a clean Decision get absorbed into a GOLDEN_* dump name.
+    if a_core and not b_core and name_b.startswith("GOLDEN_") and not name_a.startswith("GOLDEN_"):
+        return True
+    if b_core and not a_core and name_a.startswith("GOLDEN_") and not name_b.startswith("GOLDEN_"):
+        return True
+
+    if a_core and b_core:
+        return normalize_name(name_a) != normalize_name(name_b)
+
+    # Exactly one identity_core — require high similarity to merge.
+    return compute_similarity(name_a, name_b) < 0.92
+
+
 
 @dataclass
 class PromotionFilterResult:

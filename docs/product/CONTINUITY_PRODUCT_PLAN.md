@@ -80,6 +80,8 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | 5.3 | Sub-second durable context on 17G dogfood brain | [ ] measure + budget if p95 > 2s in dogfood |
 | 5.4 | Session-end promotion subagent (propose ≤N) | [ ] optional harness skill |
 | 5.5 | Dashboard: approved vs deferred framing | [ ] UI copy — open_work secondary metric |
+| 5.6 | **Identity-core merge protection** | [x] block bad merges; prefer identity_core survivor |
+| 5.7 | **Captain protect CLI** | [x] `engram captain protect "Decision name"` |
 
 ---
 

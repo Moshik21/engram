@@ -398,6 +398,7 @@ class EntityMergePhase(ConsolidationPhase):
 
         # Union-find for transitive merges
         parent: dict[str, str] = {}
+        entity_by_id = {e.id: e for e in entities}
 
         def find(x: str) -> str:
             while parent.get(x, x) != x:
@@ -406,9 +407,21 @@ class EntityMergePhase(ConsolidationPhase):
             return x
 
         def union(a: str, b: str) -> None:
+            from engram.extraction.promotion import identity_core_blocks_merge
+
             ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
+            if ra == rb:
+                return
+            ea = entity_by_id.get(a) or entity_by_id.get(ra)
+            eb = entity_by_id.get(b) or entity_by_id.get(rb)
+            if ea is not None and eb is not None and identity_core_blocks_merge(ea, eb):
+                logger.debug(
+                    "Merge: blocked identity_core merge %s <-> %s",
+                    getattr(ea, "name", a),
+                    getattr(eb, "name", b),
+                )
+                return
+            parent[ra] = rb
 
         pairs_checked = 0
         same_type_boost = 0.03
@@ -789,13 +802,28 @@ class EntityMergePhase(ConsolidationPhase):
             if len(merge_records) >= max_merges:
                 break
 
-            # Survivor: highest access_count, tiebreak earliest created_at
-            members.sort(key=lambda e: (-e.access_count, e.created_at))
+            # Survivor: prefer identity_core, then access_count, then earliest created_at
+            members.sort(
+                key=lambda e: (
+                    -int(bool(getattr(e, "identity_core", False))),
+                    -e.access_count,
+                    e.created_at,
+                )
+            )
             survivor = members[0]
 
             for loser in members[1:]:
                 if len(merge_records) >= max_merges:
                     break
+                from engram.extraction.promotion import identity_core_blocks_merge
+
+                if identity_core_blocks_merge(survivor, loser):
+                    logger.info(
+                        "Merge: skip identity_core-protected pair %s <- %s",
+                        survivor.name,
+                        loser.name,
+                    )
+                    continue
                 decision_meta = merge_decisions.get(_pair_key(survivor.id, loser.id))
                 allow_exact_identifier_cross_type = (
                     decision_meta is not None

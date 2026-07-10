@@ -125,6 +125,36 @@ def test_session_promote_cap_constant():
     assert DEFAULT_PROMOTE_CAP_PER_WINDOW == 5
 
 
+def test_identity_core_blocks_bad_merges():
+    from types import SimpleNamespace
+
+    from engram.extraction.promotion import identity_core_blocks_merge
+
+    core = SimpleNamespace(
+        name="LongMemEval is not Engram north star",
+        identity_core=True,
+    )
+    golden = SimpleNamespace(
+        name="GOLDEN_PATH_DECISION LongMemEval not north star",
+        identity_core=False,
+    )
+    scrap = SimpleNamespace(
+        name="MachineShopScheduler:decision_statement:Making a Decision",
+        identity_core=False,
+    )
+    same = SimpleNamespace(
+        name="LongMemEval is not Engram north star",
+        identity_core=True,
+    )
+    assert identity_core_blocks_merge(core, golden) is True
+    assert identity_core_blocks_merge(core, scrap) is True
+    assert identity_core_blocks_merge(core, same) is False
+    assert identity_core_blocks_merge(
+        SimpleNamespace(name="A", identity_core=False),
+        SimpleNamespace(name="B", identity_core=False),
+    ) is False
+
+
 def test_decision_statement_names_pass_validation():
     from engram.extraction.resolver import validate_entity_name
 
