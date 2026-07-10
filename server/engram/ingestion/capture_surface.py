@@ -779,6 +779,162 @@ async def build_api_attachment_observe_write_surface(
     ), manager)
 
 
+async def load_remember_committed_facts(
+    manager: Any,
+    *,
+    episode_id: str,
+    group_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load entities/relationships committed during a remember projection.
+
+    Agents need stable ids + identity_core so they can protect, recall, or
+    correct what just landed without a second lookup.
+    """
+    graph = getattr(manager, "_graph", None)
+    if graph is None:
+        return [], []
+
+    entity_rows: list[dict[str, Any]] = []
+    relationship_rows: list[dict[str, Any]] = []
+    entity_ids: list[str] = []
+    seen_entity_ids: set[str] = set()
+    seen_rel_ids: set[str] = set()
+
+    get_episode_entities = getattr(graph, "get_episode_entities", None)
+    if callable(get_episode_entities):
+        try:
+            linked = get_episode_entities(episode_id, group_id=group_id)
+            if inspect.isawaitable(linked):
+                linked = await linked
+            if isinstance(linked, list | tuple):
+                for item in linked:
+                    eid = str(item or "").strip()
+                    if eid and eid not in seen_entity_ids:
+                        entity_ids.append(eid)
+                        seen_entity_ids.add(eid)
+        except Exception:
+            logger.debug(
+                "get_episode_entities failed for remember response",
+                exc_info=True,
+            )
+
+    # Evidence rows are the source of truth for first-sight commits (ids + class).
+    get_episode_evidence = getattr(graph, "get_episode_evidence", None)
+    if callable(get_episode_evidence):
+        try:
+            evidence = get_episode_evidence(episode_id, group_id=group_id)
+            if inspect.isawaitable(evidence):
+                evidence = await evidence
+            if isinstance(evidence, list):
+                for row in evidence:
+                    if not isinstance(row, Mapping):
+                        continue
+                    if str(row.get("status") or "") != "committed":
+                        continue
+                    committed_id = str(row.get("committed_id") or "").strip()
+                    if not committed_id:
+                        continue
+                    fact_class = str(row.get("fact_class") or "")
+                    payload = (
+                        row.get("payload")
+                        if isinstance(row.get("payload"), Mapping)
+                        else {}
+                    )
+                    if fact_class == "entity":
+                        if committed_id not in seen_entity_ids:
+                            entity_ids.append(committed_id)
+                            seen_entity_ids.add(committed_id)
+                    elif (
+                        fact_class == "relationship"
+                        and committed_id not in seen_rel_ids
+                    ):
+                        seen_rel_ids.add(committed_id)
+                        relationship_rows.append(
+                            {
+                                "id": committed_id,
+                                "subject": payload.get("subject")
+                                or payload.get("source"),
+                                "predicate": payload.get("predicate")
+                                or payload.get("relation"),
+                                "object": payload.get("object")
+                                or payload.get("target"),
+                            }
+                        )
+        except Exception:
+            logger.debug(
+                "get_episode_evidence failed for remember response",
+                exc_info=True,
+            )
+
+    if entity_ids:
+        entities_by_id: dict[str, Any] = {}
+        batch_get = getattr(graph, "batch_get_entities", None)
+        if callable(batch_get):
+            try:
+                batch = batch_get(entity_ids, group_id)
+                if inspect.isawaitable(batch):
+                    batch = await batch
+                if isinstance(batch, Mapping):
+                    entities_by_id = dict(batch)
+            except Exception:
+                logger.debug(
+                    "batch_get_entities failed for remember response",
+                    exc_info=True,
+                )
+        if not entities_by_id:
+            get_entity = getattr(graph, "get_entity", None)
+            if callable(get_entity):
+                for eid in entity_ids:
+                    try:
+                        ent = get_entity(eid, group_id)
+                        if inspect.isawaitable(ent):
+                            ent = await ent
+                        if ent is not None:
+                            entities_by_id[eid] = ent
+                    except Exception:
+                        continue
+        for eid in entity_ids:
+            ent = entities_by_id.get(eid)
+            if ent is None:
+                continue
+            if isinstance(ent, Mapping):
+                entity_rows.append(
+                    {
+                        "id": str(ent.get("id") or eid),
+                        "name": str(ent.get("name") or ""),
+                        "entity_type": str(
+                            ent.get("entity_type") or ent.get("type") or ""
+                        ),
+                        "summary": ent.get("summary"),
+                        "identity_core": bool(
+                            ent.get("identity_core") in (True, 1, "1")
+                        ),
+                    }
+                )
+            else:
+                entity_rows.append(
+                    {
+                        "id": str(getattr(ent, "id", eid)),
+                        "name": str(getattr(ent, "name", "") or ""),
+                        "entity_type": str(getattr(ent, "entity_type", "") or ""),
+                        "summary": getattr(ent, "summary", None),
+                        "identity_core": bool(getattr(ent, "identity_core", False)),
+                    }
+                )
+
+    return entity_rows, relationship_rows
+
+
+def _invalidate_durable_context_after_remember(group_id: str) -> None:
+    """Fresh remember commits must not be hidden behind stale durable packs."""
+    try:
+        from engram.retrieval.context_builder import invalidate_durable_context_cache
+
+        invalidate_durable_context_cache(group_id)
+    except Exception:
+        logger.debug("Durable context cache invalidation failed", exc_info=True)
+
+
 async def build_api_remember_write_surface(
     manager: Any,
     *,
@@ -838,12 +994,20 @@ async def build_api_remember_write_surface(
         episode_id=episode_id,
         group_id=group_id,
     )
+    committed_entities, committed_relationships = await load_remember_committed_facts(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+    )
+    _invalidate_durable_context_after_remember(group_id)
     await _record_write_operation(manager, group_id, finish_operation)
     payload = present_api_memory_write(
         memory_write_contract(
             "remember",
             episode_id,
             adjudication_requests=adjudications,
+            committed_entities=committed_entities,
+            committed_relationships=committed_relationships,
         ),
         status="remembered",
     )
@@ -1104,11 +1268,20 @@ async def build_mcp_remember_write_surface(
             activation_cfg=activation_cfg,
         )
 
+    committed_entities, committed_relationships = await load_remember_committed_facts(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+    )
+    _invalidate_durable_context_after_remember(group_id)
+
     response = attach_mcp_capture_diagnostics(present_mcp_memory_write(
         memory_write_contract(
             "remember",
             episode_id,
             adjudication_requests=adjudications,
+            committed_entities=committed_entities,
+            committed_relationships=committed_relationships,
         ),
         message=message,
     ), manager)

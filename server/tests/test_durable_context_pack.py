@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from engram.retrieval import context_builder as context_builder_mod
 from engram.retrieval.budgets import RecallBudget
 from engram.retrieval.context_builder import (
     DURABLE_CONTEXT_PACKET_SCOPE,
     _durable_context_payload_from_manager,
     _list_durable_entities_by_type,
+    invalidate_durable_context_cache,
 )
 
 
@@ -184,3 +187,80 @@ async def test_durable_context_type_list_works_without_topic():
     )
     assert payload is not None
     assert "Prefer markdown handoffs until proven" in payload["context"]
+
+
+@pytest.mark.asyncio
+async def test_durable_context_process_cache_hit_on_second_call():
+    invalidate_durable_context_cache()
+    entities = [
+        _Entity(
+            "dec_good",
+            "LongMemEval is not Engram north star",
+            "Decision",
+            "continuity metric",
+        ),
+    ]
+    manager = _Manager(entities)
+    first = await _durable_context_payload_from_manager(
+        manager,
+        group_id="cache_group",
+        topic_hint="strategy decisions LongMemEval",
+        project_path="/Users/konnermoshier/Engram",
+        format="structured",
+        budget=_budget(),
+        started=time.perf_counter(),
+    )
+    assert first is not None
+    assert first["packet_cache"]["hit"] is False
+
+    second = await _durable_context_payload_from_manager(
+        manager,
+        group_id="cache_group",
+        topic_hint="strategy decisions LongMemEval",
+        project_path="/Users/konnermoshier/Engram",
+        format="structured",
+        budget=_budget(),
+        started=time.perf_counter(),
+    )
+    assert second is not None
+    assert second["packet_cache"]["hit"] is True
+    assert "LongMemEval" in second["context"]
+    assert second["diagnostics"]["stage_timings_ms"]["durable_context_cache_hit"] == 1.0
+    invalidate_durable_context_cache("cache_group")
+
+
+@pytest.mark.asyncio
+async def test_durable_context_hard_budget_timeout_returns_none():
+    invalidate_durable_context_cache()
+
+    async def _slow_list(*_args, **_kwargs):
+        await asyncio.sleep(2.0)
+        return []
+
+    manager = _Manager([])
+    with (
+        patch.object(
+            context_builder_mod,
+            "_DURABLE_CONTEXT_HARD_BUDGET_SECONDS",
+            0.05,
+        ),
+        patch(
+            "engram.retrieval.recall_surface._durable_entity_name_rescue",
+            new=AsyncMock(side_effect=_slow_list),
+        ),
+        patch.object(
+            context_builder_mod,
+            "_list_durable_entities_by_type",
+            new=AsyncMock(side_effect=_slow_list),
+        ),
+    ):
+        payload = await _durable_context_payload_from_manager(
+            manager,
+            group_id="timeout_group",
+            topic_hint="strategy",
+            project_path=None,
+            format="structured",
+            budget=_budget(),
+            started=time.perf_counter(),
+        )
+    assert payload is None

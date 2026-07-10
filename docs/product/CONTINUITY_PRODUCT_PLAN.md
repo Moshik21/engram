@@ -77,7 +77,7 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 |----|-------------|--------|
 | 5.1 | Multi-brain / multi-device sync design | [ ] design only until continuity CI stays green 2 weeks |
 | 5.2 | Federated / policy intelligence | [ ] vision (`docs/vision/`) — no build until 5.1 |
-| 5.3 | Sub-second durable context on 17G dogfood brain | [ ] measure + budget if p95 > 2s in dogfood |
+| 5.3 | Sub-second durable context on 17G dogfood brain | [~] process cache 45s TTL + hard 1s pack budget in code; live p95 still optional dogfood |
 | 5.4 | Session-end promotion subagent (propose ≤N) | [ ] optional harness skill |
 | 5.5 | Dashboard: approved vs deferred framing | [ ] UI copy — open_work secondary metric |
 | 5.6 | **Identity-core merge protection** | [x] block bad merges; prefer identity_core survivor |
@@ -96,6 +96,8 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | Project-file cache not a false win | `_packets_satisfy_explicit_query` |
 | Auto-capture cue-only floor | worker_routing |
 | Explicit recall budgets 4s / 1.5s search | config, budgets |
+| Durable-context process cache + 1s hard pack budget | `context_builder.py` |
+| Remember returns committed entity/relationship ids + identity_core | presenter + capture_surface |
 
 ---
 

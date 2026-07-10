@@ -34,6 +34,15 @@ logger = logging.getLogger(__name__)
 LOADED_STORE_CONTEXT_PACKET_SCOPE = "loaded_store_context"
 DURABLE_CONTEXT_PACKET_SCOPE = "durable_context"
 SESSION_RECENT_PACKET_SCOPE = "session_recent"
+# Process-level durable pack cache: session-start get_context should be ~ms after
+# the first cold pack within a short TTL. Independent of packet-cache config.
+_DURABLE_CONTEXT_PROCESS_CACHE_TTL_SECONDS = 45.0
+_DURABLE_CONTEXT_HARD_BUDGET_SECONDS = 1.0
+# key -> (expires_at_monotonic, packets, entity_ids)
+_durable_context_process_cache: dict[
+    tuple[str, str],
+    tuple[float, list[dict[str, Any]], set[str]],
+] = {}
 _SECRET_ASSIGNMENT_RE = re.compile(
     r"(?i)\b([A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)\s*([:=])\s*([^\s;,]+)"
 )
@@ -43,6 +52,62 @@ _SECRET_TOKEN_RE = re.compile(r"\b(?:sk|pk|xox[baprs]|gh[pousr])[-_][A-Za-z0-9_\
 _DEFAULT_DURABLE_CONTEXT_QUERY = (
     "durable decisions preferences goals commitments corrections"
 )
+
+
+def invalidate_durable_context_cache(group_id: str | None = None) -> int:
+    """Drop process-level durable context packs (after remember / graph mutation)."""
+    if group_id is None:
+        count = len(_durable_context_process_cache)
+        _durable_context_process_cache.clear()
+        return count
+    keys = [key for key in _durable_context_process_cache if key[0] == group_id]
+    for key in keys:
+        del _durable_context_process_cache[key]
+    return len(keys)
+
+
+def _durable_context_cache_key(group_id: str, query: str) -> tuple[str, str]:
+    return (group_id, query.casefold().strip())
+
+
+def _load_durable_context_process_cache(
+    group_id: str,
+    query: str,
+) -> tuple[list[dict[str, Any]], set[str]] | None:
+    key = _durable_context_cache_key(group_id, query)
+    entry = _durable_context_process_cache.get(key)
+    if entry is None:
+        return None
+    expires_at, packets, entity_ids = entry
+    if time.monotonic() >= expires_at or not packets:
+        _durable_context_process_cache.pop(key, None)
+        return None
+    return [dict(packet) for packet in packets], set(entity_ids)
+
+
+def _store_durable_context_process_cache(
+    group_id: str,
+    query: str,
+    packets: Sequence[Mapping[str, Any]],
+    entity_ids: set[str],
+    *,
+    ttl_seconds: float = _DURABLE_CONTEXT_PROCESS_CACHE_TTL_SECONDS,
+) -> None:
+    if not packets or ttl_seconds <= 0:
+        return
+    key = _durable_context_cache_key(group_id, query)
+    _durable_context_process_cache[key] = (
+        time.monotonic() + ttl_seconds,
+        [dict(packet) for packet in packets],
+        set(entity_ids),
+    )
+    # Bound process memory: keep most recent ~64 keys.
+    if len(_durable_context_process_cache) > 64:
+        oldest = min(
+            _durable_context_process_cache.items(),
+            key=lambda item: item[1][0],
+        )[0]
+        _durable_context_process_cache.pop(oldest, None)
 
 
 async def build_api_context_surface(
@@ -172,6 +237,9 @@ async def build_mcp_context_surface(
         durable_payload.setdefault("diagnostics", {}).setdefault(
             "stage_timings_ms", {}
         )["durable_context"] = _elapsed_ms(durable_started)
+        durable_cache_hit = bool(
+            (durable_payload.get("packet_cache") or {}).get("hit")
+        )
         await record_manager_memory_operation(
             manager,
             group_id,
@@ -183,7 +251,7 @@ async def build_mcp_context_surface(
                 duration_ms=_elapsed_ms(started),
                 budget_ms=budget.budget_ms,
                 budget_tokens=budget.budget_tokens,
-                cache_hit=False,
+                cache_hit=durable_cache_hit,
                 packet_count=len(durable_payload.get("cached_packets") or []),
                 result_count=int(durable_payload.get("entity_count") or 0),
             ),
@@ -1742,6 +1810,9 @@ async def _durable_context_payload_from_manager(
 
     Reuses explicit-recall durable-entity rescue so session-start continuity
     matches the golden path without requiring the agent to call recall first.
+
+    Hard latency budget: pack build is capped at ~1s wall. Process cache (45s TTL)
+    makes repeated session-start get_context sub-millisecond after the first hit.
     """
     from engram.retrieval.recall_surface import _durable_entity_name_rescue
 
@@ -1754,56 +1825,124 @@ async def _durable_context_payload_from_manager(
 
     cfg = _manager_activation_config(manager)
     max_packets = max(1, min(5, int(getattr(cfg, "recall_packet_explicit_limit", 3) or 3)))
-    # Keep this bounded so context stays snappy on loaded Helix brains.
-    timeout_seconds = min(
-        1.75,
-        max(0.35, _context_fast_preflight_timeout_seconds(cfg) * 3),
-    )
+    pack_started = time.perf_counter()
 
-    try:
-        results = await _durable_entity_name_rescue(
-            manager,
-            group_id=group_id,
-            query=query,
-            limit=max_packets,
-            timeout_seconds=timeout_seconds,
+    # --- A1: process-level cache (fast path) ---
+    cached = _load_durable_context_process_cache(group_id, query)
+    if cached is not None:
+        packet_payloads, entity_ids = cached
+        return _finalize_durable_context_payload(
+            packet_payloads,
+            entity_ids=entity_ids,
+            format=format,
+            budget=budget,
+            started=started,
+            pack_started=pack_started,
+            cache_hit=True,
+            hard_budget_miss=False,
+            timed_out=False,
         )
-    except Exception:
-        logger.debug("Durable context pack failed", exc_info=True)
-        results = []
-    # Session-start often has only a project name as the topic. Name rescue may
-    # miss; fall back to listing durable types (filtered for scrap).
-    if len(results) < max_packets:
-        try:
-            typed = await _list_durable_entities_by_type(
+
+    hard_budget = _DURABLE_CONTEXT_HARD_BUDGET_SECONDS
+    # Per-probe cap is a fraction of the hard wall so rescue+type stay inside budget.
+    probe_timeout = min(0.85, max(0.25, hard_budget * 0.85))
+
+    async def _collect_durable_results() -> list[dict[str, Any]]:
+        rescue_task = asyncio.create_task(
+            _durable_entity_name_rescue(
+                manager,
+                group_id=group_id,
+                query=query,
+                limit=max_packets,
+                timeout_seconds=probe_timeout,
+            )
+        )
+        type_task = asyncio.create_task(
+            _list_durable_entities_by_type(
                 manager,
                 group_id=group_id,
                 limit=max_packets,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=probe_timeout,
             )
-            seen = {
-                str((r.get("entity") or {}).get("id") or "")
-                for r in results
-            }
-            for item in typed:
-                eid = str((item.get("entity") or {}).get("id") or "")
-                if eid and eid not in seen:
-                    results.append(item)
-                    seen.add(eid)
-                if len(results) >= max_packets:
-                    break
+        )
+        results: list[dict[str, Any]] = []
+        try:
+            rescue = await rescue_task
+            if isinstance(rescue, list):
+                results.extend(rescue)
+        except Exception:
+            logger.debug("Durable context name rescue failed", exc_info=True)
+            rescue_task.cancel()
+        if len(results) >= max_packets:
+            type_task.cancel()
+            return results[:max_packets]
+        try:
+            typed = await type_task
+            if not isinstance(typed, list):
+                typed = []
         except Exception:
             logger.debug("Durable type listing failed", exc_info=True)
+            typed = []
+        seen = {
+            str((r.get("entity") or {}).get("id") or "")
+            for r in results
+        }
+        for item in typed:
+            eid = str((item.get("entity") or {}).get("id") or "")
+            if eid and eid not in seen:
+                results.append(item)
+                seen.add(eid)
+            if len(results) >= max_packets:
+                break
+        return results
+
+    timed_out = False
+    hard_budget_miss = False
+    results: list[dict[str, Any]] = []
+    try:
+        results = await asyncio.wait_for(
+            _collect_durable_results(),
+            timeout=hard_budget,
+        )
+    except TimeoutError:
+        timed_out = True
+        hard_budget_miss = True
+        logger.debug(
+            "Durable context pack hit hard %.2fs budget (group=%s)",
+            hard_budget,
+            group_id,
+        )
+        results = []
+    except Exception:
+        logger.debug("Durable context pack failed", exc_info=True)
+        results = []
+
+    pack_elapsed = time.perf_counter() - pack_started
+    if pack_elapsed > hard_budget:
+        hard_budget_miss = True
+
     if not results:
         return None
 
-    packets = await assemble_memory_packets(
-        list(results),
-        query,
-        mode="context_durable",
-        max_packets=max_packets,
-        resolve_entity_name=_context_packet_name_resolver(manager, group_id),
-    )
+    remaining = max(0.05, hard_budget - (time.perf_counter() - pack_started))
+    try:
+        packets = await asyncio.wait_for(
+            assemble_memory_packets(
+                list(results),
+                query,
+                mode="context_durable",
+                max_packets=max_packets,
+                resolve_entity_name=_context_packet_name_resolver(manager, group_id),
+            ),
+            timeout=remaining,
+        )
+    except TimeoutError:
+        timed_out = True
+        hard_budget_miss = True
+        return None
+    except Exception:
+        logger.debug("Durable context packet assembly failed", exc_info=True)
+        return None
     if not packets:
         return None
 
@@ -1820,19 +1959,62 @@ async def _durable_context_payload_from_manager(
             if isinstance(raw, list | tuple):
                 entity_ids.update(str(item) for item in raw if item)
 
+    _store_durable_context_process_cache(
+        group_id,
+        query,
+        packet_payloads,
+        entity_ids,
+    )
+    _cache_durable_context_packets(
+        manager,
+        group_id=group_id,
+        topic_hint=topic_hint,
+        project_path=project_path,
+        packets=packet_payloads,
+        build_duration_ms=_elapsed_ms(pack_started),
+    )
+
+    return _finalize_durable_context_payload(
+        packet_payloads,
+        entity_ids=entity_ids,
+        format=format,
+        budget=budget,
+        started=started,
+        pack_started=pack_started,
+        cache_hit=False,
+        hard_budget_miss=hard_budget_miss,
+        timed_out=timed_out,
+    )
+
+
+def _finalize_durable_context_payload(
+    packet_payloads: Sequence[Mapping[str, Any]],
+    *,
+    entity_ids: set[str],
+    format: str,
+    budget: RecallBudget,
+    started: float,
+    pack_started: float,
+    cache_hit: bool,
+    hard_budget_miss: bool,
+    timed_out: bool,
+) -> dict[str, Any] | None:
     context = MemoryContextBuilder.render_cached_packets(packet_payloads)
     if not context.strip():
         return None
     duration_ms = _elapsed_ms(started)
+    pack_ms = _elapsed_ms(pack_started)
+    # Hard product budget is 1s for the durable pack itself; also honor surface budget.
+    budget_miss = bool(hard_budget_miss or budget.exceeded(duration_ms))
     payload: dict[str, Any] = {
         "context": context,
         "entity_count": len(entity_ids),
         "fact_count": len(packet_payloads),
         "token_estimate": MemoryContextBuilder.estimate_tokens(context),
         "format": "structured" if format == "briefing" else format,
-        "cached_packets": packet_payloads,
+        "cached_packets": list(packet_payloads),
         "packet_cache": {
-            "hit": False,
+            "hit": cache_hit,
             "packet_count": len(packet_payloads),
             "scopes": _packet_scope_counts(packet_payloads),
         },
@@ -1843,20 +2025,23 @@ async def _durable_context_payload_from_manager(
             "mode": budget.mode,
             "max_wall_ms": budget.max_wall_ms,
             "duration_ms": duration_ms,
-            "budget_miss": budget.exceeded(duration_ms),
-            "timeout": False,
-            "degraded": False,
-            "skip_reason": None,
+            "budget_miss": budget_miss,
+            "timeout": timed_out,
+            "degraded": hard_budget_miss or timed_out,
+            "skip_reason": "durable_context_hard_budget" if hard_budget_miss else None,
         },
         "lifecycle": {
             "stage": "recall",
-            "degraded": False,
-            "timeout": False,
-            "skip_reason": None,
+            "degraded": hard_budget_miss or timed_out,
+            "timeout": timed_out,
+            "skip_reason": "durable_context_hard_budget" if hard_budget_miss else None,
             "fallback_status": "durable_context",
         },
         "diagnostics": {
-            "stage_timings_ms": {},
+            "stage_timings_ms": {
+                "durable_context_pack": pack_ms,
+                "durable_context_cache_hit": 1.0 if cache_hit else 0.0,
+            },
         },
     }
     if format == "briefing":
@@ -1866,6 +2051,45 @@ async def _durable_context_payload_from_manager(
             str(payload["context"])
         )
     return payload
+
+
+def _cache_durable_context_packets(
+    manager: Any,
+    *,
+    group_id: str,
+    topic_hint: str | None,
+    project_path: str | None,
+    packets: Sequence[Mapping[str, Any]],
+    build_duration_ms: float = 0.0,
+) -> None:
+    """Mirror durable packs into the manager packet cache when enabled."""
+    cache_packets = getattr(manager, "cache_memory_packets", None)
+    cfg = _manager_activation_config(manager)
+    if (
+        not getattr(cfg, "recall_packet_cache_enabled", False)
+        or not callable(cache_packets)
+        or not packets
+    ):
+        return
+    packets_to_cache = [
+        {key: value for key, value in dict(packet).items() if key != "_cache_scope"}
+        for packet in packets
+    ]
+    try:
+        result = cache_packets(
+            group_id,
+            scope=DURABLE_CONTEXT_PACKET_SCOPE,
+            topic_hint=topic_hint,
+            project_path=project_path,
+            packets=packets_to_cache,
+            build_duration_ms=build_duration_ms,
+            persist=False,
+        )
+    except Exception:
+        logger.debug("Durable context packet-cache write failed", exc_info=True)
+        return
+    if inspect.isawaitable(result):
+        _close_awaitable(result)
 
 
 def _render_durable_briefing(packets: Sequence[Mapping[str, Any]]) -> str:

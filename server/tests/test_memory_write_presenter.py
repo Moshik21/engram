@@ -51,6 +51,23 @@ def test_remember_presenters_share_projection_contract_with_adjudications():
         "remember",
         "ep_project",
         adjudication_requests=[adjudication],
+        committed_entities=[
+            {
+                "id": "ent_dec_1",
+                "name": "LongMemEval is not Engram north star",
+                "entity_type": "Decision",
+                "identity_core": True,
+                "summary": "continuity metric",
+            }
+        ],
+        committed_relationships=[
+            {
+                "id": "rel_1",
+                "subject": "Engram",
+                "predicate": "DECIDED",
+                "object": "LongMemEval is not Engram north star",
+            }
+        ],
     )
 
     api = present_api_memory_write(contract, status="remembered")
@@ -69,6 +86,13 @@ def test_remember_presenters_share_projection_contract_with_adjudications():
     assert api["adjudicationRequests"][0]["requestId"] == "adj_123"
     assert api["adjudicationRequests"][0]["ambiguityTags"] == ["negation_scope"]
     assert mcp["adjudication_requests"][0]["request_id"] == "adj_123"
+    assert api["committedEntities"][0]["id"] == "ent_dec_1"
+    assert api["committedEntities"][0]["entityType"] == "Decision"
+    assert api["committedEntities"][0]["identityCore"] is True
+    assert mcp["committed_entities"][0]["id"] == "ent_dec_1"
+    assert mcp["committed_entities"][0]["identity_core"] is True
+    assert api["committedRelationships"][0]["predicate"] == "DECIDED"
+    assert mcp["committed_relationships"][0]["predicate"] == "DECIDED"
 
 
 def test_auto_observe_skip_response_keeps_capture_semantics():

@@ -28,12 +28,30 @@ def _copy_adjudication_requests(
     return [dict(request) for request in requests or []]
 
 
+def _copy_committed_entities(
+    entities: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    return [dict(entity) for entity in entities or [] if isinstance(entity, Mapping)]
+
+
+def _copy_committed_relationships(
+    relationships: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    return [
+        dict(relationship)
+        for relationship in relationships or []
+        if isinstance(relationship, Mapping)
+    ]
+
+
 def memory_write_contract(
     operation: MemoryWriteOperation,
     episode_id: str,
     *,
     adjudication_requests: Sequence[Mapping[str, Any]] | None = None,
     attachment_kind: str | None = None,
+    committed_entities: Sequence[Mapping[str, Any]] | None = None,
+    committed_relationships: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Normalize a write-path result into a surface-neutral lifecycle contract."""
     lifecycle = _operation_lifecycle(operation)
@@ -46,6 +64,10 @@ def memory_write_contract(
         "projection_status": lifecycle["projection_status"],
         "attachment_kind": attachment_kind,
         "adjudication_requests": _copy_adjudication_requests(adjudication_requests),
+        "committed_entities": _copy_committed_entities(committed_entities),
+        "committed_relationships": _copy_committed_relationships(
+            committed_relationships
+        ),
     }
 
 
@@ -99,6 +121,50 @@ def present_api_adjudication_requests(
     ]
 
 
+def present_api_committed_entities(
+    entities: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Convert committed entity rows to REST camelCase."""
+    rows: list[dict[str, Any]] = []
+    for entity in entities or []:
+        if not isinstance(entity, Mapping):
+            continue
+        row: dict[str, Any] = {
+            "id": entity.get("id"),
+            "name": entity.get("name"),
+            "entityType": entity.get("entity_type") or entity.get("entityType"),
+            "identityCore": bool(
+                entity.get("identity_core")
+                if "identity_core" in entity
+                else entity.get("identityCore")
+            ),
+        }
+        summary = entity.get("summary")
+        if summary:
+            row["summary"] = summary
+        rows.append(row)
+    return rows
+
+
+def present_api_committed_relationships(
+    relationships: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Convert committed relationship rows to REST camelCase."""
+    rows: list[dict[str, Any]] = []
+    for rel in relationships or []:
+        if not isinstance(rel, Mapping):
+            continue
+        rows.append(
+            {
+                "id": rel.get("id"),
+                "subject": rel.get("subject"),
+                "predicate": rel.get("predicate"),
+                "object": rel.get("object"),
+            }
+        )
+    return rows
+
+
 def present_api_memory_write(
     contract: Mapping[str, Any],
     *,
@@ -123,6 +189,16 @@ def present_api_memory_write(
     )
     if adjudication_requests:
         response["adjudicationRequests"] = adjudication_requests
+    committed_entities = present_api_committed_entities(
+        contract.get("committed_entities"),
+    )
+    if committed_entities:
+        response["committedEntities"] = committed_entities
+    committed_relationships = present_api_committed_relationships(
+        contract.get("committed_relationships"),
+    )
+    if committed_relationships:
+        response["committedRelationships"] = committed_relationships
     return response
 
 
@@ -147,6 +223,38 @@ def present_api_observe_skip(
     return response
 
 
+def present_mcp_committed_entities(
+    entities: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Copy committed entity rows for MCP snake_case responses."""
+    rows: list[dict[str, Any]] = []
+    for entity in entities or []:
+        if not isinstance(entity, Mapping):
+            continue
+        row: dict[str, Any] = {
+            "id": entity.get("id"),
+            "name": entity.get("name"),
+            "entity_type": entity.get("entity_type") or entity.get("entityType"),
+            "identity_core": bool(
+                entity.get("identity_core")
+                if "identity_core" in entity
+                else entity.get("identityCore")
+            ),
+        }
+        summary = entity.get("summary")
+        if summary:
+            row["summary"] = summary
+        rows.append(row)
+    return rows
+
+
+def present_mcp_committed_relationships(
+    relationships: Sequence[Mapping[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Copy committed relationship rows for MCP snake_case responses."""
+    return _copy_committed_relationships(relationships)
+
+
 def present_mcp_memory_write(
     contract: Mapping[str, Any],
     *,
@@ -166,4 +274,14 @@ def present_mcp_memory_write(
     )
     if adjudication_requests:
         response["adjudication_requests"] = adjudication_requests
+    committed_entities = present_mcp_committed_entities(
+        contract.get("committed_entities"),
+    )
+    if committed_entities:
+        response["committed_entities"] = committed_entities
+    committed_relationships = present_mcp_committed_relationships(
+        contract.get("committed_relationships"),
+    )
+    if committed_relationships:
+        response["committed_relationships"] = committed_relationships
     return response
