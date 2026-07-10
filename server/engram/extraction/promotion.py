@@ -27,6 +27,34 @@ HIGH_SIGNAL_ENTITY_TYPES: frozenset[str] = frozenset(
     }
 )
 
+# Client-proposed relationships must use high-signal predicates only.
+# Free-form predicates (WORKS_AT, RELATED_TO spam, etc.) still allowed only when
+# on the allowlist — everything else is rejected at proposal conversion time.
+ALLOWED_CLIENT_PREDICATES: frozenset[str] = frozenset(
+    {
+        "DECIDED",
+        "PREFERS",
+        "RELATED_TO",
+        "CORRECTS",
+        "COMMITS_TO",
+        "HAS_GOAL",
+        "WORKS_AT",
+        "WORKS_ON",
+        "PART_OF",
+        "OWNS",
+        "USES",
+        "LIVES_IN",
+        "KNOWS",
+        "MEMBER_OF",
+        "OCCURRED_ON",
+        "INSTANCE_OF",
+        "DEPENDS_ON",
+        "BLOCKED_BY",
+        "SUPERSEDES",
+        "CONTRADICTS",
+    }
+)
+
 # Soft guidance for agents; also used to rank recall.
 DURABLE_RECALL_ENTITY_TYPES: frozenset[str] = frozenset(
     {
@@ -97,6 +125,47 @@ def is_decision_statement_noise(name: str | None) -> bool:
 def should_protect_as_identity_core(entity_type: str | None, *, client_proposal: bool) -> bool:
     """High-signal client-promoted facts should survive prune/merge pressure."""
     return bool(client_proposal and is_high_signal_entity_type(entity_type))
+
+
+def is_allowed_client_predicate(predicate: str | None) -> bool:
+    """True when a client-proposed edge predicate is on the high-signal allowlist."""
+    if not predicate:
+        return False
+    return predicate.strip().upper().replace(" ", "_") in ALLOWED_CLIENT_PREDICATES
+
+
+def normalize_client_predicate(predicate: str | None) -> str:
+    """Normalize predicate to UPPER_SNAKE for allowlist checks."""
+    if not predicate:
+        return ""
+    return predicate.strip().upper().replace(" ", "_").replace("-", "_")
+
+
+def identity_core_summary_conflict(
+    existing_summary: str | None,
+    proposed_summary: str | None,
+    *,
+    entity_type: str | None = None,
+) -> bool:
+    """True when a client proposal would silently overwrite a protected summary.
+
+    Corrections are allowed to rewrite identity_core text. Empty proposed summary
+    is not a conflict (no overwrite). Exact or substring-compatible updates pass.
+    """
+    if not existing_summary or not proposed_summary:
+        return False
+    if str(entity_type or "").strip().lower() == "correction":
+        return False
+    old = " ".join(existing_summary.split()).casefold()
+    new = " ".join(proposed_summary.split()).casefold()
+    if not old or not new:
+        return False
+    if old == new:
+        return False
+    # Compatible expansion (old contained in new or vice versa) is not a conflict.
+    if old in new or new in old:
+        return False
+    return True
 
 
 def identity_core_blocks_merge(entity_a: object, entity_b: object) -> bool:

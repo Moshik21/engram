@@ -88,7 +88,11 @@ class TestGraphManagerEvidencePath:
 
     @pytest.mark.asyncio
     async def test_no_evidence_pipeline_when_disabled(self):
-        """When evidence_extraction_enabled=False, pipeline objects are None."""
+        """When evidence_extraction_enabled=False, narrow pipeline is off.
+
+        Commit policy + evidence bridge stay available so harness proposals never
+        fall through to external LLM extractors.
+        """
         from unittest.mock import MagicMock
 
         cfg = ActivationConfig(evidence_extraction_enabled=False)
@@ -107,8 +111,8 @@ class TestGraphManagerEvidencePath:
             cfg=cfg,
         )
         assert manager._evidence_pipeline is None
-        assert manager._commit_policy is None
-        assert manager._evidence_bridge is None
+        assert manager._commit_policy is not None
+        assert manager._evidence_bridge is not None
 
     def test_client_proposals_short_circuit_pipeline_when_enabled(self):
         """Validated client proposals should bypass deterministic extraction."""

@@ -248,6 +248,36 @@ class EvidenceProjectionExecutor:
         deferred = [
             (ev, d) for ev, d in zip(evidence_bundle.candidates, decisions) if d.action == "defer"
         ]
+        rejected = [
+            (ev, d) for ev, d in zip(evidence_bundle.candidates, decisions) if d.action == "reject"
+        ]
+        # Harness scoreboard: count client-proposal outcomes (no external extract).
+        if (evidence_bundle.extractor_stats or {}).get("extraction_path") == "client_proposals" or (
+            proposed_entities or proposed_relationships
+        ):
+            from engram.extraction.harness_metrics import record_client_proposal_outcomes
+
+            span_defers = sum(
+                1
+                for _ev, d in deferred
+                if d.reason == "span_unverified"
+            )
+            pred_rejects = sum(
+                1 for _ev, d in rejected if d.reason == "predicate_not_allowed"
+            )
+            id_conflicts = sum(
+                1
+                for _ev, d in deferred
+                if d.reason == "identity_core_conflict"
+            )
+            record_client_proposal_outcomes(
+                commits=len(committed),
+                defers=len(deferred),
+                rejects=len(rejected),
+                span_unverified_defers=span_defers,
+                predicate_rejects=pred_rejects,
+                identity_conflicts=id_conflicts,
+            )
         deferred_dicts = (
             self._serialize_evidence_records(deferred, status="deferred")
             if self._cfg.evidence_store_deferred and deferred
@@ -330,9 +360,8 @@ class EvidenceProjectionExecutor:
         """
         if not (proposed_entities or proposed_relationships):
             return evidence_bundle
-        if not self._cfg.evidence_client_proposals_enabled:
-            return evidence_bundle
-        if "client_proposals" not in (evidence_bundle.extractor_stats or {}):
+        stats = evidence_bundle.extractor_stats or {}
+        if "client_proposals" not in stats and stats.get("extraction_path") != "client_proposals":
             return evidence_bundle
 
         from engram.extraction.client_proposals import proposals_to_evidence
@@ -347,13 +376,67 @@ class EvidenceProjectionExecutor:
             reference_date=episode.conversation_date or episode.created_at,
             verify_spans=True,
         )
+        # Identity-core conflict tag when proposed summary would overwrite protected facts.
+        verified = self._tag_identity_core_conflicts(verified, group_id=group_id)
+        out_stats = dict(evidence_bundle.extractor_stats or {})
+        out_stats["extraction_path"] = "client_proposals"
+        out_stats["span_unverified"] = sum(
+            1
+            for c in verified
+            if "span_unverified" in (c.corroborating_signals or [])
+        )
         return EvidenceBundle(
             episode_id=evidence_bundle.episode_id,
             group_id=evidence_bundle.group_id,
             candidates=verified,
-            extractor_stats=evidence_bundle.extractor_stats,
+            extractor_stats=out_stats,
             total_ms=evidence_bundle.total_ms,
         )
+
+    def _tag_identity_core_conflicts(
+        self,
+        candidates: list,
+        *,
+        group_id: str,
+    ) -> list:
+        """Tag entity proposals that would silently overwrite identity_core summaries.
+
+        Synchronous best-effort: when graph lookup helpers are async-only, skip
+        tagging (commit path still protects via apply-time checks).
+        """
+        from engram.extraction.promotion import identity_core_summary_conflict
+
+        # Apply-time check is the durable gate; here we only tag when a sync
+        # cache is available on the graph store (tests can inject one).
+        lookup = getattr(self._graph, "get_entity_by_name_sync", None)
+        if not callable(lookup):
+            return candidates
+        for candidate in candidates:
+            if candidate.fact_class != "entity":
+                continue
+            if candidate.source_type != "client_proposal":
+                continue
+            payload = candidate.payload or {}
+            name = str(payload.get("name") or "")
+            summary = payload.get("summary")
+            if not name or not summary:
+                continue
+            existing = lookup(name, group_id)
+            if existing is None:
+                continue
+            if not bool(getattr(existing, "identity_core", False)):
+                continue
+            if identity_core_summary_conflict(
+                getattr(existing, "summary", None),
+                str(summary),
+                entity_type=str(payload.get("entity_type") or ""),
+            ):
+                signals = list(candidate.corroborating_signals or [])
+                if "identity_core_conflict" not in signals:
+                    signals.append("identity_core_conflict")
+                candidate.corroborating_signals = signals
+                candidate.confidence = min(float(candidate.confidence), 0.55)
+        return candidates
 
     async def _store_adjudication_work(
         self,
@@ -365,6 +448,20 @@ class EvidenceProjectionExecutor:
     ) -> EvidenceBundle:
         if not self._cfg.edge_adjudication_enabled or not self._ambiguity_analyzer:
             return evidence_bundle
+
+        # Hard path: span-verified harness proposals commit hot — do not route
+        # them into the offline adjudication swamp.
+        if (evidence_bundle.extractor_stats or {}).get("extraction_path") == "client_proposals":
+            grounded = [
+                c
+                for c in evidence_bundle.candidates
+                if c.source_type == "client_proposal"
+                and "span_verified" in (c.corroborating_signals or [])
+                and "span_unverified" not in (c.corroborating_signals or [])
+                and "predicate_not_allowed" not in (c.corroborating_signals or [])
+            ]
+            if grounded and len(grounded) == len(evidence_bundle.candidates):
+                return evidence_bundle
 
         ambiguity_analysis = await self._ambiguity_analyzer.analyze(
             text=plan.selected_text,

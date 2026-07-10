@@ -24,6 +24,13 @@ engramctl doctor
 Invoke skill **engram-session-promote** (`skills/engram-session-promote/SKILL.md`).
 Cap ≤5 promotions. Never dump recaps.
 
+Hooks (install via `engram hooks` / `engramctl connect claude-code`):
+- PreCompact — resets the 0–5 promotion window
+- SessionEnd — writes `~/.engram/session-promote-nudge.md`
+
+You are the extractor: always pass `proposed_entities` + `source_span` on
+`remember`. External API extractors are not the product path.
+
 ## Do not use as primary path
 
 `search_entities`, `search_facts`, eval tools, full surface — operator/debug only

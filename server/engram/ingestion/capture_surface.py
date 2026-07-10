@@ -1224,6 +1224,11 @@ async def build_mcp_remember_write_surface(
             manager,
         )
 
+    from engram.extraction.harness_metrics import record_remember_call
+
+    has_proposals = bool(proposed_entities or proposed_relationships)
+    record_remember_call(has_proposals=has_proposals)
+
     episode_id = await ingest_projecting_memory(
         manager,
         content=content,
@@ -1282,6 +1287,31 @@ async def build_mcp_remember_write_surface(
         manager,
     )
     response["promotion"] = promotion_meta
+    # Hard path surface: extraction_path + proposal outcome summary for agents.
+    response["extraction_path"] = (
+        "client_proposals" if has_proposals else "narrow_or_legacy"
+    )
+    if has_proposals:
+        response["harness_extractor"] = {
+            "path": "client_proposals",
+            "external_extractor": False,
+            "proposed_entity_count": len(proposed_entities or []),
+            "proposed_relationship_count": len(proposed_relationships or []),
+            "committed_entity_count": len(committed_entities),
+            "committed_relationship_count": len(committed_relationships),
+        }
+        # Structured defer hint when nothing committed (span fail / allowlist).
+        if not committed_entities and not committed_relationships:
+            response["status"] = "deferred"
+            response["error"] = {
+                "code": "proposals_deferred",
+                "message": (
+                    "Client proposals did not commit. Common causes: source_span not "
+                    "found in content (span_unverified), disallowed predicate, or "
+                    "identity_core conflict. Fix spans/predicates and retry; do not "
+                    "expect an external LLM extractor to upgrade the claim."
+                ),
+            }
     await _run_mcp_write_side_effect(
         "recall_middleware",
         recall_middleware(content, response, tool_name="remember"),

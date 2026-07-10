@@ -102,6 +102,38 @@ class AdaptiveCommitPolicy:
         conf = candidate.confidence
         signals = set(candidate.corroborating_signals or [])
 
+        # Hard trust gates for harness proposals (no silent fallthrough).
+        if candidate.source_type == "client_proposal":
+            if "predicate_not_allowed" in signals:
+                return CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="reject",
+                    reason="predicate_not_allowed",
+                    effective_confidence=conf,
+                )
+            if "identity_core_conflict" in signals:
+                return CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="defer",
+                    reason="identity_core_conflict",
+                    effective_confidence=conf,
+                )
+            if "span_unverified" in signals:
+                # Span fail → defer (corroboration later). Never auto-upgrade to LLM.
+                return CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="defer",
+                    reason="span_unverified",
+                    effective_confidence=conf,
+                )
+            if "date_conflict" in signals:
+                return CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="defer",
+                    reason="date_conflict",
+                    effective_confidence=conf,
+                )
+
         # Agent-promoted facts with verified spans are the product write path.
         # Do not bury them in the deferred evidence swamp.
         if (

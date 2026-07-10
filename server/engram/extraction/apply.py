@@ -645,6 +645,29 @@ class ApplyEngine:
 
                 if protect_identity and not getattr(existing_entity, "identity_core", False):
                     updates["identity_core"] = 1
+                # Trust path: do not silently overwrite identity_core summaries.
+                if (
+                    getattr(existing_entity, "identity_core", False)
+                    and "summary" in updates
+                    and is_client_proposal
+                ):
+                    from engram.extraction.promotion import identity_core_summary_conflict
+
+                    if identity_core_summary_conflict(
+                        existing_entity.summary,
+                        updates.get("summary"),
+                        entity_type=entity_type,
+                    ):
+                        from engram.extraction.harness_metrics import (
+                            record_client_proposal_outcomes,
+                        )
+
+                        record_client_proposal_outcomes(identity_conflicts=1)
+                        updates.pop("summary", None)
+                        logger.info(
+                            "Blocked identity_core summary overwrite for %r",
+                            name,
+                        )
                 if updates:
                     await self._graph.update_entity(entity_id, updates, group_id=group_id)
 

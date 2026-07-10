@@ -23,6 +23,10 @@ Default MCP surface is `ENGRAM_MCP_SURFACE=public` (golden loop tools only).
 Invoke skill **engram-session-promote** (`skills/engram-session-promote/SKILL.md`).
 Prefer 0 promotions when nothing is durable.
 
+Hooks: PreCompact + SessionEnd promote nudge (`engram hooks`).
+You are the extractor — `remember` with `proposed_entities` + verbatim
+`source_span`. Measure habit with `engram harness scoreboard` (promote_rate).
+
 ## Hooks
 
 Install PreCompact / session-promote nudge when available:

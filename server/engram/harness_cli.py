@@ -45,6 +45,22 @@ def configure_harness_parser(parser: argparse.ArgumentParser) -> None:
         help="Output format (default: text)",
     )
 
+    score_parser = subparsers.add_parser(
+        "scoreboard",
+        help="Print harness-as-extractor metrics (client_proposal share, promote rate)",
+    )
+    score_parser.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="json",
+        help="Output format (default: json)",
+    )
+    score_parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset process-local counters after printing",
+    )
+
 
 def run_harness_command(args: argparse.Namespace) -> int:
     if args.harness_command == "install-autocapture":
@@ -61,6 +77,29 @@ def run_harness_command(args: argparse.Namespace) -> int:
             print(json.dumps(payload, indent=2))
         else:
             print(f"Installed AutoCapture hooks ({len(payload['scripts'])} scripts)")
+        return 0
+
+    if args.harness_command == "scoreboard":
+        from engram.extraction.harness_metrics import (
+            harness_scoreboard_payload,
+            reset_harness_metrics,
+        )
+
+        payload = harness_scoreboard_payload()
+        if args.format == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            metrics = payload.get("metrics") or {}
+            print("Harness extractor scoreboard")
+            print(f"  promote_rate: {metrics.get('promote_rate')}")
+            print(f"  client_proposal_share: {metrics.get('client_proposal_share')}")
+            print(f"  remember_with_proposals: {metrics.get('remember_with_proposals')}")
+            print(
+                f"  external_extractor_skipped: {metrics.get('external_extractor_skipped')}"
+            )
+            print(f"  north_star: {payload.get('north_star')}")
+        if getattr(args, "reset", False):
+            reset_harness_metrics()
         return 0
 
     if args.harness_command != "write-priming":

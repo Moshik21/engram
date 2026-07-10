@@ -18,6 +18,12 @@ engramctl doctor
 Same as other clients: `get_context` → `recall` → sparse `remember` →
 session-promote at end. See `docs/GOLDEN_LOOP.md`.
 
+## Session end / promote habit
+
+Invoke **engram-session-promote**. Always pass proposals + `source_span`.
+Hooks: PreCompact / SessionEnd via `engram hooks` when available.
+Scoreboard: `engram harness scoreboard` (client_proposal_share, promote_rate).
+
 ## AXI
 
 OpenClaw hook installation is not assumed. Shell fallback:

@@ -522,18 +522,20 @@ class GraphManager:
         self._commit_policy: AdaptiveCommitPolicy | None = None
         self._evidence_bridge: EvidenceBridge | None = None
         self._ambiguity_analyzer: AmbiguityAnalyzer | None = None
+        # Commit policy + bridge always available so harness proposals never fall
+        # through to external LLM extractors when evidence_extraction_enabled is off.
+        self._commit_policy = AdaptiveCommitPolicy(
+            thresholds=CommitThresholds(
+                entity=self._cfg.evidence_commit_entity_threshold,
+                relationship=self._cfg.evidence_commit_relationship_threshold,
+                attribute=self._cfg.evidence_commit_attribute_threshold,
+                temporal=self._cfg.evidence_commit_temporal_threshold,
+            ),
+            adaptive=self._cfg.evidence_adaptive_thresholds,
+        )
+        self._evidence_bridge = EvidenceBridge()
         if self._cfg.evidence_extraction_enabled:
             self._evidence_pipeline = NarrowExtractionPipeline(self._cfg)
-            self._commit_policy = AdaptiveCommitPolicy(
-                thresholds=CommitThresholds(
-                    entity=self._cfg.evidence_commit_entity_threshold,
-                    relationship=self._cfg.evidence_commit_relationship_threshold,
-                    attribute=self._cfg.evidence_commit_attribute_threshold,
-                    temporal=self._cfg.evidence_commit_temporal_threshold,
-                ),
-                adaptive=self._cfg.evidence_adaptive_thresholds,
-            )
-            self._evidence_bridge = EvidenceBridge()
             if self._cfg.edge_adjudication_enabled:
                 self._ambiguity_analyzer = AmbiguityAnalyzer(self._graph)
 
@@ -610,15 +612,17 @@ class GraphManager:
         with curated outputs that still rely on the legacy projection path.
         """
         has_client_proposals = bool(proposed_entities or proposed_relationships)
+        # HARD PATH: harness proposals always use evidence commit path — never
+        # legacy/LLM extract, even when evidence_extraction_enabled is False.
+        if has_client_proposals and self._commit_policy is not None:
+            return True
         # NOTE: LLM extractors (Anthropic EntityExtractor, OllamaExtractor) are deliberately
         # NOT evidence-capable. _build_evidence_bundle only ever runs the narrow
         # _evidence_pipeline; it never consumes an LLM extractor's output. Routing an LLM
         # here silently DISCARDS its clean entities and persists narrow-regex fragments
         # instead (a silent-inert bug: graph built from 'Voss wants me to', not 'Dr. Voss').
         # An LLM produces final, commit-quality entities directly, so it belongs on the
-        # legacy projection path. Only the narrow adapter legitimately feeds v2. Client
-        # proposals still route to v2 via the has_client_proposals OR below, so the
-        # evidence/adjudication enrichment path is preserved.
+        # legacy projection path. Only the narrow adapter legitimately feeds v2.
         extractor_supports_v2 = isinstance(self._extractor, (NarrowExtractorAdapter,))
         if not extractor_supports_v2:
             canned_result = getattr(self._extractor, "_result", None)
@@ -633,7 +637,7 @@ class GraphManager:
             and self._evidence_pipeline is not None
             and self._commit_policy is not None
             and self._evidence_bridge is not None
-            and (extractor_supports_v2 or has_client_proposals)
+            and extractor_supports_v2
         )
 
     def _build_evidence_bundle(
@@ -657,7 +661,12 @@ class GraphManager:
         supplied do we fall back to internal extraction.
         """
         proposals_supplied = bool(proposed_entities or proposed_relationships)
-        if self._cfg.evidence_client_proposals_enabled and proposals_supplied:
+        # Hard path: agent-supplied proposals are sole evidence — never call
+        # narrow/LLM as a silent upgrade (even if client_proposals flag is off).
+        if proposals_supplied:
+            from engram.extraction.harness_metrics import record_external_extractor_skipped
+
+            record_external_extractor_skipped()
             proposal_candidates = proposals_to_evidence(
                 proposed_entities,
                 proposed_relationships,
@@ -670,6 +679,7 @@ class GraphManager:
                 group_id=group_id,
                 candidates=proposal_candidates,
                 extractor_stats={
+                    "extraction_path": "client_proposals",
                     "client_proposals": {
                         "count": len(proposal_candidates),
                         "duration_ms": 0.0,
@@ -678,13 +688,24 @@ class GraphManager:
                 total_ms=0.0,
             )
         if self._evidence_pipeline is None:
-            return EvidenceBundle(episode_id=episode_id, group_id=group_id)
-        return self._evidence_pipeline.extract(
+            return EvidenceBundle(
+                episode_id=episode_id,
+                group_id=group_id,
+                extractor_stats={"extraction_path": "none"},
+            )
+        from engram.extraction.harness_metrics import record_narrow_extraction
+
+        record_narrow_extraction()
+        bundle = self._evidence_pipeline.extract(
             text=text,
             episode_id=episode_id,
             group_id=group_id,
             cue=cue,
         )
+        stats = dict(bundle.extractor_stats or {})
+        stats.setdefault("extraction_path", "narrow")
+        bundle.extractor_stats = stats
+        return bundle
 
     @staticmethod
     def _serialize_evidence_records(

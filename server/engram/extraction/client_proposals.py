@@ -5,7 +5,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from engram.extraction.evidence import EvidenceCandidate
-from engram.extraction.promotion import is_high_signal_entity_type
+from engram.extraction.promotion import (
+    is_allowed_client_predicate,
+    is_high_signal_entity_type,
+    normalize_client_predicate,
+)
 from engram.extraction.temporal import resolve_temporal_hint
 
 # Confidence by calling model tier
@@ -235,18 +239,28 @@ def proposals_to_evidence(
         obj = rel.get("object", "").strip()
         if not subject or not predicate:
             continue
+        normalized_predicate = normalize_client_predicate(predicate)
         payload = {
             "subject": subject,
-            "predicate": predicate,
+            "predicate": normalized_predicate or predicate,
             "object": obj,
             "polarity": rel.get("polarity", "positive"),
             **({"temporal_hint": rel["temporal_hint"]} if rel.get("temporal_hint") else {}),
             **({"valid_from": rel["valid_from"]} if rel.get("valid_from") else {}),
             **({"valid_to": rel["valid_to"]} if rel.get("valid_to") else {}),
         }
-        candidates.append(
-            _build_candidate(fact_class="relationship", payload=payload, claim=rel),
-        )
+        candidate = _build_candidate(fact_class="relationship", payload=payload, claim=rel)
+        # Hard reject free-form predicates on the client-proposal path.
+        if source_type == "client_proposal" and not is_allowed_client_predicate(
+            normalized_predicate or predicate
+        ):
+            signals = list(candidate.corroborating_signals or [])
+            if "predicate_not_allowed" not in signals:
+                signals.append("predicate_not_allowed")
+            candidate.corroborating_signals = signals
+            # Cap into reject band (below defer threshold).
+            candidate.confidence = min(candidate.confidence, 0.40)
+        candidates.append(candidate)
 
     return candidates
 
