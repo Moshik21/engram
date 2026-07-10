@@ -119,33 +119,28 @@ file_memory_present=True)` first. When `claim_authority` returns an \
 responding and use its `capture` decision for post-response `observe` or \
 `remember`.
 
-## Memory Tools
+## Golden Loop Tools (use these)
 
-- **observe** — Store raw text for background processing. Default for most content.
-- **remember** — Store a high-signal fact AND pre-extract it yourself: pass \
-`proposed_entities` + `proposed_relationships`. You are the extractor — Engram \
-stores, links, and retrieves the atomic facts you supply.
-- **recall** — Primary retrieval entrypoint. Use for general memory lookup; \
-pass `lookup_kind='entities'` with `name`/`entity_type`, or \
-`lookup_kind='facts'` with `subject`/`predicate`, for structured lookups.
-- **forget** — Remove outdated or incorrect information.
-- **get_context** — Broad overview of what you know about the user.
-- **mark_identity_core** — Protect important personal entities from pruning.
-- **intend** — Create a graph-embedded intention or pinned context query.
-- **dismiss_intention** / **list_intentions** — Manage prospective memory.
-- **bootstrap_project** — Auto-observe key project docs, notes, and memory \
-exports. Idempotent. Use `include_patterns` only for explicit user-approved \
-source globs.
-- **claim_authority** — Explain what Engram owns vs project-local memory, \
-whether an empty runtime should be bootstrapped, and which tools to call before \
-answering the current message.
-- **route_question** — Epistemic routing: continuity vs artifact vs reconciliation.
-- **search_artifacts** — Search bootstrapped project artifacts.
-- **get_runtime_state** — Check mode, profiles, flags, bootstrap freshness, \
-`agentAdoption.beforeAnswer`, `adoptionDebt`, and `requiredNextTools` when the \
-runtime looks fresh or empty. If `beforeAnswer.required` is true, follow it \
-before answering.
-- **adjudicate_evidence** — Resolve ambiguous memory items (see tool docstring).
+Public installs expose the continuity loop only. Prefer this set:
+
+- **get_context** — Session start. Durable Decisions/Preferences first.
+- **recall** — When prior context could change the answer. Use for entity/fact \
+lookups (`lookup_kind='entities'|'facts'`) instead of any search_* aliases.
+- **observe** — Cheap capture when harness cannot see high-value context.
+- **remember** — Sparse high-signal promotion (you are the extractor): \
+`proposed_entities` + `proposed_relationships` + verbatim `source_span`.
+- **intend** — Prospective memory / pinned context.
+- **forget** — Repair wrong or stale facts.
+- **claim_authority** — Session start when file memory is present; follow \
+`agent_protocol.required_tools_before_answer`.
+
+Onboarding helpers (still public): **bootstrap_project** once on empty project \
+runtimes; **get_runtime_state** when adoption/beforeAnswer says so.
+
+Operator/eval tools (consolidation, mark_identity_core, route_question, \
+search_artifacts, adjudicate_evidence, etc.) may be unavailable unless the \
+install sets `ENGRAM_MCP_SURFACE=operator` or `full`. Do not depend on them \
+for everyday continuity.
 
 ## When to Observe vs Remember
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,10 @@ CHECK_ORDER = (
     "server",
     "mcp",
     "brain_loop_smoke",
+    "hooks",
+    "promotion_window",
+    "mcp_surface",
+    "continuity_smoke",
 )
 
 
@@ -113,6 +118,20 @@ def configure_doctor_parser(parser: argparse.ArgumentParser) -> None:
         default=1.0,
         help="HTTP health-check timeout in seconds.",
     )
+    parser.add_argument(
+        "--require-golden-loop",
+        action="store_true",
+        help=(
+            "Also verify hooks/promotion-window/MCP surface and run continuity "
+            "golden-path smoke (promote Decisions → cold get_context/recall)."
+        ),
+    )
+    parser.add_argument(
+        "--continuity-timeout",
+        type=float,
+        default=60.0,
+        help="Maximum seconds for continuity golden-path smoke.",
+    )
 
 
 async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
@@ -173,12 +192,52 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
             ),
         )
 
+    continuity_report = None
+    require_golden = bool(getattr(args, "require_golden_loop", False))
+    if require_golden:
+        _check_hooks_install(checks)
+        _check_promotion_window(checks)
+        _check_mcp_surface(checks)
+        continuity_report = await _bounded_doctor_stage(
+            "continuity_smoke",
+            timeout_seconds=float(getattr(args, "continuity_timeout", 60.0) or 60.0),
+            checks=checks,
+            detail_prefix="continuity golden-path smoke",
+            awaitable=_check_continuity_smoke(checks),
+        )
+    else:
+        _add_check(
+            checks,
+            "hooks",
+            "skipped",
+            "pass --require-golden-loop to verify capture/promote hooks",
+        )
+        _add_check(
+            checks,
+            "promotion_window",
+            "skipped",
+            "pass --require-golden-loop to verify compaction window path",
+        )
+        _add_check(
+            checks,
+            "mcp_surface",
+            "skipped",
+            "pass --require-golden-loop to verify public MCP tool freeze",
+        )
+        _add_check(
+            checks,
+            "continuity_smoke",
+            "skipped",
+            "pass --require-golden-loop to run promote→cold-recall smoke",
+        )
+
     checks = _sort_checks(checks)
     return {
         "status": _overall_status(checks),
         "checks": checks,
         "lifecycle_summary": lifecycle_summary,
         "smoke_report": smoke_report,
+        "continuity_report": continuity_report,
     }
 
 
@@ -268,6 +327,19 @@ def format_doctor_report(report: dict[str, Any]) -> str:
                 "measured"
             )
             lines.extend(f"  - {failure}" for failure in evaluation_summary["unmeasured"])
+
+    continuity = report.get("continuity_report") or {}
+    if continuity:
+        lines.extend(
+            [
+                "",
+                "## Continuity Golden Path",
+                "",
+                f"- Passed: `{continuity.get('passed')}`",
+                f"- Context hit: `{continuity.get('context_hit')}`",
+                f"- Recall hit: `{continuity.get('recall_hit')}`",
+            ]
+        )
 
     return "\n".join(lines).strip() + "\n"
 
@@ -573,6 +645,151 @@ def _smoke_mode_for_resolved_mode(resolved_mode: str | None) -> EngineMode:
     if resolved_mode == EngineMode.HELIX.value:
         return EngineMode.HELIX
     return EngineMode.LITE
+
+
+def _check_hooks_install(checks: list[dict[str, Any]]) -> None:
+    """Verify Claude AutoCapture / PreCompact / promote nudge hooks exist."""
+    hooks_dir = Path.home() / ".engram" / "hooks"
+    required = (
+        "capture-prompt.sh",
+        "capture-response.sh",
+        "session-start.sh",
+        "session-end.sh",
+        "pre-compact.sh",
+        "session-promote-nudge.sh",
+    )
+    present = [name for name in required if (hooks_dir / name).is_file()]
+    missing = [name for name in required if name not in present]
+    metadata = {
+        "hooks_dir": str(hooks_dir),
+        "present": present,
+        "missing": missing,
+    }
+    if not missing:
+        _add_check(
+            checks,
+            "hooks",
+            "pass",
+            f"golden-loop hooks installed ({len(present)} scripts)",
+            metadata,
+        )
+        return
+    if present:
+        _add_check(
+            checks,
+            "hooks",
+            "warn",
+            f"partial hooks install; missing: {', '.join(missing)} "
+            "(run `engram hooks` or hooks/install-precompact.sh)",
+            metadata,
+        )
+        return
+    _add_check(
+        checks,
+        "hooks",
+        "warn",
+        "no Engram hooks under ~/.engram/hooks "
+        "(run `engram hooks` for PreCompact + session promote)",
+        metadata,
+    )
+
+
+def _check_promotion_window(checks: list[dict[str, Any]]) -> None:
+    """Promotion window file is optional until first PreCompact; path must be writable."""
+    from engram.extraction.promotion import default_promotion_window_path
+
+    path = Path(default_promotion_window_path())
+    metadata = {"path": str(path)}
+    if path.is_file():
+        _add_check(
+            checks,
+            "promotion_window",
+            "pass",
+            f"promotion window present at {path}",
+            metadata,
+        )
+        return
+    parent = path.parent
+    if parent.exists() and parent.is_dir() and os.access(parent, os.W_OK):
+        _add_check(
+            checks,
+            "promotion_window",
+            "pass",
+            "promotion window path writable (file created on first PreCompact)",
+            metadata,
+        )
+        return
+    _add_check(
+        checks,
+        "promotion_window",
+        "warn",
+        f"cannot write promotion window parent {parent}",
+        metadata,
+    )
+
+
+def _check_mcp_surface(checks: list[dict[str, Any]]) -> None:
+    """Public installs should freeze to the golden-loop tool set."""
+    from engram.mcp.surface import PUBLIC_TOOLS, resolve_mcp_surface
+
+    surface = resolve_mcp_surface()
+    metadata = {
+        "surface": surface,
+        "public_tool_count": len(PUBLIC_TOOLS),
+        "env": os.environ.get("ENGRAM_MCP_SURFACE", ""),
+    }
+    if surface == "public":
+        _add_check(
+            checks,
+            "mcp_surface",
+            "pass",
+            f"MCP surface=public ({len(PUBLIC_TOOLS)} golden-loop tools)",
+            metadata,
+        )
+        return
+    _add_check(
+        checks,
+        "mcp_surface",
+        "warn",
+        f"MCP surface={surface} (agents see more than the golden loop; "
+        "set ENGRAM_MCP_SURFACE=public for install clients)",
+        metadata,
+    )
+
+
+async def _check_continuity_smoke(checks: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Run promote→cold get_context/recall product smoke."""
+    from engram.evaluation.continuity import run_continuity_golden_path_smoke
+
+    try:
+        result = await run_continuity_golden_path_smoke()
+    except Exception as exc:
+        _add_check(
+            checks,
+            "continuity_smoke",
+            "fail",
+            f"continuity smoke crashed: {exc}",
+        )
+        return None
+
+    status = "pass" if result.get("passed") else "fail"
+    detail = (
+        "continuity golden path PASS (promoted Decisions surface cold)"
+        if result.get("passed")
+        else "continuity golden path FAIL — cold get_context/recall missed Decisions"
+    )
+    _add_check(
+        checks,
+        "continuity_smoke",
+        status,
+        detail,
+        {
+            "passed": bool(result.get("passed")),
+            "context_hit": bool(result.get("context_hit")),
+            "recall_hit": bool(result.get("recall_hit")),
+        },
+    )
+    return result if isinstance(result, dict) else None
 
 
 def _add_check(

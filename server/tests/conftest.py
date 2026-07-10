@@ -11,6 +11,10 @@ import os
 import socket
 from uuid import uuid4
 
+# Tests exercise the full MCP registry (operator + eval tools). Product installs
+# default to ENGRAM_MCP_SURFACE=public (golden loop only).
+os.environ.setdefault("ENGRAM_MCP_SURFACE", "full")
+
 import pytest
 import pytest_asyncio
 

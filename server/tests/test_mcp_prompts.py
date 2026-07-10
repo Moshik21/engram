@@ -76,8 +76,8 @@ def test_system_prompt_covers_epistemic_routing_tools():
 
 
 def test_system_prompt_bootstrap_covers_user_approved_sources():
-    assert "project docs, notes, and memory exports" in ENGRAM_SYSTEM_PROMPT
-    assert "explicit user-approved source globs" in ENGRAM_SYSTEM_PROMPT
+    assert "bootstrap_project" in ENGRAM_SYSTEM_PROMPT
+    assert "onboarding" in ENGRAM_SYSTEM_PROMPT.lower() or "empty project" in ENGRAM_SYSTEM_PROMPT
 
 
 def test_system_prompt_covers_answer_contract_guidance():

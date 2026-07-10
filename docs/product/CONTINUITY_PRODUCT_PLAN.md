@@ -54,7 +54,9 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | 3.1 | Continuity smoke: promote 3 → cold context/recall | [x] `evaluation/continuity.py` |
 | 3.2 | Pytest golden path suite | [x] `tests/test_continuity_golden_path.py` |
 | 3.3 | CLI: `engram continuity --smoke` | [x] `__main__.py` |
-| 3.4 | CI job for continuity suite (lite) | [~] job in local `.github/workflows/ci.yml`; push needs PAT with `workflow` scope |
+| 3.4 | CI job for continuity suite (lite) | [x] `continuity` job + public MCP surface tests |
+| 3.6 | Doctor `--require-golden-loop` | [x] hooks + surface + continuity smoke |
+| 3.7 | Public MCP surface freeze | [x] `ENGRAM_MCP_SURFACE=public` default |
 | 3.5 | LongMemEval remains optional / not gate | [x] CI does not require LME |
 
 ---
@@ -100,6 +102,8 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | Remember returns committed entity/relationship ids + identity_core | presenter + capture_surface |
 | Session-end sparse promote skill + SessionEnd nudge | `skills/engram-session-promote`, hooks |
 | Dashboard open_work framed as secondary hygiene | StatsPanel / EvaluationPanel / NerveCenter |
+| Public MCP surface freeze (golden tools) | `mcp/surface.py`, `ENGRAM_MCP_SURFACE` |
+| Doctor golden-loop gate | `doctor --require-golden-loop` |
 
 ---
 
@@ -126,12 +130,22 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 
 ---
 
+## Shine track (after golden loop is boring)
+
+Ordered so continuity stays first:
+
+1. **Native CI hard gate** — promote `native-continuity` from soft to required once wheels install reliably
+2. **Multi-client default** — Claude/Grok/OpenClaw all get public surface + hooks without docs
+3. **Operator MCP profile polish** — remaining tools (timeline, route, artifacts) documented as opt-in only
+4. **Latency p95 on large native brains** — only if cold get_context feels skippable
+5. **Multi-device sync design** — after 2 weeks green continuity CI
+
 ## Non-goals (parked)
 
 - [ ] Always-on LLM ETL over every episode
 - [ ] LongMemEval as primary scoreboard
 - [ ] Expanding consolidation phase count without ROI
-- [ ] New MCP tools before golden six are habit
+- [ ] New public MCP tools before golden loop is habit
 
 ---
 

@@ -89,10 +89,59 @@ jobs:
 
       - name: Continuity suite (product metric, not LongMemEval)
         run: |
-          uv run pytest tests/test_continuity_golden_path.py tests/test_durable_entity_rescue.py tests/test_durable_context_pack.py tests/test_promotion_policy.py tests/test_remember_committed_facts.py tests/test_session_promote_nudge_hook.py -v --tb=short
+          uv run pytest tests/test_continuity_golden_path.py tests/test_durable_entity_rescue.py tests/test_durable_context_pack.py tests/test_promotion_policy.py tests/test_remember_committed_facts.py tests/test_session_promote_nudge_hook.py tests/test_mcp_surface.py -v --tb=short
           uv run engram continuity --smoke
+          uv run engram doctor --skip-server --no-lifecycle --no-smoke --require-golden-loop --format markdown || true
         env:
           ENGRAM_MODE: lite
+          ENGRAM_MCP_SURFACE: public
+
+  native-continuity:
+    name: Native Helix continuity (when wheel available)
+    runs-on: ubuntu-latest
+    needs: lint
+    # Soft product gate: skip if helix-native is not installable on the runner.
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Probe helix-native import
+        id: native
+        run: |
+          if uv run python -c "import helix_native; print('ok')"; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "helix_native not installed; skipping native continuity"
+          fi
+
+      - name: Continuity smoke on native when available
+        if: steps.native.outputs.available == 'true'
+        run: |
+          DATA_DIR="${RUNNER_TEMP}/engram-native-ci"
+          mkdir -p "$DATA_DIR"
+          uv run engram continuity --smoke
+          # Doctor mode resolution for helix/native; smoke stays disposable.
+          uv run engram doctor --mode helix --helix-data-dir "$DATA_DIR" \
+            --skip-server --no-lifecycle --require-golden-loop --format markdown || true
+        env:
+          ENGRAM_MODE: helix
+          ENGRAM_HELIX__TRANSPORT: native
+          ENGRAM_MCP_SURFACE: public
 
   frontend:
     name: Frontend

@@ -1652,6 +1652,13 @@ async def list_intentions(enabled_only: bool = True) -> str:
     return json.dumps(payload)
 
 
+# ─── Surface freeze (public golden loop by default) ─────────────────
+# ENGRAM_MCP_SURFACE=public|operator|full (default public).
+from engram.mcp.surface import apply_mcp_surface
+
+_MCP_SURFACE_SUMMARY = apply_mcp_surface(mcp)
+
+
 # ─── Resources ──────────────────────────────────────────────────────
 
 

@@ -8,7 +8,7 @@ Engram’s public job is not LongMemEval. It is:
 > A fresh agent on a different session surfaces **≥1 high-signal prior Decision**
 > without opening a handoff doc.
 
-## The only six tools agents need
+## The only tools agents need
 
 | Tool | Role |
 |------|------|
@@ -18,8 +18,11 @@ Engram’s public job is not LongMemEval. It is:
 | `remember` | Sparse high-signal promotion (you are the extractor) |
 | `intend` | Prospective memory / pinned context |
 | `forget` | Repair wrong or stale facts |
+| `claim_authority` | Session authority when file memory is present |
+| `bootstrap_project` / `get_runtime_state` | Onboarding helpers on empty projects |
 
-Everything else is internal, experimental, or eval-only until this loop is boring.
+**Install default:** `ENGRAM_MCP_SURFACE=public` registers only this set.
+Operator/eval tools require `ENGRAM_MCP_SURFACE=operator` or `full`.
 
 ## Three layers
 

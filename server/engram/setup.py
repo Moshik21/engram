@@ -335,6 +335,8 @@ def _print_mcp_config(config: dict) -> None:
     env_block: dict[str, str] = {
         "ANTHROPIC_API_KEY": api_key,
         "ENGRAM_MODE": str(config.get("ENGRAM_MODE", "auto")),
+        # Agent installs get the golden-loop tool freeze by default.
+        "ENGRAM_MCP_SURFACE": str(config.get("ENGRAM_MCP_SURFACE", "public")),
         "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": str(
             config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE", "standard")
         ),

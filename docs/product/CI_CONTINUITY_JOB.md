@@ -37,5 +37,14 @@ tree at `.github/workflows/ci.yml`. Push it with a PAT that includes the
 Local gate (works now without workflow push):
 
 ```bash
-cd server && uv run engram continuity --smoke
+cd server
+uv run engram continuity --smoke
+uv run engram doctor --skip-server --no-lifecycle --no-smoke --require-golden-loop
+# Product surface (agents):
+export ENGRAM_MCP_SURFACE=public
+# Operator/debug:
+export ENGRAM_MCP_SURFACE=full
 ```
+
+Native Helix CI job (`native-continuity`) is soft (`continue-on-error`) until
+`helix-native` wheels are always present on runners.
