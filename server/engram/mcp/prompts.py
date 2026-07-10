@@ -81,17 +81,23 @@ Check the `freshness` label — treat `stale` items as possibly outdated.
 call `recall(query, project_path=...)` for deeper retrieval when a project \
 path is available.
 
-## Capture Policy
+## Capture Policy (Sparse Promotion)
 
-- **Harness auto-capture** (when installed) handles routine turns — do not \
-duplicate with `observe` every turn.
-- **remember**: explicit preferences, corrections, identity facts, durable \
-decisions. Pass `proposed_entities` and `proposed_relationships`.
+Meaning is expensive; raw capture is cheap. Harness auto-capture handles routine \
+turns — do **not** re-observe every turn.
+
+- **remember** (0–5 per **agent compaction window**, not multi-day session):
+  only high-signal durable facts: Decision, Preference, Person, Correction,
+  Goal, Commitment. **You are the extractor** — always pass \
+  `proposed_entities` + `proposed_relationships` with `source_span`.
+  After harness context compaction, pass `compaction_id` (or use a compact
+  hook source) so the budget resets. Long idle gaps also open a new window.
+  Reject session recaps / "what we did today".
 - **observe**: only when the user asks to store something or you have \
 high-value context the harness cannot see.
 
 If `api_auto_observe` or `auto:*` sources appear in runtime metrics, capture is \
-already happening — focus on recall, not re-capture.
+already happening — focus on **recall**, not re-capture.
 
 ## Session Start
 
@@ -151,24 +157,34 @@ guess from the raw text.
 **observe**: explicit store requests or harness-invisible context only — not \
 routine chat when AutoCapture hooks or `api_auto_observe` are active.
 
-**remember**: identity facts (name, location, job), explicit preferences or \
-corrections, key decisions, goals. Supply the structure you already understand:
-- `proposed_entities`: `[{"name", "entity_type", "source_span"}]`
+**remember** (max 5 per compaction window): identity facts, explicit \
+preferences/corrections, key decisions, goals. Always supply structure:
+- `proposed_entities`: `[{"name", "entity_type", "source_span", "summary"?}]`
+  Prefer types: Decision, Preference, Person, Correction, Goal, Organization.
 - `proposed_relationships`: \
 `[{"subject", "predicate", "object", "source_span", "valid_from"?}]`
-- `content`: the source text (used for storage + span verification)
-- `model_tier`: your own tier (opus/sonnet/haiku) — calibrates how far Engram trusts \
-the facts.
+- `content`: the source text (span verification + storage)
+- `model_tier`: your tier (opus/sonnet/haiku)
 
-Example — user says *"I started at Stripe"* →
-`remember(content="I started at Stripe", model_tier="<your tier>",
-proposed_entities=[{"name":"Stripe","entity_type":"Organization",
-"source_span":"started at Stripe"}],
-proposed_relationships=[{"subject":"User","predicate":"WORKS_AT",
-"object":"Stripe","source_span":"started at Stripe"}])`
+Example — user decides *"LongMemEval is not the product north star"* →
+`remember(content="LongMemEval is not the product north star",
+model_tier="<your tier>",
+proposed_entities=[{
+  "name":"LongMemEval is not the product north star",
+  "entity_type":"Decision",
+  "source_span":"LongMemEval is not the product north star",
+  "summary":"Product north star is useful multi-agent recall, not LongMemEval scores."
+}],
+proposed_relationships=[{
+  "subject":"Engram",
+  "predicate":"DECIDED",
+  "object":"LongMemEval is not the product north star",
+  "source_span":"LongMemEval is not the product north star"
+}])`
 
-Rule of thumb: if you can cite the exact text span for each entity and relationship, \
-use `remember` with proposals. Otherwise `observe`.
+Rule of thumb: if you can cite the exact text span and the fact should survive a \
+fresh session on another agent, `remember` with proposals. Otherwise `observe` or \
+let harness capture.
 
 ## When to Recall
 

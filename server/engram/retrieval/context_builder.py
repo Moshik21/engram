@@ -3235,18 +3235,35 @@ def _select_relevant_context_packets(
     ]
     if not relevant:
         return []
+    # Durable graph facts always win over session recap packets.
+    durable_relevant = [
+        packet for packet in relevant if _context_packet_is_durable_fact(packet)
+    ]
+    if durable_relevant:
+        # Keep durable first, then other non-recap, then recap as filler.
+        non_recap = [
+            packet
+            for packet in relevant
+            if not _context_packet_is_session_recent(packet)
+            and packet not in durable_relevant
+        ]
+        return durable_relevant + non_recap
+
     if _session_recent_packets_strongly_answer_topic(
         relevant,
         topic_hint=topic_hint,
         project_path=project_path,
     ):
+        # Only short-circuit to session_recent when NO durable facts matched.
         session_recent_relevant = [
             packet
             for packet in relevant
             if _context_packet_is_session_recent(packet)
             and _context_packet_has_relevance_match(packet, tokens)
         ]
-        if session_recent_relevant:
+        if session_recent_relevant and not any(
+            _context_packet_is_durable_fact(packet) for packet in relevant
+        ):
             return session_recent_relevant
     return relevant
 
@@ -3330,6 +3347,63 @@ def _context_packet_is_session_recent(packet: Mapping[str, Any]) -> bool:
         return True
     packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
     return packet_type == "recent_observation"
+
+
+def _context_packet_is_durable_fact(packet: Mapping[str, Any]) -> bool:
+    """True for graph-backed durable packets (not session recap or latent cues)."""
+    from engram.extraction.promotion import is_durable_recall_entity_type
+
+    if _context_packet_is_session_recent(packet):
+        return False
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    if packet_type in {
+        "cue_packet",
+        "recent_observation",
+        "episode_packet",
+        "recall_diagnostic",
+    }:
+        return False
+    # Entity-derived packets: fact/state/open_loop/intention with entity ids.
+    entity_ids = packet.get("entity_ids") or packet.get("entityIds") or []
+    if entity_ids and packet_type in {
+        "fact_packet",
+        "state_packet",
+        "open_loop_packet",
+        "intention_packet",
+        "identity_core",
+        "identityCore",
+    }:
+        return True
+    # Title/summary heuristics for Decision/Preference style facts.
+    title = str(packet.get("title") or "")
+    summary = str(packet.get("summary") or "")
+    blob = f"{title} {summary}".lower()
+    if any(
+        token in blob
+        for token in (
+            "decision:",
+            "preference:",
+            "correction:",
+            "person:",
+            "fact:",
+            "goal:",
+        )
+    ):
+        return True
+    trust = packet.get("trust")
+    if isinstance(trust, Mapping):
+        source = str(trust.get("source") or "")
+        if source == "entity":
+            return True
+        if source in {"api_auto_observe", "mcp_observe", "cue"}:
+            return False
+    # Provenance entity: markers.
+    provenance = packet.get("provenance") or []
+    if any(str(p).startswith("entity:") for p in provenance):
+        return True
+    # entity_type if present on packet
+    entity_type = str(packet.get("entity_type") or packet.get("entityType") or "")
+    return is_durable_recall_entity_type(entity_type)
 
 
 def _context_session_recent_anchor_tokens(tokens: set[str]) -> set[str]:

@@ -169,6 +169,13 @@ class SessionState:
     group_id: str = field(default_factory=lambda: os.environ.get("ENGRAM_GROUP_ID", "default"))
     started_at: datetime = field(default_factory=utc_now)
     episode_count: int = 0
+    # Sparse promotion budget is per *compaction window*, not MCP lifetime.
+    # Multi-day agent sessions get a fresh 0–5 budget after compaction or idle gap.
+    remember_count: int = 0
+    promotion_window_id: str | None = None
+    promotion_window_started_at: float | None = None
+    last_remember_at: float | None = None
+    promotion_window_reset_reason: str = "session_start"
     last_activity: datetime = field(default_factory=utc_now)
     auto_recall_primed: bool = False
     last_recall_time: float = 0.0
@@ -705,6 +712,7 @@ async def remember(
     image_data: str | None = None,
     image_mime: str = "image/png",
     events: list[dict] | None = None,
+    compaction_id: str | None = None,
 ) -> str:
     """Store a high-signal fact. YOU are the extractor: supply the atomic facts.
 
@@ -714,6 +722,10 @@ async def remember(
     evidence source (the internal extractor is suppressed, so your clean facts are never
     mixed with regex fragments). Omit proposals only for bulk/uncertain content (use
     observe() for that instead).
+
+    Sparse promotion budget is **0–5 per agent compaction window**, not per multi-day
+    session. Pass ``compaction_id`` (or use a compaction hook source) when the harness
+    compresses context so the budget resets. Long idle gaps also open a new window.
 
     Args:
         content: The source text (used for storage + span verification of proposals)
@@ -731,6 +743,8 @@ async def remember(
         events: Optional dated event annotations
             [{"name": ..., "date": ..., "source_span": ...}]. Each becomes a
             first-class Event node with an OCCURRED_ON edge dated to ``date``.
+        compaction_id: Optional harness compaction / context-era id. When this
+            changes, the 0–5 promotion budget resets for the new window.
 
     Returns:
         JSON with status, episode_id, and message.
@@ -749,6 +763,7 @@ async def remember(
         image_data=image_data,
         image_mime=image_mime,
         events=events,
+        compaction_id=compaction_id,
         activation_cfg=_activation_cfg,
         ingest_live_turn=_ingest_live_turn,
         recall_middleware=_recall_middleware,

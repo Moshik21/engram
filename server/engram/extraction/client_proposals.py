@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from engram.extraction.evidence import EvidenceCandidate
+from engram.extraction.promotion import is_high_signal_entity_type
 from engram.extraction.temporal import resolve_temporal_hint
 
 # Confidence by calling model tier
@@ -27,6 +28,9 @@ UNVERIFIED_PROPOSAL_CONFIDENCE_CAP = 0.62
 # commit-worthy floor (above the relationship commit threshold of 0.75) even when
 # the caller's model tier is low. Higher tiers keep their (higher) confidence.
 SPAN_VERIFIED_PROPOSAL_CONFIDENCE = 0.80
+# High-signal durable types (Decision/Person/…) with a verified span get a
+# slightly higher floor so dense-graph threshold bumps cannot defer them.
+HIGH_SIGNAL_VERIFIED_CONFIDENCE = 0.88
 
 
 def _normalize_for_span(text: str) -> str:
@@ -80,16 +84,25 @@ def _effective_proposal_confidence(
     *,
     span_verified: bool,
     extra_signal_count: int,
+    high_signal: bool = False,
 ) -> float:
     """Cap unverified single-source proposals below commit thresholds.
 
     A proposal earns commit-worthy confidence only when its cited span is verified
     or it already carries additional corroborating signals beyond the bare
     source_type/model_tier markers. Otherwise it is capped into the defer band.
+
+    High-signal durable types (Decision, Preference, Person, …) with a verified
+    span get a higher floor so dense-graph adaptive thresholds cannot defer them.
     """
     if span_verified:
+        floor = (
+            HIGH_SIGNAL_VERIFIED_CONFIDENCE
+            if high_signal
+            else SPAN_VERIFIED_PROPOSAL_CONFIDENCE
+        )
         # Floor verified claims at a commit-worthy confidence; keep higher tiers.
-        return max(base_confidence, SPAN_VERIFIED_PROPOSAL_CONFIDENCE)
+        return max(base_confidence, floor)
     if extra_signal_count > 0:
         # Multi-signal proposals keep their tier confidence (real corroboration).
         return base_confidence
@@ -145,14 +158,25 @@ def proposals_to_evidence(
         fact_class: str,
         payload: dict,
         claim: dict,
+        high_signal: bool = False,
     ) -> EvidenceCandidate:
         claim_span = claim.get("source_span") or source_span
+        # Auto-derive span from name/subject when agent omitted it but text contains it.
+        if not claim_span and episode_content:
+            for key in ("name", "subject", "object"):
+                piece = str(payload.get(key) or claim.get(key) or "").strip()
+                if piece and span_is_verified(piece, episode_content):
+                    claim_span = piece
+                    break
         signals = [source_type, f"model_{model_tier}"]
         confidence = base_confidence
         if verify_spans:
             verified = span_is_verified(claim_span, episode_content)
             if verified:
                 signals.append("span_verified")
+                # Only mark high-signal when the claim is grounded in the text.
+                if high_signal:
+                    signals.append("high_signal_type")
             else:
                 signals.append("span_unverified")
             date_conflict = fact_class == "relationship" and _reanchor_temporal(
@@ -166,7 +190,11 @@ def proposals_to_evidence(
                 base_confidence,
                 span_verified=verified and not date_conflict,
                 extra_signal_count=0,
+                high_signal=high_signal and verified and not date_conflict,
             )
+        elif high_signal:
+            # Adjudication path (no verify_spans): still tag high-signal types.
+            signals.append("high_signal_type")
         if rationale:
             payload = {**payload, "_adjudication_rationale": rationale}
         return EvidenceCandidate(
@@ -186,14 +214,21 @@ def proposals_to_evidence(
         name = ent.get("name", "").strip()
         if not name:
             continue
+        entity_type = ent.get("entity_type", "Concept")
+        high_signal = is_high_signal_entity_type(str(entity_type))
         payload = {
             "name": name,
-            "entity_type": ent.get("entity_type", "Concept"),
+            "entity_type": entity_type,
             **({"summary": ent["summary"]} if ent.get("summary") else {}),
             **({"attributes": ent["attributes"]} if ent.get("attributes") else {}),
         }
         candidates.append(
-            _build_candidate(fact_class="entity", payload=payload, claim=ent),
+            _build_candidate(
+                fact_class="entity",
+                payload=payload,
+                claim=ent,
+                high_signal=high_signal,
+            ),
         )
 
     for rel in relationships or []:

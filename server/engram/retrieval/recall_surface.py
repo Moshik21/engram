@@ -722,6 +722,9 @@ async def _run_explicit_recall_with_budget(
             and project_file_fallback_path
             and project_file_max_packets > 0
         ):
+            # Soft-hold project-file packets only. Do NOT abort deep recall —
+            # durable Decision/Preference facts live in the graph, and aborting
+            # here is why committed high-signal remembers never surface.
             project_file_started = time.perf_counter()
             packets, build_duration_ms = await _resolve_project_file_recall_fallback_task(
                 project_file_fallback_task,
@@ -739,6 +742,22 @@ async def _run_explicit_recall_with_budget(
             if build_duration_ms is not None:
                 stage_timings["project_file_recall_fallback"] = build_duration_ms
             if packets:
+                # Stash for use only if deep recall also misses.
+                stage_timings["project_file_soft_hold"] = float(len(packets))
+                # Continue into manager.recall() below with remaining budget.
+
+        # Cheap durable-entity rescue after preflight miss/timeout: name lookup
+        # for high-signal types without waiting on the full activation pipeline.
+        if not fallback_results and fallback_status in {"miss", "filtered", "timeout"}:
+            rescue_started = time.perf_counter()
+            rescue = await _durable_entity_name_rescue(
+                manager,
+                group_id=group_id,
+                query=query,
+                limit=limit,
+            )
+            stage_timings["durable_entity_rescue"] = _elapsed_ms(rescue_started)
+            if rescue:
                 duration_ms = round((time.perf_counter() - started) * 1000, 4)
                 await record_manager_memory_operation(
                     manager,
@@ -749,33 +768,30 @@ async def _run_explicit_recall_with_budget(
                         mode=operation_source,
                         status="ok",
                         duration_ms=duration_ms,
-                        skip_reason="preflight_timeout_project_file_fallback",
                         timeout=False,
                         degraded=False,
                         budget_miss=budget.exceeded(duration_ms),
                         budget_ms=budget.budget_ms,
                         budget_tokens=budget.budget_tokens,
-                        cache_hit=False,
-                        result_count=0,
-                        packet_count=len(packets),
+                        result_count=len(rescue),
+                        packet_count=0,
                     ),
                 )
-                metadata = _recall_budget_metadata(
+                return list(rescue), _recall_budget_metadata(
                     budget,
                     status="ok",
                     duration_ms=duration_ms,
-                    skip_reason="preflight_timeout_project_file_fallback",
-                    timeout=False,
                     budget_miss=budget.exceeded(duration_ms),
                     stage_timings_ms=stage_timings,
-                    fallback_status="project_file_recall_fallback",
-                    fallback_result_count=0,
+                    fallback_status="durable_entity_rescue",
+                    fallback_result_count=len(rescue),
                 )
-                metadata["_project_file_packets"] = packets
-                metadata["project_file_packet_count"] = len(packets)
-                return [], metadata
 
     try:
+        # Shrink deep-search budget by preflight spend so we stay under wall.
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        remaining_search_ms = max(50.0, float(budget.max_search_ms) - elapsed_ms)
+        timeout_seconds = max(0.05, remaining_search_ms / 1000.0)
         recall_started = time.perf_counter()
         results = await asyncio.wait_for(
             manager.recall(
@@ -803,6 +819,41 @@ async def _run_explicit_recall_with_budget(
                 timeout_seconds=_fast_recall_fallback_timeout_seconds(cfg),
             )
             stage_timings["recall_fallback"] = _elapsed_ms(fallback_started)
+        if not fallback_results:
+            rescue_started = time.perf_counter()
+            rescue = await _durable_entity_name_rescue(
+                manager,
+                group_id=group_id,
+                query=query,
+                limit=limit,
+                timeout_seconds=1.25,
+            )
+            stage_timings["durable_entity_rescue_after_timeout"] = _elapsed_ms(
+                rescue_started
+            )
+            if rescue:
+                duration_ms = round((time.perf_counter() - started) * 1000, 4)
+                await _record_recall_budget_event(
+                    manager,
+                    group_id=group_id,
+                    operation_source=operation_source,
+                    budget=budget,
+                    status="ok",
+                    skip_reason=None,
+                    duration_ms=duration_ms,
+                    timeout=False,
+                    budget_miss=budget.exceeded(duration_ms),
+                    result_count=len(rescue),
+                )
+                return list(rescue), _recall_budget_metadata(
+                    budget,
+                    status="ok",
+                    duration_ms=duration_ms,
+                    budget_miss=budget.exceeded(duration_ms),
+                    stage_timings_ms=stage_timings,
+                    fallback_status="durable_entity_rescue_after_timeout",
+                    fallback_result_count=len(rescue),
+                )
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         await _record_recall_budget_event(
             manager,
@@ -1118,6 +1169,153 @@ async def _run_fast_recall_fallback(
         return [], "filtered"
     filtered = _prefer_project_context_results(filtered, project_path=project_path)
     return filtered, "hit" if filtered else "miss"
+
+
+async def _durable_entity_name_rescue(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+    timeout_seconds: float = 1.0,
+) -> list[dict[str, Any]]:
+    """Bounded name lookup for durable entities when preflight times out.
+
+    Explicit golden-path success: a freshly remembered Decision/Preference must
+    still surface even when episode/cue preflight and deep hybrid search blow
+    the budget on a loaded brain.
+    """
+    from engram.extraction.promotion import (
+        durable_result_boost,
+        is_durable_recall_entity_type,
+    )
+
+    graph = getattr(manager, "_graph", None) or getattr(manager, "graph_store", None)
+    find = getattr(graph, "find_entity_candidates", None) if graph is not None else None
+    search_entities = getattr(manager, "search_entities", None)
+    if not callable(find) and not callable(search_entities):
+        return []
+
+    # Prefer distinctive tokens (length/underscore/hyphen) that look like decision names.
+    tokens = [
+        token
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{3,}", query)
+        if token.lower()
+        not in {
+            "that",
+            "this",
+            "with",
+            "from",
+            "about",
+            "what",
+            "when",
+            "where",
+            "product",
+            "memory",
+            "project",
+            "north",
+            "star",
+        }
+    ]
+    # Longest first — more specific probes. Also try a short query head (decision titles).
+    tokens = sorted(set(tokens), key=len, reverse=True)[:5]
+    head = query.strip().split(".")[0].strip()
+    if head and len(head) >= 8:
+        tokens = [head[:120], *tokens]
+    if not tokens:
+        tokens = [query.strip()[:80]] if query.strip() else []
+    if not tokens:
+        return []
+
+    seen_ids: set[str] = set()
+    hits: list[dict[str, Any]] = []
+
+    async def _probe(name: str) -> list[Any]:
+        probes: list[Any] = []
+        try:
+            if callable(find):
+                value = find(name, group_id)
+                if inspect.isawaitable(value):
+                    value = await asyncio.wait_for(value, timeout=timeout_seconds)
+                if isinstance(value, list):
+                    probes.extend(value)
+        except Exception:
+            pass
+        try:
+            if callable(search_entities) and not probes:
+                value = search_entities(name=name, limit=limit, group_id=group_id)
+                if inspect.isawaitable(value):
+                    value = await asyncio.wait_for(value, timeout=timeout_seconds)
+                if isinstance(value, dict):
+                    probes.extend(list(value.get("entities") or value.get("items") or []))
+                elif isinstance(value, list):
+                    probes.extend(value)
+        except Exception:
+            pass
+        return probes
+
+    for token in tokens:
+        candidates = await _probe(token)
+        for entity in candidates:
+            if isinstance(entity, Mapping):
+                entity_id = str(entity.get("id") or "")
+                entity_type = str(
+                    entity.get("type")
+                    or entity.get("entity_type")
+                    or entity.get("entityType")
+                    or ""
+                )
+                name = str(entity.get("name") or "")
+                summary = str(entity.get("summary") or "")
+            else:
+                entity_id = str(getattr(entity, "id", "") or "")
+                entity_type = str(getattr(entity, "entity_type", "") or getattr(entity, "type", "") or "")
+                name = str(getattr(entity, "name", "") or "")
+                summary = str(getattr(entity, "summary", "") or "")
+            if not entity_id or entity_id in seen_ids:
+                continue
+            # Prefer durable types; still accept strong name substring matches.
+            name_l = name.casefold()
+            query_l = query.casefold()
+            token_l = token.casefold()
+            durable = is_durable_recall_entity_type(entity_type)
+            name_hit = token_l in name_l or any(
+                part in name_l
+                for part in re.findall(r"[a-z0-9]{5,}", query_l)
+                if len(part) >= 5
+            )
+            if not durable and not name_hit:
+                continue
+            seen_ids.add(entity_id)
+            score = 0.55 + durable_result_boost(entity_type) * 0.1
+            if token_l in name_l:
+                score += 0.2
+            hits.append(
+                {
+                    "result_type": "entity",
+                    "score": min(0.99, score),
+                    "entity": {
+                        "id": entity_id,
+                        "name": name,
+                        "type": entity_type,
+                        "summary": summary,
+                    },
+                    "relationships": [],
+                    "score_breakdown": {
+                        "relevance_confidence": min(0.99, score),
+                        "planner_support": 0.0,
+                        "rescue": "durable_entity_name",
+                    },
+                    "source": "durable_entity_rescue",
+                }
+            )
+            if len(hits) >= max(1, limit):
+                break
+        if len(hits) >= max(1, limit):
+            break
+
+    hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    return hits[: max(1, limit)]
 
 
 def _fast_recall_fallback_timeout_seconds(cfg: Any) -> float:
@@ -1969,6 +2167,40 @@ def _packet_is_identity_core(packet: Mapping[str, Any]) -> bool:
     return scope == "identity_core" or packet_type in {"identity_core", "identityCore"}
 
 
+def _packet_is_durable_fact(packet: Mapping[str, Any]) -> bool:
+    """Graph-backed durable memory packets (not session recap / latent cues)."""
+    packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+    if packet_type in {
+        "cue_packet",
+        "recent_observation",
+        "recentObservation",
+        "episode_packet",
+        "recall_diagnostic",
+    }:
+        return False
+    entity_ids = packet.get("entity_ids") or packet.get("entityIds") or []
+    if entity_ids and packet_type in {
+        "fact_packet",
+        "state_packet",
+        "open_loop_packet",
+        "intention_packet",
+        "identity_core",
+        "identityCore",
+    }:
+        return True
+    provenance = packet.get("provenance") or []
+    if any(str(item).startswith("entity:") for item in provenance):
+        return True
+    trust = packet.get("trust")
+    if isinstance(trust, Mapping) and str(trust.get("source") or "") == "entity":
+        return True
+    title = str(packet.get("title") or "").lower()
+    return any(
+        token in title
+        for token in ("decision:", "preference:", "correction:", "person:", "fact:", "goal:")
+    )
+
+
 def _packet_is_same_project_home(
     packet: Mapping[str, Any],
     *,
@@ -2256,7 +2488,17 @@ def _filter_packets_for_query(
             continue
         if exact_project_file_match:
             score = max(score, len(tokens))
-        scored.append((score, -index, dict(packet)))
+        # Durable graph facts outrank transcript recap packets.
+        durable_bonus = 3 if _packet_is_durable_fact(packet) else 0
+        scope = str(packet.get("_cache_scope") or "")
+        packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+        if scope == "session_recent" or packet_type in {
+            "recent_observation",
+            "recentObservation",
+            "cue_packet",
+        }:
+            durable_bonus -= 2
+        scored.append((score + durable_bonus, -index, dict(packet)))
     scored.sort(reverse=True)
     return [packet for _score, _index, packet in scored[: max(1, limit)]]
 

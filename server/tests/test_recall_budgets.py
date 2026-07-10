@@ -29,21 +29,22 @@ def test_recall_budget_profiles_keep_startup_cache_only() -> None:
     assert lite.allow_deep_recall is False
     assert lite.allow_embeddings is True
     assert explicit.budget_ms == 900
-    assert explicit.max_search_ms == 650
+    # Search default follows ActivationConfig.recall_budget_explicit_search_ms.
+    assert explicit.max_search_ms == 1500
     assert explicit.max_results == 7
     assert explicit.allow_deep_recall is True
 
 
 def test_explicit_recall_search_budget_is_configurable() -> None:
     cfg = ActivationConfig(
-        recall_budget_explicit_ms=2000,
-        recall_budget_explicit_search_ms=650,
+        recall_budget_explicit_ms=4000,
+        recall_budget_explicit_search_ms=1500,
     )
 
     explicit = recall_budget_for_profile(cfg, "explicit", surface="rest")
 
-    assert explicit.budget_ms == 2000
-    assert explicit.max_search_ms == 650
+    assert explicit.budget_ms == 4000
+    assert explicit.max_search_ms == 1500
 
 
 def test_recall_budget_source_and_surface_inference() -> None:

@@ -1,42 +1,314 @@
 # Current Handoff
 
-Date: 2026-05-19
+**Last updated:** 2026-07-09
 
-## Active Goal
+**Read the START HERE section first.** Everything below the archive divider is
+historical context from prior milestones — useful for archaeology, not for
+re-deriving current dogfood truth.
 
-Build Engram into a coherent, production-grade "one brain per person" memory
-runtime for AI agents, organized around:
+---
+
+## START HERE — Strategy + Golden Loop (2026-07-09)
+
+### TL;DR
+
+**North star is not LongMemEval.** Product success = *fresh session / other agent
+surfaces 1 high-signal prior Decision without opening a doc.*
+
+Architecture direction (keep):
+
+1. **Passive capture** — `observe` / harness auto-observe (cheap, complete)
+2. **Sparse agent promotion** — `remember` with `proposed_*` (0–5 per **compaction window**)
+3. **Deliberate consolidation** — offline hygiene, not always-on LLM ETL
+
+Helix **native PyO3 is custom Engram work**, not official Helix. Treat schema /
+install drift as Engram-owned.
+
+### Shipped this session (code)
+
+| Area | Change |
+|------|--------|
+| Promotion policy | `extraction/promotion.py` — high-signal types, recap reject, window budget |
+| Compaction window | 0–5 remembers per window; reset on `compaction_id`, compaction source, or **4h idle** (not multi-day session lifetime) |
+| Client proposals | Span auto-fill; high-signal verified floor; commit path for span-verified proposals |
+| Decision names | `validate_entity_name` allows ≤24 words for Decision/Preference/client proposals (was hard 5-word reject) |
+| Auto-capture worker | Auto sources stay cue-only unless triage score ≥ 0.85 |
+| Recall ranking | Prefer durable entity facts over session recap / cue packets |
+| Recall rescue | Preflight timeout no longer aborts deep recall; durable entity name rescue surfaces Decisions when hybrid search times out on loaded brain |
+
+### Golden path (verified live 2026-07-09)
+
+```
+remember(Decision + proposed_entities/relationships, span-verified)
+  → 2 entities + 1 relationship persisted
+  → entity search finds Decision
+  → recall returns Decision via durable_entity_rescue (loaded 17G brain still slow)
+```
+
+Strategy Decisions stored: “LongMemEval is not Engram north star”, “Prefer sparse
+agent promotion”, “Prefer markdown handoffs until proven”.
+
+### PreCompact hook (Claude Code)
+
+- Source: `hooks/pre-compact.sh` → installed at `~/.engram/hooks/pre-compact.sh`
+- Claude settings: `PreCompact` → that script (async)
+- On compact: writes `~/.engram/promotion-window.json` with `compaction_id`
+- MCP `remember` reads that file and **resets the 0–5 promotion window**
+- Also auto-observes `source=claude:precompact` (best-effort)
+
+### Recall budget defaults (tuned 2026-07-09)
+
+| Knob | Old | New |
+|------|-----|-----|
+| `recall_budget_explicit_ms` | 2000 | **4000** |
+| `recall_budget_explicit_search_ms` | 650 | **1500** |
+| `recall_fast_preflight_timeout_ms` | 250 | **400** |
+| `recall_fast_fallback_timeout_ms` | 100 | **250** |
+
+### Still true / still broken
+
+- Loaded-brain hybrid recall can still be slow; durable entity rescue is a safety
+  net, not a full ranking redesign.
+- Open deferred evidence backlog remains huge; do not chase LongMemEval fitting.
+- Cross-encoder merge can still fail/timeout on full cycles.
+- Prefer markdown/git handoffs until multi-agent dogfood is routine.
+
+### Operator runtime (Konner's machine)
+
+| Item | Value |
+|------|-------|
+| Server | LaunchAgent `dev.engram.local` — `engramctl status` |
+| Health | `http://127.0.0.1:8100/health` |
+| MCP | `http://127.0.0.1:8100/mcp` |
+| Config | `~/.engram/.env` |
+| Data | `~/.helix/engram-native-dogfood-axi` |
+| Install note | Local editable `engram` tool may be installed from `~/Engram/server`; helix-native pin is separate |
+
+Restart: `engramctl stop && engramctl start`
+
+---
+
+## ARCHIVE — Dogfood Status (2026-07-01)
+
+### TL;DR (historical)
+
+Engram dogfood is **healthy and live** on native Helix PyO3. Recall hot-path
+fixes and junk evidence drain are **shipped and applied**. Open-work backlog
+dropped from ~22k to ~13k. The remaining ~13k deferred rows are **borderline
+facts**, not junk — they drain slowly via warm-tier `evidence_adjudication`
+(200/cycle) while `engram serve` stays up. Full consolidation cycles still
+**timeout during merge** (cross-encoder). Do not re-audit architecture or
+re-discover drain vs adjudication — the answers are below.
+
+### Operator runtime (Konner's machine)
+
+| Item | Value |
+|------|-------|
+| Server | LaunchAgent `dev.engram.local` — `engramctl status` |
+| Health | `http://127.0.0.1:8100/health` |
+| MCP (Cursor/Grok) | `http://127.0.0.1:8100/mcp` |
+| Config | `~/.engram/.env` |
+| Data dir | `~/.helix/engram-native-dogfood-axi` (~17 GB) |
+| Logs | `~/.engram/logs/engram.log` |
+| Mode | `ENGRAM_MODE=helix`, `ENGRAM_HELIX__TRANSPORT=native` |
+| Profiles | consolidation `standard`, recall `all`, integration `rework` |
+| Worker | enabled (`ENGRAM_ACTIVATION__WORKER_ENABLED=true`) |
+
+Restart: `engramctl stop && engramctl start`
+
+### Live brain metrics (2026-07-01)
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| Episodes | 5,434 | Harness auto-capture active |
+| Cues | 5,295 | 97.4% cue coverage |
+| Projected | 3,991 | 74% cue→projection conversion |
+| Entities | 1,155 | Down from ~1,246 (merge/prune) |
+| Relationships | 346 | |
+| **Open work** | **13,364** | Was ~21,847 before drain |
+| Deferred evidence | 13,171 | Borderline — adjudication queue |
+| Pending evidence | 91 | |
+| Pending edge requests | 89 | Server LLM adjudication **off** |
+| Consolidation cycles | 10 | Scheduler active |
+| Junk drain candidates | 24 | Was ~8,450 rejected live |
+
+Entity mix: 555 Artifact, 248 Technology, 163 Decision, 162 Concept, 12
+Project, 8 Schema, 1 Person.
+
+### Brain loop status
+
+```text
+Capture -> Cue -> Project -> Recall -> Consolidate
+ active    97%    active     ready      active (scheduler on)
+```
+
+- **Capture:** harness `api_auto_observe` writing episodes
+- **Cue:** 97.4% coverage; triage skips low-signal episodes
+- **Project:** worker projecting high-score episodes; 0 failures / 0 dead letters
+- **Recall:** `recall_profile=all`; probe-timeout guards fixed via `GatedGraphStore`
+- **Consolidate:** three-tier scheduler + backlog trigger (open work > 500 → warm
+  tier every ~5 min cooldown)
+
+Verify live state without re-deriving:
+
+```bash
+curl -s http://127.0.0.1:8100/api/lifecycle/summary | python3 -m json.tool
+# MCP tools: get_graph_state, get_lifecycle_summary, get_consolidation_status
+```
+
+### Shipped this milestone (commits on `main`)
+
+**PR1–PR3 — recall + backlog** (`2dfbae4` → `8728762`)
+
+- Helix fast stats (`exact=False` count-only) — stats probe no longer blocks graph
+  expansion on timeout
+- Cached adjudication metrics on recall hot path
+- Backlog-driven warm consolidation when `open_work_count > 500`
+- Tier timestamp persistence (SQLite + Helix sidecar)
+- Harness observe normalization (`normalize_harness_observe_content`)
+- `GatedGraphStore` — single gate after graph expansion; blocks secondary graph
+  reads on probe timeout (structural fix, not whack-a-mole guards)
+
+**Evidence drain CLI** (`5271e53`, `3feb0d8`)
+
+- `python -m engram.consolidation.drain_evidence --mode audit|reject-junk`
+- Junk rules in `evidence_drain.py`: path-like names, bootstrap spans, markdown
+  fragments, low-confidence identity, harness UUID paths, etc.
+- Helix `update_evidence_status` fixed to persist `deferred_cycles` / `confidence`
+- Id cache priming on `find_evidence_by_status` for fast bulk reject
+- **Live applied:** ~8,450 junk rows rejected; re-audit shows ~24 junk left
+
+### Backlog mechanics (do not re-investigate)
+
+Two separate tools — easy to confuse:
+
+| Mechanism | What it does | Automatic? |
+|-----------|--------------|------------|
+| **`drain_evidence` CLI** | Rejects obvious junk | **No** — manual only |
+| **`evidence_adjudication` phase** | Reviews 200 open rows/cycle; promote, re-defer, or force-commit after 5 cycles | **Yes** — warm-tier scheduler |
+
+`get_pending_evidence(limit=200)` pulls `pending` + `deferred` + `approved` open
+rows, sorted by confidence. MCP being connected does not drive drain; keeping
+`engram serve` up does drive adjudication.
+
+Earlier live adjudication: **194 processed, 0 materialized** — queue count drops
+slowly because most borderline rows get re-deferred until corroboration,
+threshold, or 5-cycle force-commit.
+
+Key config (`server/engram/config.py`):
+
+- `consolidation_open_work_backlog_threshold=500`
+- `consolidation_open_work_backlog_cooldown_seconds=300`
+- `consolidation_tier_warm_seconds=7200` (2h normal; backlog bypasses)
+- `evidence_forced_commit_cycles=5`
+- `edge_adjudication_server_enabled=false` (89 pending edge requests idle)
+
+### Known issues (accepted — do not spend tokens re-diagnosing)
+
+1. **Merge phase timeouts** — full consolidation cycles killed during merge
+   cross-encoder on loaded 17G brain. Hot triage runs fine; warm/cold full passes
+   are heavy. Prioritize phase isolation or merge budget tuning if tackling this.
+2. **Low adjudication materialization yield** — borderline deferred facts cycle
+   without committing. Expected at current thresholds; force-commit at 5 cycles is
+   the safety valve.
+3. **MCP lifecycle underreports scheduler** — `get_lifecycle_summary` via MCP
+   shows `schedulerActive: false`; REST `/api/lifecycle/summary` is authoritative.
+4. **Stale shutdown cycle artifacts** — interrupted `trigger=shutdown` cycles can
+   appear `running` in audit store; `isRunning: false` on live API is truth.
+5. **`CURRENT_HANDOFF.md` archive below** — pre-2026-07-01 entries document
+   earlier milestones (startup latency, adoption gates, GraphManager extractions).
+   Do not treat them as current dogfood blockers unless this section says so.
+
+### Next levers (prioritized)
+
+1. **Let scheduler run** — warm adjudication at 200/cycle with backlog trigger;
+   monitor `open_work_count` over days via `get_graph_state` or lifecycle API.
+2. **Reject remaining junk** (optional, quick):
+   `uv run python -m engram.consolidation.drain_evidence --mode reject-junk --yes --helix-data-dir ~/.helix/engram-native-dogfood-axi`
+3. **Enable server LLM edge adjudication** (optional) — 89 pending edge requests;
+   set `edge_adjudication_server_enabled=true` in `~/.engram/.env`, restart.
+4. **LLM curator phase** (not built) — discussed for bulk borderline deferred;
+   would be new consolidation phase, not an extension of drain.
+5. **Merge timeout fix** — if full cycles needed: cross-encoder budget, skip tier-1
+   under pressure, or run merge in isolated subprocess with timeout.
+6. **Adoption evidence** — recall evaluation signals still thin; harness capture
+   is active but confirmation/correction metrics need live-harness transcripts.
+
+### Key files (this milestone)
+
+| Area | Path |
+|------|------|
+| Fast Helix stats | `server/engram/storage/helix/graph.py` |
+| Recall graph gate | `server/engram/retrieval/recall_graph_gate.py` |
+| Recall pipeline | `server/engram/retrieval/pipeline.py` |
+| Backlog scheduler | `server/engram/consolidation/scheduler.py` |
+| Evidence drain | `server/engram/consolidation/evidence_drain.py` |
+| Drain CLI | `server/engram/consolidation/drain_evidence_cli.py` |
+| Evidence adjudication | `server/engram/consolidation/phases/evidence_adjudication.py` |
+| Harness normalization | `server/engram/ingestion/capture_surface.py` |
+| Tests | `server/tests/test_evidence_drain.py`, `test_helix_stats.py`, recall gate tests |
+
+### Commands cheat sheet
+
+```bash
+# Status / health
+engramctl status
+curl -s http://127.0.0.1:8100/health | python3 -m json.tool
+curl -s http://127.0.0.1:8100/api/lifecycle/summary | python3 -m json.tool
+
+# Drain audit / reject junk
+cd server && uv run python -m engram.consolidation.drain_evidence \
+  --mode audit --helix-data-dir ~/.helix/engram-native-dogfood-axi
+cd server && uv run python -m engram.consolidation.drain_evidence \
+  --mode reject-junk --yes --helix-data-dir ~/.helix/engram-native-dogfood-axi
+
+# Manual consolidation (may timeout on merge)
+cd server && uv run python -m engram.consolidation \
+  --profile standard --group default --no-dry-run
+
+# Tests (affected suites)
+cd server && uv run pytest tests/test_evidence_drain.py \
+  tests/test_helix_stats.py -v -m "not requires_helix"
+
+# Lint
+cd server && uv run ruff check .
+```
+
+### Agent protocol reminder
+
+Engram is the portable memory authority across harnesses. On session start:
+`get_context(project_path=...)` before substantive answers; `recall` when prior
+context could change the response. Harness auto-capture is active — do not
+duplicate with per-turn `observe`. Use `remember` for high-signal cross-context
+facts with `proposed_entities` + `proposed_relationships`. Empty graph = onboarding,
+not proof Engram is useless.
+
+---
+
+## Stable context (unchanged since 2026-05-19 closeout)
+
+Build Engram into a production-grade "one brain per person" memory runtime:
 
 ```text
 Capture -> Cue -> Project -> Recall -> Consolidate
 ```
 
-Preferred local operator path: Helix native PyO3 (`ENGRAM_MODE=helix` with
-`ENGRAM_HELIX__TRANSPORT=native`) is the main no-Docker full-backend path.
-SQLite/lite remains the disposable smoke/demo fallback, not the strategic
-runtime target.
+Preferred local path: Helix native PyO3 (`ENGRAM_MODE=helix`,
+`ENGRAM_HELIX__TRANSPORT=native`). SQLite/lite is smoke/demo fallback only.
 
-Completion status: the core brain-runtime goal passed its final closeout audit
-on 2026-05-19. The PyO3-native path, shared REST/MCP/dashboard lifecycle
-contracts, consolidation phase engine, group-scoping guardrails, broad
-non-Docker backend gate, and dashboard build/test gates all line up around the
-Capture -> Cue -> Project -> Recall -> Consolidate contract. Remaining
-multi-client adoption transcripts and human-labeled production samples are
-release-hardening work, not blockers for this goal.
+Core brain-runtime goal **passed closeout audit 2026-05-19**. Remaining work is
+adoption evidence, dogfood scale hardening, and backlog hygiene — not
+re-architecting the loop.
 
-AI-harness adoption addendum: Engram being connected over MCP is not enough.
-The runtime must make agents trust and use Engram as the portable cross-context
-memory authority even when project-local file memory exists, must treat an empty
-runtime as an onboarding/bootstrap state, and must provide verifier evidence
-that real clients followed the required recall/capture protocol.
-The product edge is cross-harness continuity, not simply storing more than a
-file-based memory system. Project-local memory remains the readable layer for
-repo conventions and current-task scratch, while Engram owns user facts,
-preferences, durable decisions, corrections, relationships, goals, commitments,
-and long-tail recall. Release work should keep tightening day-one bootstrap from
-approved existing sources, stale/noisy recall visibility, human-controlled
-identity core, and client transcripts that prove agents did not route around
-Engram because the graph looked fresh or a local memory file was available.
+AI-harness adoption: MCP connection alone is insufficient. Agents must use Engram
+as portable memory authority even when project-local files exist; treat empty
+runtime as onboarding; bootstrap when `artifactCount` is low. Project-local files
+own repo conventions; Engram owns user facts, preferences, durable decisions,
+corrections, goals, and cross-harness continuity.
+
+---
+
+## Historical Handoff Log (archive — pre-2026-07-01)
 
 Latest native PyO3 startup-latency follow-up: local FastEmbed no longer
 constructs the ONNX model during store creation when the configured model has a

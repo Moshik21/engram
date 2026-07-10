@@ -1721,27 +1721,33 @@ class ActivationConfig(BaseModel):
         description="Wall-clock budget for high-confidence full auto-recall",
     )
     recall_budget_explicit_ms: int = Field(
-        default=2000,
+        default=4000,
         ge=100,
         le=30000,
-        description="Wall-clock budget for explicit user/agent recall",
+        description=(
+            "Wall-clock budget for explicit user/agent recall. Raised for loaded "
+            "native Helix brains so durable Decision rescue can finish."
+        ),
     )
     recall_budget_explicit_search_ms: int = Field(
-        default=650,
+        default=1500,
         ge=100,
         le=30000,
-        description="Search-stage budget for explicit user/agent recall before degraded fallback",
+        description=(
+            "Search-stage budget for explicit user/agent recall before degraded "
+            "fallback. 650ms was too tight on multi-GB dogfood graphs."
+        ),
     )
     recall_fast_fallback_timeout_ms: int = Field(
-        default=100,
+        default=250,
         ge=0,
-        le=2000,
+        le=5000,
         description="Maximum timeout-rescue budget after explicit recall exceeds search time",
     )
     recall_fast_preflight_timeout_ms: int = Field(
-        default=250,
+        default=400,
         ge=0,
-        le=2000,
+        le=5000,
         description=(
             "Maximum budget for the bounded episode/cue preflight before deep "
             "explicit recall"

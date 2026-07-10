@@ -14,6 +14,13 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.extraction.client_proposals import events_to_proposals, proposals_to_evidence
+from engram.extraction.promotion import (
+    DEFAULT_PROMOTE_CAP_PER_WINDOW,
+    filter_promotion_proposals,
+    is_session_recap,
+    record_promotion_in_window,
+    resolve_promotion_window,
+)
 from engram.ingestion.adjudication_surface import load_client_enabled_episode_adjudication_requests
 from engram.ingestion.presenter import (
     memory_write_contract,
@@ -797,6 +804,25 @@ async def build_api_remember_write_surface(
         proposed_entities,
         proposed_relationships,
     )
+    proposed_entities, proposed_relationships, promotion_meta = apply_promotion_filter(
+        content,
+        proposed_entities,
+        proposed_relationships,
+    )
+    if promotion_meta.get("rejected_as_recap"):
+        await _record_write_operation(manager, group_id, finish_operation)
+        return attach_api_capture_diagnostics(
+            {
+                "status": "rejected",
+                "reason": "session_recap",
+                "message": (
+                    "Rejected session recap as remember target. Use observe() for bulk "
+                    "capture; remember() only high-signal durable facts."
+                ),
+                "promotion": promotion_meta,
+            },
+            manager,
+        )
     episode_id = await ingest_projecting_memory(
         manager,
         content=content,
@@ -813,14 +839,16 @@ async def build_api_remember_write_surface(
         group_id=group_id,
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return attach_api_capture_diagnostics(present_api_memory_write(
+    payload = present_api_memory_write(
         memory_write_contract(
             "remember",
             episode_id,
             adjudication_requests=adjudications,
         ),
         status="remembered",
-    ), manager)
+    )
+    payload["promotion"] = promotion_meta
+    return attach_api_capture_diagnostics(payload, manager)
 
 
 def merge_event_proposals(
@@ -842,6 +870,39 @@ def merge_event_proposals(
     merged_entities = list(proposed_entities or []) + event_entities
     merged_rels = list(proposed_relationships or []) + event_rels
     return merged_entities, merged_rels
+
+
+def apply_promotion_filter(
+    content: str,
+    proposed_entities: list[dict] | None,
+    proposed_relationships: list[dict] | None,
+) -> tuple[list[dict] | None, list[dict] | None, dict[str, Any]]:
+    """Apply sparse promotion policy to remember() proposals.
+
+    Returns (entities, relationships, meta). When content is a session recap,
+    entities/relationships are cleared and meta.rejected_as_recap is True.
+    """
+    filtered = filter_promotion_proposals(
+        content,
+        proposed_entities,
+        proposed_relationships,
+    )
+    meta: dict[str, Any] = {
+        "rejected_as_recap": filtered.is_recap,
+        "truncated": filtered.truncated,
+        "rejected": list(filtered.rejected),
+        "entity_count": len(filtered.entities),
+        "relationship_count": len(filtered.relationships),
+        "is_session_recap": is_session_recap(content),
+    }
+    if filtered.is_recap:
+        return None, None, meta
+    entities = filtered.entities or None
+    relationships = filtered.relationships or None
+    # Preserve "no proposals supplied" vs "empty after filter" for extractor fallback.
+    if proposed_entities is None and proposed_relationships is None and not filtered.entities:
+        return None, None, meta
+    return entities, relationships, meta
 
 
 def _evidence_candidate_to_storage_row(candidate: Any, status: str) -> dict[str, Any]:
@@ -931,6 +992,7 @@ async def build_mcp_remember_write_surface(
     image_data: str | None = None,
     image_mime: str = "image/png",
     events: list[dict] | None = None,
+    compaction_id: str | None = None,
     activation_cfg: ActivationConfig | None = None,
     ingest_live_turn: Callable[..., Any],
     recall_middleware: Callable[..., Any],
@@ -941,6 +1003,32 @@ async def build_mcp_remember_write_surface(
         source="mcp_remember",
         mode="mcp_remember",
     )
+
+    # Sparse promotion: 0–5 per compaction window (not multi-day session lifetime).
+    # Window resets on compaction_id change, compaction source, or long idle gap.
+    window = resolve_promotion_window(
+        session,
+        compaction_id=compaction_id,
+        source=source,
+        cap=DEFAULT_PROMOTE_CAP_PER_WINDOW,
+    )
+    if window.at_cap:
+        await _record_write_operation(manager, group_id, finish_operation)
+        return attach_mcp_capture_diagnostics(
+            {
+                "status": "rejected",
+                "reason": "promotion_window_cap",
+                "message": (
+                    f"Promotion window cap reached ({window.cap} remembers). "
+                    "Budget is per agent compaction window, not the whole multi-day session. "
+                    "Pass compaction_id after harness context compression, or wait for the "
+                    "idle gap reset. Use observe() for bulk capture."
+                ),
+                "promotion": window.to_meta(),
+            },
+            manager,
+        )
+
     attachments = []
     if image_data:
         attachments.append(
@@ -958,6 +1046,26 @@ async def build_mcp_remember_write_surface(
         proposed_entities,
         proposed_relationships,
     )
+    proposed_entities, proposed_relationships, promotion_meta = apply_promotion_filter(
+        content,
+        proposed_entities,
+        proposed_relationships,
+    )
+    if promotion_meta.get("rejected_as_recap"):
+        await _record_write_operation(manager, group_id, finish_operation)
+        return attach_mcp_capture_diagnostics(
+            {
+                "status": "rejected",
+                "reason": "session_recap",
+                "message": (
+                    "Rejected session recap as remember target. Use observe() for bulk "
+                    "capture; remember() only high-signal durable facts "
+                    "(Decision/Preference/Person/Correction)."
+                ),
+                "promotion": promotion_meta,
+            },
+            manager,
+        )
 
     episode_id = await ingest_projecting_memory(
         manager,
@@ -974,6 +1082,8 @@ async def build_mcp_remember_write_surface(
         pass_attachments=True,
     )
     record_mcp_memory_write_activity(session)
+    window = record_promotion_in_window(session, window)
+    promotion_meta.update(window.to_meta())
     side_effect_timings: dict[str, float] = {}
     await _run_mcp_write_side_effect(
         "live_turn",
@@ -1002,6 +1112,7 @@ async def build_mcp_remember_write_surface(
         ),
         message=message,
     ), manager)
+    response["promotion"] = promotion_meta
     await _run_mcp_write_side_effect(
         "recall_middleware",
         recall_middleware(content, response, tool_name="remember"),

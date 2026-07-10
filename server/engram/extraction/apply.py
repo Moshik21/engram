@@ -169,6 +169,9 @@ async def _auto_create_endpoint(
     name: str,
     entity_map: dict[str, str],
     group_id: str,
+    *,
+    entity_type: str = "Concept",
+    client_proposal: bool = False,
 ) -> str | None:
     """Materialize a minimal provisional endpoint entity for a dropped edge.
 
@@ -180,17 +183,28 @@ async def _auto_create_endpoint(
     from engram.extraction.narrow.entity_extractor import _STOPWORDS
 
     stripped = (name or "").strip()
-    if not validate_entity_name(stripped) or len(stripped) < 3:
+    if (
+        not validate_entity_name(
+            stripped,
+            entity_type=entity_type,
+            client_proposal=client_proposal,
+        )
+        or len(stripped) < 3
+    ):
         return None
     if stripped.lower() in {w.lower() for w in _STOPWORDS}:
         return None
 
     entity_id = f"ent_{uuid.uuid4().hex[:12]}"
     now = utc_now()
+    # Prefer Decision-shaped types for long client-promoted statement names.
+    resolved_type = entity_type
+    if client_proposal and resolved_type == "Concept" and len(stripped.split()) >= 4:
+        resolved_type = "Decision"
     entity = Entity(
         id=entity_id,
         name=stripped,
-        entity_type="Concept",
+        entity_type=resolved_type,
         group_id=group_id,
         evidence_count=1,
         evidence_span_start=now,
@@ -235,6 +249,16 @@ async def apply_relationship_fact(
     target_id = rel_data.get("target_id") or entity_map.get(target_name)
 
     auto_created_endpoints: list[str] = []
+    # Client-proposal edges often reference Decision statement names longer than
+    # the narrow-extractor 5-word limit; treat them as client proposals so
+    # auto-create accepts statement-length endpoints.
+    proposal_edge = bool(
+        rel_data.get("signals")
+        and (
+            "client_proposal" in (rel_data.get("signals") or [])
+            or "high_signal_type" in (rel_data.get("signals") or [])
+        )
+    ) or bool(rel_data.get("client_proposal"))
     if (not source_id or not target_id) and cfg.graph_auto_create_endpoints:
         if not source_id:
             source_id = await _auto_create_endpoint(
@@ -242,15 +266,19 @@ async def apply_relationship_fact(
                 source_name,
                 entity_map,
                 group_id,
+                client_proposal=proposal_edge,
             )
             if source_id:
                 auto_created_endpoints.append(source_name)
         if not target_id:
+            source_type_hint = "Decision" if proposal_edge and len(target_name.split()) >= 4 else "Concept"
             target_id = await _auto_create_endpoint(
                 graph_store,
                 target_name,
                 entity_map,
                 group_id,
+                entity_type=source_type_hint,
+                client_proposal=proposal_edge or len(target_name.split()) > 5,
             )
             if target_id:
                 auto_created_endpoints.append(target_name)
@@ -523,7 +551,26 @@ class ApplyEngine:
 
         for candidate in candidates:
             name = candidate.name
-            if not validate_entity_name(name):
+            signals = []
+            if isinstance(candidate.raw_payload, dict):
+                signals = list(candidate.raw_payload.get("signals") or [])
+            is_client_proposal = (
+                "client_proposal" in signals
+                or "high_signal_type" in signals
+                or str(candidate.entity_type or "")
+                in {
+                    "Decision",
+                    "Preference",
+                    "Correction",
+                    "Goal",
+                    "Commitment",
+                }
+            )
+            if not validate_entity_name(
+                name,
+                entity_type=candidate.entity_type,
+                client_proposal=is_client_proposal,
+            ):
                 logger.debug("Skipping invalid entity name %r", name)
                 continue
             entity_type, _identifier_form = normalize_extracted_entity_type(

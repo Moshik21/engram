@@ -5,12 +5,34 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from engram.extraction.promotion import (
+    durable_result_boost,
+    is_durable_recall_entity_type,
+)
 from engram.models.recall import MemoryNeed, MemoryPacket
 
 ResolveNameFn = Callable[[str], Awaitable[str]]
 FeedbackLookup = Mapping[str, Mapping[str, Any]]
 
 _PROJECT_ENTITY_TYPES = {"Project", "Task", "Issue", "Goal", "Organization"}
+
+
+def _result_assembly_priority(result: dict) -> tuple:
+    """Prefer durable entities over cue/episode recap when assembling packets."""
+    result_type = str(result.get("result_type") or "")
+    entity = result.get("entity") or {}
+    entity_type = str(entity.get("type") or entity.get("entity_type") or "")
+    score = float(result.get("score") or 0.0)
+    boost = durable_result_boost(entity_type) if result_type == "entity" else 0.0
+    if result_type == "entity" and is_durable_recall_entity_type(entity_type):
+        type_rank = 3
+    elif result_type == "entity":
+        type_rank = 2
+    elif result_type == "episode":
+        type_rank = 1
+    else:
+        type_rank = 0
+    return (type_rank, score + boost)
 
 
 async def assemble_memory_packets(
@@ -31,7 +53,9 @@ async def assemble_memory_packets(
     used_entities: set[str] = set()
     used_episodes: set[str] = set()
 
-    for result in results:
+    ordered_results = sorted(results, key=_result_assembly_priority, reverse=True)
+
+    for result in ordered_results:
         if len(packets) >= max_packets:
             break
 

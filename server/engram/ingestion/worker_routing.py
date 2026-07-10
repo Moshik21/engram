@@ -7,12 +7,17 @@ from types import SimpleNamespace
 from typing import Any
 
 from engram.config import ActivationConfig
+from engram.extraction.promotion import is_auto_capture_source
 from engram.ingestion.projection_state import sync_projection_state
 from engram.models.episode import EpisodeProjectionState
 from engram.retrieval.triage_policy import TriageDecision
 from engram.storage.protocols import GraphStore
 
 logger = logging.getLogger(__name__)
+
+# Auto-capture must not flood the graph with empty "projected" shells.
+# Only extract when triage score is clearly high (agent remember bypasses worker).
+_AUTO_CAPTURE_EXTRACT_SCORE_FLOOR = 0.85
 
 
 class EpisodeWorkerProjectionRouter:
@@ -58,6 +63,33 @@ class EpisodeWorkerProjectionRouter:
     ) -> bool:
         """Apply skip/defer state changes and return whether to project now."""
         if decision.action == "extract":
+            episode = await self._load_episode(episode_id, group_id)
+            source = str(getattr(episode, "source", "") or "") if episode is not None else ""
+            if (
+                is_auto_capture_source(source)
+                and float(decision.score or 0.0) < _AUTO_CAPTURE_EXTRACT_SCORE_FLOOR
+            ):
+                logger.debug(
+                    "Worker: cue-only auto-capture %s (score=%.3f < %.2f floor)",
+                    episode_id,
+                    decision.score,
+                    _AUTO_CAPTURE_EXTRACT_SCORE_FLOOR,
+                )
+                await sync_projection_state(
+                    self._graph,
+                    episode_id,
+                    group_id=group_id,
+                    state=EpisodeProjectionState.CUE_ONLY,
+                    reason="auto_capture_cue_only",
+                    episode_updates={
+                        "status": "completed",
+                        "skipped_triage": True,
+                    },
+                    cue_layer_enabled=self._cfg.cue_layer_enabled,
+                    cue_reason="auto_capture_cue_only",
+                    log_prefix="Worker",
+                )
+                return False
             logger.debug(
                 "Worker: extract immediately %s (score=%.3f)",
                 episode_id,

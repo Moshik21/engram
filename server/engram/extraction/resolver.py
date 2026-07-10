@@ -13,21 +13,52 @@ from engram.models.entity import Entity
 FUZZY_MATCH_THRESHOLD = 85  # 0-100 scale (rapidfuzz uses integers)
 
 
-def validate_entity_name(name: str) -> bool:
+def validate_entity_name(
+    name: str,
+    *,
+    max_words: int = 5,
+    entity_type: str | None = None,
+    client_proposal: bool = False,
+) -> bool:
     """Validate that a name is plausible as an entity name.
 
     Rejects:
     - Names shorter than 2 characters
-    - Names longer than 5 words (likely sentence fragments)
+    - Names longer than ``max_words`` (default 5 — blocks sentence fragments
+      from narrow/regex extractors)
     - All-lowercase names (unless they contain dots/slashes indicating tech tokens)
+
+    Agent-promoted Decision/Preference/Correction names are often short
+    statements ("LongMemEval is not the product north star") — allow up to 24
+    words for client proposals and high-signal durable types.
     """
     stripped = name.strip()
     if len(stripped) < 2:
         return False
-    if len(stripped.split()) > 5:
+
+    word_limit = max_words
+    if client_proposal or (
+        entity_type
+        in {
+            "Decision",
+            "Preference",
+            "Correction",
+            "Goal",
+            "Commitment",
+        }
+    ):
+        word_limit = max(word_limit, 24)
+
+    if len(stripped.split()) > word_limit:
         return False
     # All-lowercase names are not proper nouns — except tech tokens with dots/slashes
-    if stripped == stripped.lower() and "." not in stripped and "/" not in stripped:
+    # Client proposals may be intentionally lowercase preference phrases.
+    if (
+        not client_proposal
+        and stripped == stripped.lower()
+        and "." not in stripped
+        and "/" not in stripped
+    ):
         form = analyze_name(stripped)
         if form.regime != NameRegime.IDENTIFIER:
             return False

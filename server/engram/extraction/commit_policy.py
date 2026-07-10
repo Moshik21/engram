@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from engram.extraction.evidence import CommitDecision, EvidenceBundle, EvidenceCandidate
+from engram.extraction.promotion import is_high_signal_entity_type
 
 # Signals that warrant cold-start threshold relaxation
 _HIGH_CONFIDENCE_SIGNALS = frozenset(
@@ -16,6 +17,9 @@ _HIGH_CONFIDENCE_SIGNALS = frozenset(
         "workplace_declaration",
         "residence_declaration",
         "technical_token",
+        # span_verified / high_signal_type are handled in _decide for client
+        # proposals; do not use them alone to relax cold-start thresholds for
+        # unverified claims.
     }
 )
 
@@ -96,6 +100,30 @@ class AdaptiveCommitPolicy:
     ) -> CommitDecision:
         """Decide commit/defer/reject for a single candidate."""
         conf = candidate.confidence
+        signals = set(candidate.corroborating_signals or [])
+
+        # Agent-promoted facts with verified spans are the product write path.
+        # Do not bury them in the deferred evidence swamp.
+        if (
+            candidate.source_type == "client_proposal"
+            and "span_verified" in signals
+            and "date_conflict" not in signals
+        ):
+            entity_type = ""
+            if candidate.fact_class == "entity":
+                entity_type = str((candidate.payload or {}).get("entity_type") or "")
+            high_signal = (
+                "high_signal_type" in signals
+                or is_high_signal_entity_type(entity_type)
+                or candidate.fact_class == "relationship"
+            )
+            if high_signal or conf >= threshold:
+                return CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="commit",
+                    reason="client_proposal_span_verified",
+                    effective_confidence=conf,
+                )
 
         if conf >= threshold:
             return CommitDecision(

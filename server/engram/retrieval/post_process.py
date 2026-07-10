@@ -17,7 +17,10 @@ from engram.retrieval.context import (
 from engram.retrieval.episode_traversal import RecallEpisodeTraversal
 from engram.retrieval.near_miss import RecallNearMissMaterializer
 from engram.retrieval.priming import RecallPrimingUpdater
-from engram.retrieval.result_selection import filter_current_state_results
+from engram.retrieval.result_selection import (
+    filter_current_state_results,
+    prefer_durable_facts,
+)
 from engram.retrieval.scorer import ScoredResult
 from engram.retrieval.working_memory import RecallWorkingMemoryUpdater, WorkingMemoryBuffer
 
@@ -96,7 +99,9 @@ class RecallPostProcessor:
             fallback=None,
         )
 
-        filtered_results = filter_current_state_results(query, results)
+        filtered_results = prefer_durable_facts(
+            filter_current_state_results(query, results)
+        )
 
         self._working_memory_updater.add_query(
             working_memory,
