@@ -54,7 +54,7 @@ Public tool freeze: `get_context` · `recall` · `observe` · `remember` · `int
 | 3.1 | Continuity smoke: promote 3 → cold context/recall | [x] `evaluation/continuity.py` |
 | 3.2 | Pytest golden path suite | [x] `tests/test_continuity_golden_path.py` |
 | 3.3 | CLI: `engram continuity --smoke` | [x] `__main__.py` |
-| 3.4 | CI job for continuity suite (lite) | [x] `.github/workflows/ci.yml` job `continuity` |
+| 3.4 | CI job for continuity suite (lite) | [~] snippet in `docs/product/CI_CONTINUITY_JOB.md` (local `ci.yml` dirty; needs PAT with `workflow` scope to push) |
 | 3.5 | LongMemEval remains optional / not gate | [x] CI does not require LME |
 
 ---
