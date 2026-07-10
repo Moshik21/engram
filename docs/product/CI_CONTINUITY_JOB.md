@@ -24,11 +24,15 @@ GitHub rejected pushing `.github/workflows/ci.yml` with a token that lacks the
         run: uv sync --frozen --dev
       - name: Continuity suite (product metric, not LongMemEval)
         run: |
-          uv run pytest tests/test_continuity_golden_path.py tests/test_durable_entity_rescue.py tests/test_durable_context_pack.py tests/test_promotion_policy.py -v --tb=short
+          uv run pytest tests/test_continuity_golden_path.py tests/test_durable_entity_rescue.py tests/test_durable_context_pack.py tests/test_promotion_policy.py tests/test_remember_committed_facts.py tests/test_session_promote_nudge_hook.py -v --tb=short
           uv run engram continuity --smoke
         env:
           ENGRAM_MODE: lite
 ```
+
+The same `continuity:` job block is already staged in the **local** working
+tree at `.github/workflows/ci.yml`. Push it with a PAT that includes the
+`workflow` scope (fine-grained: "Workflows" write, or classic `workflow`).
 
 Local gate (works now without workflow push):
 
