@@ -109,16 +109,12 @@ async def _run_captain_command(args: argparse.Namespace) -> int:
     )
     try:
         if args.captain_command == "protect":
-            manager = GraphManager(
-                graph_store=graph_store,
-                activation_store=activation_store,
-                search_index=search_index,
-                extractor=None,
-                cfg=config.activation,
-            )
+            from engram.retrieval.identity_core import IdentityCoreService
+
+            service = IdentityCoreService(graph_store=graph_store)
             results = []
             for name in args.names:
-                result = await manager.mark_identity_core(
+                result = await service.mark_identity_core(
                     name,
                     identity_core=not args.unprotect,
                     group_id=group_id,
