@@ -128,6 +128,12 @@ def test_identity_core_summary_conflict_helper():
         "new correction",
         entity_type="Correction",
     )
+    # Merged-append artifact (what merge_entity_attributes builds) must still
+    # detect conflict when the tail contradicts — never treat as expansion.
+    assert identity_core_summary_conflict(
+        "User prefers markdown handoffs",
+        "User prefers markdown handoffs; User prefers JSON APIs only",
+    )
 
 
 def test_build_evidence_bundle_skips_pipeline_and_external_when_proposals():

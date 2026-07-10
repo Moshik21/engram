@@ -104,6 +104,120 @@ async def test_apply_engine_creates_relationships_from_claims():
 
 
 @pytest.mark.asyncio
+async def test_apply_engine_blocks_identity_core_summary_merge_from_client_proposal():
+    """Ship path: contradictory client proposal must not append into identity_core.
+
+    merge_entity_attributes builds ``old; new``. Protection must compare the
+    *proposed* summary to existing, then strip summary from updates — otherwise
+    protected facts silently grow with conflicting text.
+    """
+    from engram.extraction.harness_metrics import get_harness_metrics, reset_harness_metrics
+
+    reset_harness_metrics()
+    existing = Entity(
+        id="ent_pref",
+        name="Prefer markdown handoffs",
+        entity_type="Preference",
+        summary="User prefers markdown handoffs",
+        identity_core=True,
+        group_id="default",
+    )
+    graph = AsyncMock()
+    graph.find_entity_candidates = AsyncMock(return_value=[existing])
+    graph.create_entity = AsyncMock()
+    graph.link_episode_entity = AsyncMock()
+    graph.update_entity = AsyncMock()
+
+    engine = ApplyEngine(
+        graph_store=graph,
+        activation_store=AsyncMock(),
+        cfg=ActivationConfig(identity_core_enabled=True),
+        canonicalizer=PredicateCanonicalizer(),
+    )
+    episode = Episode(
+        id="ep_conflict",
+        content="User prefers JSON APIs only for agent memory.",
+        group_id="default",
+    )
+    proposed = "User prefers JSON APIs only for agent memory"
+    await engine.apply_entities(
+        [
+            EntityCandidate(
+                name="Prefer markdown handoffs",
+                entity_type="Preference",
+                summary=proposed,
+                raw_payload={
+                    "signals": ["client_proposal", "high_signal_type", "span_verified"],
+                },
+            )
+        ],
+        episode,
+        "default",
+        recall_content=episode.content,
+    )
+
+    # Must resolve to existing entity (not create a second one).
+    graph.create_entity.assert_not_called()
+    assert graph.update_entity.await_count >= 1
+    for call in graph.update_entity.await_args_list:
+        updates = call.args[1] if len(call.args) > 1 else call.kwargs.get("updates", {})
+        summary_update = updates.get("summary") if isinstance(updates, dict) else None
+        # Contradictory proposed text must never land as "old; new" merge.
+        assert summary_update is None or proposed not in str(summary_update)
+        assert "; " not in str(summary_update or "")
+        if summary_update is not None:
+            assert "JSON APIs" not in str(summary_update)
+
+    snap = get_harness_metrics()
+    assert snap.identity_core_conflicts >= 1
+
+
+@pytest.mark.asyncio
+async def test_apply_engine_allows_identity_core_summary_compatible_expansion():
+    """Compatible expansion of protected summary may still update."""
+    existing = Entity(
+        id="ent_pref2",
+        name="Prefer sparse promotion",
+        entity_type="Decision",
+        summary="Prefer sparse promotion",
+        identity_core=True,
+        group_id="default",
+    )
+    graph = AsyncMock()
+    graph.find_entity_candidates = AsyncMock(return_value=[existing])
+    graph.create_entity = AsyncMock()
+    graph.link_episode_entity = AsyncMock()
+    graph.update_entity = AsyncMock()
+
+    engine = ApplyEngine(
+        graph_store=graph,
+        activation_store=AsyncMock(),
+        cfg=ActivationConfig(identity_core_enabled=True),
+        canonicalizer=PredicateCanonicalizer(),
+    )
+    episode = Episode(
+        id="ep_expand",
+        content="Prefer sparse promotion of durable Decisions only.",
+        group_id="default",
+    )
+    await engine.apply_entities(
+        [
+            EntityCandidate(
+                name="Prefer sparse promotion",
+                entity_type="Decision",
+                summary="Prefer sparse promotion of durable Decisions only",
+                raw_payload={"signals": ["client_proposal", "high_signal_type"]},
+            )
+        ],
+        episode,
+        "default",
+        recall_content=episode.content,
+    )
+    # Expansion contains existing phrase → not a conflict; merge may apply.
+    assert graph.update_entity.await_count >= 1
+
+
+@pytest.mark.asyncio
 async def test_apply_engine_promotes_code_like_entities_to_identifier_type():
     graph = AsyncMock()
     graph.find_entity_candidates = AsyncMock(return_value=[])

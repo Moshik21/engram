@@ -149,8 +149,14 @@ def identity_core_summary_conflict(
 ) -> bool:
     """True when a client proposal would silently overwrite a protected summary.
 
+    ``proposed_summary`` must be the **raw proposed text**, never the
+    ``merge_entity_attributes`` result (``f"{old}; {new}"``). Against the merged
+    form, ``old in new`` always holds and this helper would never fire.
+
     Corrections are allowed to rewrite identity_core text. Empty proposed summary
-    is not a conflict (no overwrite). Exact or substring-compatible updates pass.
+    is not a conflict (no overwrite). Exact match is not a conflict. Compatible
+    expansion (proposed contains existing as a contiguous phrase, or vice versa)
+    is allowed only when comparing raw proposed vs existing.
     """
     if not existing_summary or not proposed_summary:
         return False
@@ -162,7 +168,17 @@ def identity_core_summary_conflict(
         return False
     if old == new:
         return False
-    # Compatible expansion (old contained in new or vice versa) is not a conflict.
+    # Reject merged-append artifacts if a caller accidentally passes them:
+    # "existing; proposed" always contains old as a prefix before "; ".
+    if "; " in new and new.startswith(old + "; "):
+        # Strip the known-old prefix and re-evaluate proposed tail alone.
+        tail = new[len(old) + 2 :].strip()
+        if not tail or tail == old:
+            return False
+        new = tail
+        if old == new:
+            return False
+    # Compatible expansion (raw proposed expands existing, or restates a subset).
     if old in new or new in old:
         return False
     return True
