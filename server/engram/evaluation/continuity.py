@@ -370,16 +370,63 @@ async def run_continuity_against_live(
     if require_organic:
         promote_if_missing = False
         synthetic_names = {decision_name}
+
+        def _entities_from(payload: Any) -> list[dict[str, Any]]:
+            if not isinstance(payload, dict):
+                return []
+            rows = payload.get("items") or payload.get("entities") or payload.get("results") or []
+            out: list[dict[str, Any]] = []
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                out.append(
+                    {
+                        "name": row.get("name"),
+                        "entity_type": row.get("entity_type") or row.get("entityType"),
+                        "created_at": row.get("created_at") or row.get("createdAt"),
+                    }
+                )
+            return out
+
+        entities: list[dict[str, Any]] = []
         try:
-            search = _get(
-                "/api/entities/search?type=Decision&limit=100",
-                timeout=20.0,
+            entities = _entities_from(
+                _get("/api/entities/search?type=Decision&limit=100", timeout=20.0)
             )
-            entities = search.get("entities") or search.get("results") or []
         except Exception:
             entities = []
+        if not entities:
+            # Type-only listing silently returns [] on large native brains
+            # (full label scan times out). Fall back to indexed name probes —
+            # promoted Decisions are statements and almost always carry one
+            # of these tokens.
+            seen_names: set[str] = set()
+            for probe in (
+                "decision",
+                "decided",
+                "north star",
+                "strategy",
+                "prefer",
+                "policy",
+                "goal",
+                "commit",
+            ):
+                try:
+                    payload = _get(
+                        "/api/entities/search?q="
+                        + urllib.parse.quote(probe)
+                        + "&type=Decision&limit=25",
+                        timeout=15.0,
+                    )
+                except Exception:
+                    continue
+                for row in _entities_from(payload):
+                    key = str(row.get("name") or "").casefold()
+                    if key and key not in seen_names:
+                        seen_names.add(key)
+                        entities.append(row)
         organic_target = select_aged_organic_decision(
-            entities if isinstance(entities, list) else [],
+            entities,
             min_age_days=min_organic_age_days,
             exclude_names=synthetic_names,
         )
