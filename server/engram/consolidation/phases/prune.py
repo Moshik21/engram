@@ -134,9 +134,94 @@ class PrunePhase(ConsolidationPhase):
                 )
             )
 
+        # Prune 2.0: age/access-qualified low-value Concepts/Artifacts (budgeted).
+        # Still requires zero relationships — never touches identity_core.
+        if getattr(cfg, "consolidation_prune_low_value_enabled", True):
+            remaining = max(0, max_prunes - len(records))
+            if remaining > 0:
+                try:
+                    from engram.consolidation.hygiene_debt import (
+                        LowValueEntityCandidate,
+                        select_low_value_prune_candidates,
+                    )
+
+                    low_limit = min(
+                        remaining,
+                        int(getattr(cfg, "consolidation_prune_low_value_max_per_cycle", 50) or 50),
+                    )
+                    min_lv_age = float(
+                        getattr(cfg, "consolidation_prune_low_value_min_age_days", 30.0) or 30.0
+                    )
+                    max_lv_access = int(
+                        getattr(cfg, "consolidation_prune_low_value_max_access", 1) or 1
+                    )
+                    # Reuse dead-entity scan with slightly looser access — still zero edges.
+                    lv_raw = await graph_store.get_dead_entities(
+                        group_id=group_id,
+                        min_age_days=int(min_lv_age),
+                        limit=low_limit * 3,
+                        max_access_count=max_lv_access,
+                    )
+                    already = {r.entity_id for r in records} | goal_neighbor_ids
+                    lv_candidates: list[LowValueEntityCandidate] = []
+                    for entity in lv_raw or []:
+                        if entity.id in already:
+                            continue
+                        if getattr(entity, "identity_core", False):
+                            continue
+                        age_days = max(
+                            0.0,
+                            (now - entity.created_at.timestamp()) / 86400
+                            if entity.created_at
+                            else min_lv_age + 1,
+                        )
+                        lv_candidates.append(
+                            LowValueEntityCandidate(
+                                entity_id=entity.id,
+                                entity_type=str(entity.entity_type or ""),
+                                access_count=int(entity.access_count or 0),
+                                age_days=age_days,
+                                identity_core=False,
+                                relationship_count=0,
+                            )
+                        )
+                    selected = select_low_value_prune_candidates(
+                        lv_candidates,
+                        min_age_days=min_lv_age,
+                        max_access_count=max_lv_access,
+                        max_relationships=0,
+                        limit=low_limit,
+                    )
+                    for cand in selected:
+                        if len(records) >= max_prunes:
+                            break
+                        entity = await graph_store.get_entity(cand.entity_id, group_id)
+                        if entity is None or getattr(entity, "identity_core", False):
+                            continue
+                        if not dry_run:
+                            await graph_store.delete_entity(
+                                cand.entity_id, soft=True, group_id=group_id
+                            )
+                            await activation_store.clear_activation(cand.entity_id)
+                            await search_index.remove(cand.entity_id)
+                            if context is not None:
+                                context.pruned_entity_ids.add(cand.entity_id)
+                        records.append(
+                            PruneRecord(
+                                cycle_id=cycle_id,
+                                group_id=group_id,
+                                entity_id=cand.entity_id,
+                                entity_name=entity.name if entity else cand.entity_id,
+                                entity_type=cand.entity_type,
+                                reason="low_value_type",
+                            )
+                        )
+                except Exception:
+                    logger.debug("Low-value prune expansion failed", exc_info=True)
+
         return PhaseResult(
             phase=self.name,
-            items_processed=len(candidates),
+            items_processed=len(candidates) + len(records),
             items_affected=len(records),
             duration_ms=_elapsed_ms(t0),
         ), records

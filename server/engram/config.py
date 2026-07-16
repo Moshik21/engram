@@ -1101,6 +1101,83 @@ class ActivationConfig(BaseModel):
     consolidation_pressure_weight_near_miss: float = Field(default=2.0, ge=0.0, le=100.0)
     consolidation_pressure_time_factor: float = Field(default=0.01, ge=0.0, le=1.0)
     consolidation_pressure_cooldown_seconds: float = Field(default=300.0, ge=30.0, le=86400.0)
+    # Hygiene debt → pressure (so 10k deferred is not stuck at pressure ≪ threshold)
+    consolidation_pressure_weight_deferred: float = Field(
+        default=0.02,
+        ge=0.0,
+        le=10.0,
+        description="Pressure per deferred evidence row",
+    )
+    consolidation_pressure_weight_cue_only: float = Field(
+        default=0.01,
+        ge=0.0,
+        le=10.0,
+        description="Pressure per cue_only episode",
+    )
+    consolidation_pressure_weight_debt_near_miss: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=100.0,
+        description="Pressure per cue near-miss in debt scoreboard",
+    )
+    consolidation_pressure_weight_open_adj: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=10.0,
+        description="Pressure per open adjudication request",
+    )
+    consolidation_pressure_weight_orphan: float = Field(default=0.1, ge=0.0, le=10.0)
+    consolidation_pressure_weight_low_value: float = Field(default=0.05, ge=0.0, le=10.0)
+    consolidation_pressure_include_hygiene_debt: bool = Field(
+        default=True,
+        description="Fold hygiene debt scoreboard into pressure when stats are available",
+    )
+    # Budgeted autonomic drains
+    consolidation_cue_hygiene_enabled: bool = Field(default=True)
+    consolidation_cue_hygiene_max_per_cycle: int = Field(default=200, ge=1, le=5000)
+    consolidation_cue_hygiene_min_age_days: float = Field(default=14.0, ge=1.0, le=365.0)
+    consolidation_evidence_drain_max_per_cycle: int = Field(default=500, ge=1, le=10000)
+    consolidation_evidence_drain_max_budget: int = Field(
+        default=5000,
+        ge=100,
+        le=50000,
+        description="Hard cap when scaling evidence drain budget with deferred debt",
+    )
+    consolidation_evidence_adjudication_limit: int = Field(
+        default=200,
+        ge=20,
+        le=5000,
+        description="Max open evidence rows considered for promote/defer per cycle",
+    )
+    consolidation_evidence_stale_reject_days: float = Field(
+        default=21.0,
+        ge=1.0,
+        le=365.0,
+        description="Reject low-value deferred evidence older than this many days",
+    )
+    consolidation_evidence_stale_max_per_cycle: int = Field(
+        default=500,
+        ge=0,
+        le=10000,
+        description="Max stale low-value deferred rows to reject per cycle",
+    )
+    consolidation_evidence_already_exists_max_per_cycle: int = Field(
+        default=500,
+        ge=0,
+        le=10000,
+        description="Max deferred entity rows to drop when name already exists",
+    )
+    consolidation_evidence_force_commit_high_signal_only: bool = Field(
+        default=True,
+        description=(
+            "When forced-commit age is reached, only high-signal/client facts commit; "
+            "pattern sludge is rejected instead of materializing graph noise"
+        ),
+    )
+    consolidation_prune_low_value_enabled: bool = Field(default=True)
+    consolidation_prune_low_value_max_per_cycle: int = Field(default=50, ge=1, le=500)
+    consolidation_prune_low_value_min_age_days: float = Field(default=30.0, ge=7.0, le=365.0)
+    consolidation_prune_low_value_max_access: int = Field(default=1, ge=0, le=10)
 
     # --- Triage (phase 0) ---
     triage_enabled: bool = Field(default=False, description="Enable triage phase in consolidation")

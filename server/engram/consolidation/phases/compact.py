@@ -50,6 +50,27 @@ class AccessHistoryCompactionPhase(ConsolidationPhase):
         items_processed = 0
         items_affected = 0
 
+        # Warm-tier cue hygiene: demote never-used latent cues (budgeted).
+        if getattr(cfg, "consolidation_cue_hygiene_enabled", True):
+            try:
+                from engram.consolidation.cue_hygiene import run_cue_hygiene
+
+                cue_result = await run_cue_hygiene(
+                    graph_store,
+                    group_id,
+                    max_per_cycle=int(
+                        getattr(cfg, "consolidation_cue_hygiene_max_per_cycle", 200) or 200
+                    ),
+                    min_age_days=float(
+                        getattr(cfg, "consolidation_cue_hygiene_min_age_days", 14.0) or 14.0
+                    ),
+                    dry_run=dry_run,
+                )
+                items_processed += cue_result.scanned
+                items_affected += cue_result.demoted
+            except Exception:
+                logger.debug("Cue hygiene during compact failed", exc_info=True)
+
         for entity_id, state in activated:
             if not state.access_history:
                 continue

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
@@ -145,6 +146,21 @@ class ConsolidationScheduler:
             logger.debug("Failed to read open-work backlog metrics", exc_info=True)
             return 0
 
+    async def _hygiene_debt_for_pressure(self) -> Any | None:
+        """Best-effort debt snapshot so pressure sees deferred/cue sludge."""
+        if not getattr(self._cfg, "consolidation_pressure_include_hygiene_debt", True):
+            return None
+        graph_store = self._graph_store
+        if graph_store is None:
+            return None
+        try:
+            from engram.consolidation.hygiene_debt import collect_hygiene_debt_from_store
+
+            return await collect_hygiene_debt_from_store(graph_store, self._group_id)
+        except Exception:
+            logger.debug("Failed to collect hygiene debt for pressure", exc_info=True)
+            return None
+
     async def _backlog_warm_phases(self, now: float) -> set[str] | None:
         cfg = self._cfg
         if not cfg.consolidation_open_work_backlog_enabled:
@@ -231,9 +247,11 @@ class ConsolidationScheduler:
                         pressure is not None
                         and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds
                     ):
+                        debt = await self._hygiene_debt_for_pressure()
                         pressure_value = pressure.get_pressure(
                             self._group_id,
                             self._cfg,
+                            hygiene_debt=debt,
                         )
                         if pressure_value >= self._cfg.consolidation_pressure_threshold:
                             try:
@@ -264,9 +282,11 @@ class ConsolidationScheduler:
                 and pressure is not None
                 and elapsed >= self._cfg.consolidation_pressure_cooldown_seconds
             ):
+                debt = await self._hygiene_debt_for_pressure()
                 pressure_value = pressure.get_pressure(
                     self._group_id,
                     self._cfg,
+                    hygiene_debt=debt,
                 )
                 if pressure_value >= self._cfg.consolidation_pressure_threshold:
                     cycle_trigger = "pressure"

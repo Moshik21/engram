@@ -546,7 +546,15 @@ async def _check_lifecycle_snapshot(
             else stage
             for stage in attention_stages
         ]
-        detail = "lifecycle snapshot loaded with attention: " + ", ".join(attention_labels)
+        # Cue-only attention is graph hygiene (e.g. 8k+ cues), not a continuity
+        # hard-fail. Keep status=warn for visibility but frame the message.
+        if set(attention_stages) == {"cue"}:
+            detail = (
+                "lifecycle hygiene attention (not a continuity fail): cue coverage "
+                f"({cue.get('coverage', 0.0)}); continue using get_context/recall"
+            )
+        else:
+            detail = "lifecycle snapshot loaded with attention: " + ", ".join(attention_labels)
     else:
         detail = "Capture -> Cue -> Project -> Recall -> Consolidate snapshot loaded"
     _add_check(

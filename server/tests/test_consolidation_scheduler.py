@@ -29,7 +29,7 @@ class _FakePressure:
         self._value = pressure_value
         self.reset_called = False
 
-    def get_pressure(self, group_id: str, cfg) -> float:
+    def get_pressure(self, group_id: str, cfg, hygiene_debt=None) -> float:
         return self._value
 
     def reset(self, group_id: str) -> None:

@@ -151,13 +151,76 @@ async def build_api_consolidation_status_surface(
     if pressure and activation_cfg:
         snapshot = pressure.get_snapshot(group_id)
         if snapshot:
+            hygiene_debt = None
+            debt_pressure = 0.0
+            if getattr(activation_cfg, "consolidation_pressure_include_hygiene_debt", True):
+                try:
+                    from engram.api.deps import get_graph_store
+                    from engram.consolidation.hygiene_debt import (
+                        collect_hygiene_debt_from_store,
+                        debt_pressure_contribution,
+                    )
+
+                    graph_store = get_graph_store()
+                    hygiene_debt = await collect_hygiene_debt_from_store(graph_store, group_id)
+                    debt_pressure = debt_pressure_contribution(
+                        hygiene_debt,
+                        weight_deferred=float(
+                            getattr(
+                                activation_cfg,
+                                "consolidation_pressure_weight_deferred",
+                                0.02,
+                            )
+                        ),
+                        weight_cue_only=float(
+                            getattr(
+                                activation_cfg,
+                                "consolidation_pressure_weight_cue_only",
+                                0.01,
+                            )
+                        ),
+                        weight_near_miss=float(
+                            getattr(
+                                activation_cfg,
+                                "consolidation_pressure_weight_debt_near_miss",
+                                0.5,
+                            )
+                        ),
+                        weight_open_adj=float(
+                            getattr(
+                                activation_cfg,
+                                "consolidation_pressure_weight_open_adj",
+                                0.05,
+                            )
+                        ),
+                        weight_orphan=float(
+                            getattr(
+                                activation_cfg,
+                                "consolidation_pressure_weight_orphan",
+                                0.1,
+                            )
+                        ),
+                        weight_low_value=float(
+                            getattr(
+                                activation_cfg,
+                                "consolidation_pressure_weight_low_value",
+                                0.05,
+                            )
+                        ),
+                    )
+                except Exception:
+                    hygiene_debt = None
+            value = pressure.get_pressure(group_id, activation_cfg, hygiene_debt=hygiene_debt)
             result["pressure"] = {
-                "value": round(pressure.get_pressure(group_id, activation_cfg), 2),
+                "value": round(value, 2),
                 "threshold": activation_cfg.consolidation_pressure_threshold,
                 "episodes_since_last": snapshot.episodes_since_last,
                 "entities_created": snapshot.entities_created,
                 "last_cycle_time": snapshot.last_cycle_time,
+                "hygiene_debt_pressure": round(debt_pressure, 2),
             }
+            if hygiene_debt is not None:
+                result["hygiene_debt"] = hygiene_debt.to_dict()
 
     try:
         latest_cycle = await asyncio.wait_for(

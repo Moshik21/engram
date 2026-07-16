@@ -102,6 +102,26 @@ class AdaptiveCommitPolicy:
         conf = candidate.confidence
         signals = set(candidate.corroborating_signals or [])
 
+        # Hot-path junk gate: never store pattern scrap as deferred debt.
+        # (Client proposals still pass through their own trust gates below.)
+        if candidate.source_type != "client_proposal":
+            try:
+                from engram.consolidation.evidence_drain import (
+                    classify_extraction_candidate,
+                )
+
+                junk = classify_extraction_candidate(candidate)
+                if junk.disposition == "reject_junk":
+                    return CommitDecision(
+                        evidence_id=candidate.evidence_id,
+                        action="reject",
+                        reason=f"junk:{junk.reason or 'unspecified'}",
+                        effective_confidence=conf,
+                    )
+            except Exception:
+                # Classification must never break extraction; fall through.
+                pass
+
         # Hard trust gates for harness proposals (no silent fallthrough).
         if candidate.source_type == "client_proposal":
             if "predicate_not_allowed" in signals:

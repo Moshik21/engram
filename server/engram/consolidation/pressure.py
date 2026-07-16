@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.events.bus import EventBus
@@ -31,18 +32,53 @@ class ConsolidationPressure:
         self.failed_dedup_near_misses = 0
         self.last_cycle_time = time.time()
 
-    def compute(self, cfg: ActivationConfig) -> float:
+    def compute(
+        self,
+        cfg: ActivationConfig,
+        *,
+        hygiene_debt: Any | None = None,
+    ) -> float:
         """Compute weighted pressure score.
 
-        pressure = w_ep * episodes + w_ent * entities + w_nm * near_misses + w_t * elapsed_seconds
+        pressure = w_ep * episodes + w_ent * entities + w_nm * near_misses
+                   + w_t * elapsed_seconds + hygiene_debt_contribution
+
+        Hygiene debt (deferred evidence, cue_only, open adjudication, etc.) is
+        optional so event-bus pressure still works without a stats probe.
         """
         elapsed = time.time() - self.last_cycle_time
-        return (
+        base = (
             cfg.consolidation_pressure_weight_episode * self.episodes_since_last
             + cfg.consolidation_pressure_weight_entity * self.entities_created
             + cfg.consolidation_pressure_weight_near_miss * self.failed_dedup_near_misses
             + cfg.consolidation_pressure_time_factor * elapsed
         )
+        if hygiene_debt is not None:
+            from engram.consolidation.hygiene_debt import (
+                HygieneDebtSnapshot,
+                debt_pressure_contribution,
+            )
+
+            debt = hygiene_debt
+            if not isinstance(debt, HygieneDebtSnapshot):
+                # Accept Mapping-like payloads from stats probes
+                from engram.consolidation.hygiene_debt import hygiene_debt_from_stats
+
+                debt = hygiene_debt_from_stats(debt)  # type: ignore[arg-type]
+            base += debt_pressure_contribution(
+                debt,
+                weight_deferred=float(getattr(cfg, "consolidation_pressure_weight_deferred", 0.02)),
+                weight_cue_only=float(getattr(cfg, "consolidation_pressure_weight_cue_only", 0.01)),
+                weight_near_miss=float(
+                    getattr(cfg, "consolidation_pressure_weight_debt_near_miss", 0.5)
+                ),
+                weight_open_adj=float(getattr(cfg, "consolidation_pressure_weight_open_adj", 0.05)),
+                weight_orphan=float(getattr(cfg, "consolidation_pressure_weight_orphan", 0.1)),
+                weight_low_value=float(
+                    getattr(cfg, "consolidation_pressure_weight_low_value", 0.05)
+                ),
+            )
+        return base
 
     @staticmethod
     def open_work_backlog_signal(open_work_count: int, threshold: int) -> float:
@@ -94,12 +130,20 @@ class PressureAccumulator:
         self._tasks.clear()
         self._queues.clear()
 
-    def get_pressure(self, group_id: str, cfg: ActivationConfig) -> float:
+    def get_pressure(
+        self,
+        group_id: str,
+        cfg: ActivationConfig,
+        *,
+        hygiene_debt: Any | None = None,
+    ) -> float:
         """Compute current pressure for a group."""
         pressure = self._pressures.get(group_id)
         if not pressure:
+            if hygiene_debt is not None:
+                return ConsolidationPressure().compute(cfg, hygiene_debt=hygiene_debt)
             return 0.0
-        return pressure.compute(cfg)
+        return pressure.compute(cfg, hygiene_debt=hygiene_debt)
 
     def reset(self, group_id: str) -> None:
         """Reset pressure counters for a group (after a cycle)."""
