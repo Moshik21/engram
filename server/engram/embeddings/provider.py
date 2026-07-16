@@ -169,18 +169,24 @@ class FastEmbedProvider(EmbeddingProvider):
                 self._cache_dir,
             )
 
+    # Broken-model retry backoff: without it a repaired cache required a
+    # process restart ("until model is repaired" was a lie — the latch never
+    # cleared).
+    BROKEN_RETRY_SECONDS = 300.0
+
     def _ensure_model(self) -> Any:
         """Load the ONNX model only when embeddings are actually requested.
 
-        On load failure, mark the provider broken and return None so callers
-        can fall back (BM25) instead of thrashing retries forever.
+        On load failure, mark the provider broken for BROKEN_RETRY_SECONDS and
+        return None so callers can fall back (BM25) instead of thrashing
+        retries; after the backoff a repaired cache heals without a restart.
         """
-        if getattr(self, "_model_broken", False):
+        if self._broken_now():
             return None
         if self._model is not None:
             return self._model
         with self._model_lock:
-            if getattr(self, "_model_broken", False):
+            if self._broken_now():
                 return None
             if self._model is None:
                 try:
@@ -192,6 +198,7 @@ class FastEmbedProvider(EmbeddingProvider):
                     )
                     if self._dimensions <= 0:
                         self._dimensions = self._model.embedding_size  # type: ignore[attr-defined]
+                    self._model_broken_until = 0.0
                     logger.info(
                         "FastEmbedProvider ready: model=%s, dim=%d, cache=%s",
                         self._model_name,
@@ -199,16 +206,27 @@ class FastEmbedProvider(EmbeddingProvider):
                         self._cache_dir,
                     )
                 except Exception as exc:
-                    self._model_broken = True
+                    import time as _time
+
+                    self._model_broken_until = _time.monotonic() + self.BROKEN_RETRY_SECONDS
                     logger.error(
                         "FastEmbedProvider model load failed (cache=%s model=%s): %s. "
-                        "Vector embeds disabled until model is repaired.",
+                        "Vector embeds disabled; retrying in %.0fs.",
                         self._cache_dir,
                         self._model_name,
                         exc,
+                        self.BROKEN_RETRY_SECONDS,
                     )
                     return None
         return self._model
+
+    def _broken_now(self) -> bool:
+        until = getattr(self, "_model_broken_until", 0.0)
+        if not until:
+            return False
+        import time as _time
+
+        return _time.monotonic() < until
 
     @property
     def is_materialized(self) -> bool:
@@ -226,7 +244,11 @@ class FastEmbedProvider(EmbeddingProvider):
     def _embed_sync(self, texts: list[str]) -> list[list[float]]:
         model = self._ensure_model()
         if model is None:
-            return [[] for _ in texts]
+            # Whole-batch failure contract (same as NoopProvider): callers
+            # check `if not vecs`. Returning [[] for _ in texts] here poisoned
+            # stores with present-but-empty vectors that later reads treated
+            # as real (truthy list of falsy vectors).
+            return []
         return [vec.tolist() for vec in model.embed(texts)]
 
     async def embed_query(self, text: str) -> list[float]:

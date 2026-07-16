@@ -99,24 +99,23 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
 
     assert snapshot["backend"] == "helix_native"
     assert snapshot["groupId"] == "default"
+    # Live refresh is never skipped for native anymore (skipping pinned AXI
+    # at "2 episodes" while lifecycle saw 8500+): live counts reflect the
+    # store's current stats.
     assert snapshot["counts"] == {
-        "episodes": 3,
-        "entities": 5,
-        "relationships": 7,
-        "cues": 2,
+        "episodes": 4,
+        "entities": 6,
+        "relationships": 9,
+        "cues": 3,
     }
-    assert snapshot["growthSinceStartup"]["episodes"] == 0
-    assert snapshot["growthSinceStartup"]["entities"] == 0
-    assert snapshot["growthSinceStartup"]["relationships"] == 0
-    assert snapshot["growthSinceStartup"]["cues"] == 0
+    assert snapshot["growthSinceStartup"]["episodes"] == 1
+    assert snapshot["growthSinceStartup"]["entities"] == 1
+    assert snapshot["growthSinceStartup"]["relationships"] == 2
+    assert snapshot["growthSinceStartup"]["cues"] == 1
     assert snapshot["growthSinceStartup"]["bytes"] >= 512
     assert snapshot["disk"]["totalBytes"] >= snapshot["disk"]["startupBytes"]
     assert snapshot["diagnostics"]["live"] is True
-    assert snapshot["diagnostics"]["countsStatus"] == "cached_native_live_skipped"
-    assert (
-        snapshot["diagnostics"]["countsRefreshSkippedReason"]
-        == "helix_native_counts_use_cached_write_through"
-    )
+    assert snapshot["diagnostics"]["countsStatus"] == "live"
     assert snapshot["diagnostics"]["pathsStatus"] == "live"
     assert {item["label"] for item in snapshot["paths"]} >= {
         "Helix native data",
@@ -126,7 +125,8 @@ async def test_storage_diagnostics_reports_paths_counts_and_growth(
         "Capture queue",
         "Server log",
     }
-    assert graph_store.group_ids == ["default"]
+    # The live snapshot now performs a real count read (second call).
+    assert graph_store.group_ids == ["default", "default"]
 
 
 @pytest.mark.asyncio
@@ -239,14 +239,17 @@ async def test_storage_diagnostics_startup_timeout_uses_empty_baseline(
         "cues": 0,
     }
     assert live_snapshot["diagnostics"]["countsStatus"] in {"cached_timeout", "timeout"}
-    assert live_snapshot["diagnostics"]["countsRefreshStatus"] == "idle"
+    # The timed-out read keeps running in the background instead of being
+    # cancelled (cancelling pinned counts stale forever).
+    assert live_snapshot["diagnostics"]["countsRefreshStatus"] == "running"
 
 
 @pytest.mark.asyncio
-async def test_storage_diagnostics_cancels_count_refresh_after_timeout(
+async def test_storage_diagnostics_background_refresh_completes_after_timeout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """A timed-out live read finishes in the background and updates the cache."""
     config = EngramConfig(mode="helix")
     config.helix.transport = "http"
     config.helix.data_dir = str(tmp_path / "helix-native")
@@ -263,18 +266,19 @@ async def test_storage_diagnostics_cancels_count_refresh_after_timeout(
 
     timed_out = await diagnostics.snapshot(live=True, timeout_seconds=0.01)
     assert timed_out["diagnostics"]["countsStatus"] in {"cached_timeout", "timeout"}
-    assert timed_out["diagnostics"]["countsRefreshStatus"] == "idle"
+    assert timed_out["diagnostics"]["countsRefreshStatus"] == "running"
 
-    await asyncio.sleep(0.25)
+    await asyncio.sleep(0.3)
     cached = await diagnostics.snapshot(live=False)
 
+    # The slow read (0.2s) completed and refreshed the cache.
     assert cached["counts"] == {
-        "episodes": 0,
-        "entities": 0,
-        "relationships": 0,
-        "cues": 0,
+        "episodes": 9,
+        "entities": 9,
+        "relationships": 9,
+        "cues": 9,
     }
-    assert cached["diagnostics"]["countsStatus"] == "cached"
+    assert cached["diagnostics"]["countsStatus"] == "background_live"
     assert cached["diagnostics"]["countsRefreshStatus"] == "idle"
 
 

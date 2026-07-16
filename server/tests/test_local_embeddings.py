@@ -24,12 +24,35 @@ except ImportError:
 requires_local = pytest.mark.skipif(not HAS_FASTEMBED, reason="fastembed not installed")
 
 
+def _model_materializes() -> bool:
+    """Whether the real ONNX model can actually load from the local cache.
+
+    Gating on `import fastembed` alone made these tests fail on any machine
+    with an incomplete model cache (the exact incident the stable-cache fix
+    addressed) — the tests should skip, not fail, when the model is absent.
+    """
+    if not HAS_FASTEMBED:
+        return False
+    from engram.embeddings.provider import FastEmbedProvider
+
+    probe = FastEmbedProvider(model="nomic-ai/nomic-embed-text-v1.5")
+    return probe._ensure_model() is not None
+
+
+HAS_LOCAL_MODEL = _model_materializes()
+
+requires_local_model = pytest.mark.skipif(
+    not HAS_LOCAL_MODEL,
+    reason="fastembed model not materialized in local cache",
+)
+
+
 # ---------------------------------------------------------------------------
-# FastEmbedProvider unit tests (require fastembed installed)
+# FastEmbedProvider unit tests (require fastembed + a materialized model)
 # ---------------------------------------------------------------------------
 
 
-@requires_local
+@requires_local_model
 class TestFastEmbedProvider:
     """Tests that exercise the real FastEmbedProvider with ONNX inference."""
 
@@ -81,6 +104,63 @@ class TestFastEmbedProvider:
         for i in range(provider.CACHE_MAX_SIZE + 5):
             await provider.embed_query(f"query {i}")
         assert len(provider._query_cache) == provider.CACHE_MAX_SIZE
+
+
+# ---------------------------------------------------------------------------
+# Broken-model failure contract (no real model needed)
+# ---------------------------------------------------------------------------
+
+
+class TestBrokenModelContract:
+    @pytest.fixture()
+    def broken_provider(self):
+        from engram.embeddings.provider import FastEmbedProvider
+
+        with patch("importlib.util.find_spec", return_value=object()):
+            provider = FastEmbedProvider(model="nomic-ai/nomic-embed-text-v1.5")
+        return provider
+
+    @pytest.mark.asyncio
+    async def test_broken_model_returns_whole_batch_failure(self, broken_provider):
+        """Never [[]]*n — present-but-empty vectors poisoned stores."""
+        with patch.object(broken_provider, "_ensure_model", return_value=None):
+            vecs = await broken_provider.embed(["a", "b", "c"])
+        assert vecs == []
+
+    @pytest.mark.asyncio
+    async def test_broken_model_query_returns_empty(self, broken_provider):
+        with patch.object(broken_provider, "_ensure_model", return_value=None):
+            vec = await broken_provider.embed_query("q")
+        assert vec == []
+
+    def test_broken_latch_expires(self, broken_provider):
+        import time as _time
+
+        broken_provider._model_broken_until = _time.monotonic() + 300
+        assert broken_provider._broken_now() is True
+        broken_provider._model_broken_until = _time.monotonic() - 1
+        assert broken_provider._broken_now() is False
+
+    def test_load_failure_sets_backoff_not_permanent_latch(self, broken_provider):
+        class _Boom:
+            def __init__(self, *a, **k):
+                raise RuntimeError("no model.onnx")
+
+        fake_fastembed = SimpleNamespace(TextEmbedding=_Boom)
+        with patch.dict(sys.modules, {"fastembed": fake_fastembed}):
+            assert broken_provider._ensure_model() is None
+        assert broken_provider._broken_now() is True
+        # Repairing the cache heals after the backoff without a restart.
+        broken_provider._model_broken_until = 0.0
+
+        class _Ok:
+            embedding_size = 768
+
+            def __init__(self, *a, **k):
+                pass
+
+        with patch.dict(sys.modules, {"fastembed": SimpleNamespace(TextEmbedding=_Ok)}):
+            assert broken_provider._ensure_model() is not None
 
 
 # ---------------------------------------------------------------------------

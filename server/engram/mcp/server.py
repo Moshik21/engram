@@ -1557,38 +1557,40 @@ async def get_consolidation_status() -> str:
 # ─── Loop Steward (operator / full surface only) ─────────────────────
 
 
+def _live_activation_cfg():
+    """Runtime activation config (env/profile-resolved) for clamp hard caps.
+
+    A default-constructed ActivationConfig ignores ENGRAM_ACTIVATION__* env,
+    so operator-raised drain caps never reached the steward clamp.
+    """
+    if _activation_cfg is not None:
+        return _activation_cfg
+    from engram.config import EngramConfig
+
+    return EngramConfig().activation
+
+
 @mcp.tool()
 async def loop_status() -> str:
-    """Return active Loop Steward adjustment (or none). Operator surface only."""
-    from engram.loop_adjustment import (
-        load_active_adjustment_async,
-        remaining_ttl_seconds,
-        status_payload,
-    )
+    """Return active Loop Steward adjustment (or none). Operator surface only.
 
-    store = await _get_consolidation_store()
-    adj = await load_active_adjustment_async(_group_id, graph_store=store, clear_if_expired=True)
-    if adj is None:
-        # dual-read file
-        payload = status_payload(_group_id)
-    else:
-        payload = {
-            "group_id": _group_id,
-            "active": True,
-            "adjustment": adj.to_dict(),
-            "remaining_ttl_seconds": round(remaining_ttl_seconds(adj), 1),
-            "regime": adj.regime,
-            "reason": adj.reason,
-            "expires_at": adj.expires_at,
-            "store": "graph",
-        }
-    return json.dumps(payload, default=str)
+    File-first: the runtime (scheduler overlay, mop budgets, worker routing)
+    honors the file, so status must report the same source of truth. The
+    Helix sidecar is an audit mirror, not an authority.
+    """
+    from engram.loop_adjustment import status_payload
+
+    return json.dumps(status_payload(_group_id), default=str)
 
 
 @mcp.tool()
-async def loop_apply(adjustment_json: str, skip_continuity_check: bool = True) -> str:
-    """Apply a LoopAdjustment JSON (operator). Dual-writes file + Helix sidecar when available."""
-    from engram.config import ActivationConfig
+async def loop_apply(adjustment_json: str) -> str:
+    """Apply a LoopAdjustment JSON (operator). Dual-writes file + Helix sidecar when available.
+
+    Apply is unconditional here; the continuity gate is a CLI-only rail
+    (engram loop apply). A former skip_continuity_check parameter was
+    accepted and silently ignored — removed rather than pretend.
+    """
     from engram.loop_adjustment import (
         LoopAdjustment,
         clamp_loop_adjustment,
@@ -1606,7 +1608,7 @@ async def loop_apply(adjustment_json: str, skip_continuity_check: bool = True) -
         return json.dumps({"status": "error", "error": "adjustment_must_be_object"})
     adj = LoopAdjustment.from_mapping(raw)
     adj.group_id = _group_id
-    caps = hard_caps_from_config(ActivationConfig())
+    caps = hard_caps_from_config(_live_activation_cfg())
     result = clamp_loop_adjustment(adj, hard_caps=caps)
     if result.rejected:
         return json.dumps(
@@ -1647,7 +1649,6 @@ async def loop_propose_from_report(
     latency_degraded: bool = False,
 ) -> str:
     """Deterministic propose-from-report (no write). debt_json is hygiene report or debt dict."""
-    from engram.config import ActivationConfig
     from engram.loop_adjustment import hard_caps_from_config, propose_from_report
 
     debt: dict | None = None
@@ -1670,7 +1671,7 @@ async def loop_propose_from_report(
         server_reachable=False if offline else None,
         continuity_ok=continuity_ok,
         latency_degraded=latency_degraded or None,
-        hard_caps=hard_caps_from_config(ActivationConfig()),
+        hard_caps=hard_caps_from_config(_live_activation_cfg()),
     )
     if result.rejected:
         return json.dumps({"status": "error", "error": result.reject_reason})
@@ -1699,7 +1700,6 @@ async def loop_steward_once(
 
     Operator surface only. Public MCP must not expose this.
     """
-    from engram.config import ActivationConfig
     from engram.loop_adjustment import (
         hard_caps_from_config,
         run_steward_once,
@@ -1725,7 +1725,7 @@ async def loop_steward_once(
         server_reachable=False if offline else None,
         continuity_ok=continuity_ok,
         latency_degraded=latency_degraded or None,
-        hard_caps=hard_caps_from_config(ActivationConfig()),
+        hard_caps=hard_caps_from_config(_live_activation_cfg()),
     )
     if payload.get("applied") and not dry_run:
         try:
@@ -1734,9 +1734,12 @@ async def loop_steward_once(
             store = await _get_consolidation_store()
             adj = LoopAdjustment.from_mapping(payload.get("adjustment") or {})
             if adj.reason:
-                await save_active_adjustment_async(adj, graph_store=store)
+                # run_steward_once already wrote+audited the file; mirror to
+                # the graph sidecar only (double-writing duplicated the
+                # apply audit event).
+                await save_active_adjustment_async(adj, graph_store=store, file_write=False)
         except Exception:
-            pass
+            logger.debug("steward-once sidecar mirror failed", exc_info=True)
     return json.dumps(payload, default=str)
 
 

@@ -11,47 +11,31 @@ router = APIRouter(prefix="/api/loop", tags=["loop"])
 
 
 class LoopApplyBody(BaseModel):
+    # NOTE: apply is unconditional on this surface; the continuity gate is a
+    # CLI-only rail (engram loop apply). A former skip_continuity_check field
+    # here was accepted and silently ignored — removed rather than pretend.
     adjustment: dict[str, Any] = Field(default_factory=dict)
-    skip_continuity_check: bool = True
 
 
 @router.get("/status")
 async def get_loop_status(request: Request) -> dict[str, Any]:
-    """Active LoopAdjustment or none. Dual-reads Helix sidecar + file."""
-    from engram.loop_adjustment import (
-        load_active_adjustment_async,
-        remaining_ttl_seconds,
-        status_payload,
-    )
+    """Active LoopAdjustment or none.
 
-    group_id = str(getattr(request.app.state, "default_group_id", None) or "default")
-    # Prefer app-held consolidation store (Helix native sidecar path)
-    store = getattr(request.app.state, "consolidation_store", None)
-    if store is None:
-        state = getattr(request.app, "state", None)
-        store = getattr(state, "consolidation_store", None) if state else None
-    # main.py uses _app_state dict pattern via dependency — fall back module
+    FILE-FIRST: every runtime consumer (scheduler overlay, mop budgets,
+    worker routing) reads the file via load_active_adjustment, so status must
+    report the same source of truth. The Helix sidecar is an audit mirror
+    only — preferring it here showed adjustments the runtime wasn't honoring
+    whenever the CLI (file-only writer) and API (dual writer) diverged.
+    """
+    from engram.loop_adjustment import status_payload
+
+    group_id = "default"
     try:
         from engram.main import _app_state
 
-        store = store or _app_state.get("consolidation_store")
         group_id = str(_app_state.get("default_group_id") or group_id)
     except Exception:
         pass
-
-    if store is not None:
-        adj = await load_active_adjustment_async(group_id, graph_store=store, clear_if_expired=True)
-        if adj is not None:
-            return {
-                "group_id": group_id,
-                "active": True,
-                "adjustment": adj.to_dict(),
-                "remaining_ttl_seconds": round(remaining_ttl_seconds(adj), 1),
-                "regime": adj.regime,
-                "reason": adj.reason,
-                "expires_at": adj.expires_at,
-                "store": "graph",
-            }
     return status_payload(group_id)
 
 
@@ -79,7 +63,14 @@ async def post_loop_apply(body: LoopApplyBody, request: Request) -> dict[str, An
 
     adj = LoopAdjustment.from_mapping(body.adjustment or {})
     adj.group_id = group_id
-    result = clamp_loop_adjustment(adj, hard_caps=hard_caps_from_config(ActivationConfig()))
+    # Live config (env/profile-resolved), not a default-constructed
+    # ActivationConfig — operators who raised drain caps via env expect the
+    # clamp ceiling to follow.
+    try:
+        live_cfg = _app_state.get("config").activation  # type: ignore[union-attr]
+    except Exception:
+        live_cfg = ActivationConfig()
+    result = clamp_loop_adjustment(adj, hard_caps=hard_caps_from_config(live_cfg))
     if result.rejected:
         return {
             "status": "error",

@@ -573,6 +573,9 @@ class GraphManager:
             update_episode_status=self._update_episode_status,
             ambiguity_analyzer=self._ambiguity_analyzer,
             commit_policy=self._commit_policy,
+            create_clarification_intents=(
+                self._evidence_adjudication_service.create_clarification_intents
+            ),
         )
         self._projection_service = EpisodeProjectionService(
             graph_store=self._graph,

@@ -460,11 +460,29 @@ async def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             graph_manager=graph_manager,
         )
         phase_names = _TIER_PHASES.get(args.tier)
+        # Loop Steward overlay: without this the brain (the only process that
+        # runs phases under the hot/cold split) ignored phase_boost/defer and
+        # budget adjustments entirely — they were honored only by the
+        # monolith-role scheduler.
+        try:
+            from engram.loop_adjustment import (
+                effective_activation_config,
+                effective_phase_names,
+                load_active_adjustment,
+            )
+
+            loop_adj = load_active_adjustment(args.group_id)
+            cfg_eff = effective_activation_config(cfg, loop_adj)
+            phase_names = effective_phase_names(phase_names, loop_adj)
+        except Exception:
+            logger.debug("Loop steward overlay skipped", exc_info=True)
+            cfg_eff = cfg
         cycle = await engine.run_cycle(
             group_id=args.group_id,
             trigger="brain-cli",
             dry_run=cfg.consolidation_dry_run,
             phase_names=phase_names,
+            cfg=cfg_eff,
         )
         summary = serialize_cycle_summary(cycle)
         return {

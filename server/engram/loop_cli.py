@@ -157,9 +157,11 @@ def run_loop_command(args: argparse.Namespace) -> int:
     audit = args.audit_path
 
     try:
-        from engram.config import ActivationConfig
+        # EngramConfig resolves ENGRAM_ACTIVATION__* env + profile; a bare
+        # ActivationConfig() silently ignored operator-raised drain caps.
+        from engram.config import EngramConfig
 
-        caps = hard_caps_from_config(ActivationConfig())
+        caps = hard_caps_from_config(EngramConfig().activation)
     except Exception:
         caps = None
 
@@ -256,7 +258,13 @@ def _run_steward_once(
     if args.mop and not args.dry_run:
 
         def mop_fn(*, budget: int, dry_run: bool = False) -> dict[str, Any]:
-            return _run_mop_sync(args, group_id=group_id, budget=budget, dry_run=dry_run)
+            return _run_mop_sync(
+                args,
+                group_id=group_id,
+                budget=budget,
+                dry_run=dry_run,
+                adjustment_path=path,
+            )
 
     payload = run_steward_once(
         debt,
@@ -407,10 +415,13 @@ def _run_mop_sync(
     group_id: str,
     budget: int,
     dry_run: bool,
+    adjustment_path: Path | None = None,
 ) -> dict[str, Any]:
     """Run hygiene mop via existing CLI entry (sync wrapper)."""
     import asyncio
+    import os
     from argparse import Namespace
+    from contextlib import contextmanager
 
     from engram.hygiene_cli import run_hygiene_command
 
@@ -423,12 +434,31 @@ def _run_mop_sync(
         budget=budget,
         format="json",
     )
+
+    @contextmanager
+    def _adjustment_env():
+        # The mop loads the steward overlay via load_active_adjustment's
+        # default path; honor --adjustment-path so a freshly-applied
+        # adjustment actually reaches the drains it authorized.
+        if adjustment_path is None:
+            yield
+            return
+        prev = os.environ.get("ENGRAM_LOOP_ADJUSTMENT_FILE")
+        os.environ["ENGRAM_LOOP_ADJUSTMENT_FILE"] = str(adjustment_path)
+        try:
+            yield
+        finally:
+            if prev is None:
+                os.environ.pop("ENGRAM_LOOP_ADJUSTMENT_FILE", None)
+            else:
+                os.environ["ENGRAM_LOOP_ADJUSTMENT_FILE"] = prev
+
     # Capture stdout from mop JSON emit
     import io
     from contextlib import redirect_stdout
 
     buf = io.StringIO()
-    with redirect_stdout(buf):
+    with _adjustment_env(), redirect_stdout(buf):
         rc = asyncio.run(run_hygiene_command(mop_args))
     text = buf.getvalue()
     try:

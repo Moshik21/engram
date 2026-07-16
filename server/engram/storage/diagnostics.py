@@ -272,11 +272,17 @@ class StorageDiagnostics:
 
         task = asyncio.create_task(self._read_counts_for_refresh(group_id))
         try:
-            counts = await asyncio.wait_for(task, timeout=timeout_seconds)
+            # shield: on timeout the underlying read keeps running (bounded by
+            # BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS) and refreshes the cache
+            # via _finish_count_refresh. Cancelling it pinned counts to a
+            # stale startup baseline forever — the background-refresh
+            # machinery existed but had no caller.
+            counts = await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
         except TimeoutError:
-            task.cancel()
+            self._track_count_refresh(group_id, task)
             LOGGER.warning(
-                "storage count snapshot timed out after %.1f seconds; using cached counts",
+                "storage count snapshot timed out after %.1f seconds; using cached "
+                "counts while the refresh continues in the background",
                 timeout_seconds,
             )
             if cached is not None:

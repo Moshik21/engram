@@ -231,7 +231,10 @@ def clamp_loop_adjustment(
             warnings.append("intake_score_ignored")
             intake.pop("auto_extract_min_score", None)
     if intake.get("pattern_junk_reject") is False:
-        # v1: steward cannot disable pattern junk reject
+        # v1: steward cannot disable pattern junk reject. The knob has no
+        # runtime consumer by design: the hot-path junk gate in
+        # extraction/commit_policy is unconditionally on, so True is simply
+        # the truthful (and only) state.
         warnings.append("pattern_junk_reject_forced_on")
         intake["pattern_junk_reject"] = True
 
@@ -291,6 +294,7 @@ def _load_from_file(
     path: Path | None,
     now: datetime | None,
     clear_if_expired: bool,
+    audit_path: Path | None = None,
 ) -> LoopAdjustment | None:
     store_path = path or default_adjustment_path()
     if not store_path.is_file():
@@ -319,8 +323,10 @@ def _load_from_file(
                     "created_by": adj.created_by,
                     "store": "file",
                 },
+                path=audit_path,
             )
         return None
+    adj._loaded_from = "file"
     return adj
 
 
@@ -331,6 +337,7 @@ def load_active_adjustment(
     now: datetime | None = None,
     clear_if_expired: bool = True,
     graph_store: Any | None = None,
+    audit_path: Path | None = None,
 ) -> LoopAdjustment | None:
     """Load active adjustment: prefer graph/consol store, dual-read file fallback.
 
@@ -347,6 +354,7 @@ def load_active_adjustment(
                 if isinstance(raw, Mapping):
                     adj = LoopAdjustment.from_mapping(raw)
                     if adj.group_id == group_id and not is_expired(adj, now=now):
+                        adj._loaded_from = "graph"
                         return adj
                     if clear_if_expired and is_expired(adj, now=now):
                         clearer = getattr(graph_store, "clear_loop_adjustment_sync", None)
@@ -355,7 +363,13 @@ def load_active_adjustment(
             except Exception:
                 logger.debug("graph sync loop load failed", exc_info=True)
 
-    return _load_from_file(group_id, path=path, now=now, clear_if_expired=clear_if_expired)
+    return _load_from_file(
+        group_id,
+        path=path,
+        now=now,
+        clear_if_expired=clear_if_expired,
+        audit_path=audit_path,
+    )
 
 
 async def load_active_adjustment_async(
@@ -365,6 +379,7 @@ async def load_active_adjustment_async(
     now: datetime | None = None,
     clear_if_expired: bool = True,
     graph_store: Any | None = None,
+    audit_path: Path | None = None,
 ) -> LoopAdjustment | None:
     """Async dual-read: Helix/consol graph store first, then file."""
     if graph_store is not None:
@@ -387,7 +402,13 @@ async def load_active_adjustment_async(
                     return adj
         except Exception:
             logger.debug("graph async loop load failed", exc_info=True)
-    return _load_from_file(group_id, path=path, now=now, clear_if_expired=clear_if_expired)
+    return _load_from_file(
+        group_id,
+        path=path,
+        now=now,
+        clear_if_expired=clear_if_expired,
+        audit_path=audit_path,
+    )
 
 
 def save_active_adjustment(
@@ -439,9 +460,16 @@ async def save_active_adjustment_async(
     path: Path | None = None,
     audit_path: Path | None = None,
     graph_store: Any | None = None,
+    file_write: bool = True,
 ) -> LoopAdjustment:
-    """Dual-write file + Helix/consol graph store."""
-    save_active_adjustment(adj, path=path, audit_path=audit_path, graph_store=None)
+    """Dual-write file + Helix/consol graph store.
+
+    file_write=False mirrors to the graph sidecar only — used when the file
+    was already written (e.g. run_steward_once) so the apply audit event is
+    not duplicated.
+    """
+    if file_write:
+        save_active_adjustment(adj, path=path, audit_path=audit_path, graph_store=None)
     if graph_store is not None:
         try:
             await graph_save_loop_adjustment(graph_store, adj)
@@ -469,18 +497,22 @@ def clear_active_adjustment(
     store_path = path or default_adjustment_path()
     existed = store_path.is_file()
     if existed:
+        keep_file = False
         try:
             raw = json.loads(store_path.read_text(encoding="utf-8"))
             prev_group = str((raw or {}).get("group_id") or "default")
             if prev_group != group_id and isinstance(raw, Mapping):
-                # Different group — leave file
-                return False
+                # Different group — leave the file, but still clear OUR
+                # group's graph sidecar copy below (an early return here
+                # left stale graph copies reported as active).
+                keep_file = True
         except (OSError, json.JSONDecodeError, TypeError):
             pass
-        try:
-            store_path.unlink(missing_ok=True)
-        except OSError:
-            return False
+        if not keep_file:
+            try:
+                store_path.unlink(missing_ok=True)
+            except OSError:
+                return False
     if graph_store is not None:
         clearer = getattr(graph_store, "clear_loop_adjustment_sync", None)
         if callable(clearer):

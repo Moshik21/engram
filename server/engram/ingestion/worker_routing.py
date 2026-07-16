@@ -37,9 +37,14 @@ class EpisodeWorkerProjectionRouter:
             return self._cfg
 
     def auto_capture_extract_score_floor(self, group_id: str = "default") -> float:
-        """Minimum triage score for auto-capture immediate extraction."""
+        """Minimum triage score for auto-capture immediate extraction.
+
+        0.0 is a legal steward value meaning "extract everything" — `or`
+        coercion silently turned it into 0.85, the opposite intent.
+        """
         cfg = self.effective_cfg(group_id)
-        return float(getattr(cfg, "worker_auto_capture_extract_score_floor", 0.85) or 0.85)
+        value = getattr(cfg, "worker_auto_capture_extract_score_floor", None)
+        return 0.85 if value is None else float(value)
 
     async def should_skip_projection(
         self,
