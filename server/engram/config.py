@@ -1034,6 +1034,13 @@ class ActivationConfig(BaseModel):
 
     # --- Reindex after consolidation ---
     consolidation_reindex_max_per_cycle: int = Field(default=200, ge=1, le=5000)
+    consolidation_reindex_fill_missing_vectors: bool = Field(
+        default=True,
+        description=(
+            "During reindex, use leftover cycle budget to backfill active entities "
+            "missing hybrid search vectors (closes permanent HNSW gaps)."
+        ),
+    )
 
     # --- Dream spreading (offline consolidation) ---
     consolidation_dream_enabled: bool = Field(default=False)

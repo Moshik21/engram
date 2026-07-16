@@ -266,6 +266,15 @@ def main():
 
     configure_doctor_parser(doctor_parser)
 
+    # --- index (hybrid entity-vector completeness) ---
+    index_parser = subparsers.add_parser(
+        "index",
+        help="Measure/backfill hybrid entity-vector index completeness",
+    )
+    from engram.index_cli import configure_index_parser
+
+    configure_index_parser(index_parser)
+
     # --- health ---
     subparsers.add_parser("health", help="Check if Engram server is running")
 
@@ -461,6 +470,14 @@ def main():
 
         asyncio.run(run_doctor_command(args))
         return
+
+    # --- index (hybrid entity-vector completeness) ---
+    if args.command == "index":
+        import asyncio
+
+        from engram.index_cli import run_index_command
+
+        sys.exit(asyncio.run(run_index_command(args)))
 
     # --- health ---
     if args.command == "health":
