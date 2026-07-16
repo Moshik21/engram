@@ -34,6 +34,12 @@ engram loop steward-once --format json
 # or: engram axi steward-once --format json
 ```
 
+**Brain windows:** the local server pauses briefly every ~2h while the cold
+brain mops (usually skipped or under a minute). Connection-refused on
+127.0.0.1:8100 is transient — retry shortly. `engramctl start` waits for the
+brain lock, and `steward-once` senses debt over HTTP, so the ritual above is
+safe while the server runs.
+
 Public MCP stays golden-loop only. See `skills/engram-loop-steward/SKILL.md`.
 
 ## AXI

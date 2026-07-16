@@ -210,7 +210,7 @@ Content-Type: application/json
 
 ## How to Recall Memories
 
-**MCP (preferred):** `get_context()` once per session; `recall(query=...)` when prior context matters; `route_question(question=..., project_path=...)` for install/config/current-truth.
+**MCP (preferred):** `get_context()` once per session; `recall(query=..., project_path=...)` when prior context matters. (Operator-only tools like `route_question`/`search_artifacts` are NOT on the public surface — never call them.)
 
 **REST fallback** when MCP is unavailable:
 
@@ -224,43 +224,21 @@ When the user references something from the past or you need relevant context:
 GET http://localhost:8100/api/knowledge/recall?q=<query>&limit=5
 ```
 
-For project-truth questions, route first:
-```
-POST http://localhost:8100/api/knowledge/route
-Content-Type: application/json
+For entity or fact lookup, use `recall` (with `lookup_kind='entities'|'facts'`
+when needed). The public surface is frozen to the golden loop — do not route
+around it with operator REST endpoints.
 
-{"question": "<user question>", "project_path": "<optional project path>"}
-```
-
-Use the returned `answerContract` as response policy, not just source routing.
-If the route says `inspect` or `reconcile`, treat `evidencePlan.requiredNextSources`
-as mandatory. Carry the same `project_path` into artifact/runtime calls before
-answering:
-```
-GET http://localhost:8100/api/knowledge/artifacts/search?q=<query>&project_path=<optional path>&limit=5
-GET http://localhost:8100/api/knowledge/runtime?project_path=<optional path>
-```
-
-To inspect the current brain-loop state for this user/brain:
-```
-GET http://localhost:8100/api/lifecycle/summary
-```
-
-Use this when deciding whether the brain has recent captures, cue coverage,
-projection failures, active recall context, or consolidation cycles before
-running heavier diagnostics.
-
-For entity or fact lookup, use `recall` first. REST `search_entities` / `search_facts` are secondary fallbacks only when MCP `recall` is unavailable.
+**Brain windows:** the local server pauses briefly (typically under a minute)
+every ~2 hours while the cold brain holds the graph. A connection-refused on
+127.0.0.1:8100 is transient — retry shortly rather than concluding Engram is
+down.
 
 ## Guidelines
 
 - Call the context endpoint once at the start of each new conversation
 - For personal continuity turns like "my son did great today" or "talked to Sarah about it", recall first.
-- For install/config/current-truth questions like "how do we install the OpenClaw skill?" or "is full mode rework by default?", call `route`, then satisfy `requiredNextSources` before answering.
-- For decision/history questions like "what did we decide about launching Engram publicly?", treat it as reconciliation: use memory plus artifacts/runtime before answering, and do not use `search_facts` as a substitute for artifact inspection.
-- If `answerContract.operator` is `compare`, contrast raw defaults, shipped install defaults, repo posture, and runtime state when relevant.
-- If `answerContract.operator` is `reconcile` or `unresolved_state_report`, preserve earlier discussion versus current documented or implemented truth.
-- If `answerContract.operator` is `recommend` or `plan`, state the evidence first and then give advice or next steps.
+- For install/config/current-truth questions, prefer native workspace search for exact code truth, `get_context(project_path=...)` for durable decisions, and `recall` for prior discussion.
+- For decision/history questions like "what did we decide about launching Engram publicly?", use `recall` plus `get_context` before answering.
 - When recalling, integrate information naturally. Do not say "my memory system found..."
 - If recall returns no results, do not mention it. Just respond normally.
 - If uncertain whether something is worth remembering, observe it
@@ -271,7 +249,7 @@ For entity or fact lookup, use `recall` first. REST `search_entities` / `search_
 
 - **Activation-aware retrieval**: Memories accessed more frequently and recently rank higher
 - **Knowledge graph**: Entities and relationships are extracted and connected
-- **17-phase consolidation**: Offline cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, mature entities, form schemas, reindex, embed the graph, run microglia cleanup, dissolve low-semantic-gravity noise through immunity, and discover dream associations
+- **Offline consolidation**: cold-brain cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, mature entities, reflect, form schemas, reindex, embed the graph, run microglia cleanup and immunity, and discover dream associations (18 phases; consumers run the bounded 2h mop, not the full pipeline)
 - **Memory maturation**: Entities graduate from episodic (recent) to semantic (durable) over time
 - **Prospective memory**: Set intentions that fire when related topics come up
 - **Dream associations**: Cross-domain creative connections discovered during consolidation
@@ -305,16 +283,16 @@ When an intention fires during recall, act on it naturally without announcing it
 
 ## Consolidation
 
-Engram runs 17 offline consolidation phases that improve memory quality over time:
-triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, immunity, dream.
+Engram runs offline consolidation in a separate cold-brain process:
+triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication,
+replay, prune, compact, mature, semanticize, reflect, schema, reindex,
+graph_embed, microglia, immunity, dream (18 phases). Consumer installs run a
+bounded 2h "mop" (hygiene drains + adjudication + replay + prune) via the
+`dev.engram.brain` LaunchAgent — consolidation never runs inside the hot
+server process, and the REST trigger returns an error on shell-role installs.
 
-To trigger a consolidation cycle manually:
-```
-POST http://localhost:8100/api/consolidation/trigger
-Content-Type: application/json
-
-{"profile": "standard"}
-```
+Operators run cycles with `engram brain run` (never from an agent session
+while the server is up).
 
 To check consolidation status:
 ```
