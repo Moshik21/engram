@@ -178,7 +178,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--profile",
-        choices=["off", "observe", "conservative", "standard"],
+        choices=["off", "observe", "quiet", "conservative", "standard"],
         default="standard",
         help="Consolidation profile preset (default: standard)",
     )

@@ -774,7 +774,12 @@ class ActivationConfig(BaseModel):
     # --- Memory consolidation ---
     consolidation_profile: str = Field(
         default="off",
-        pattern="^(off|observe|conservative|standard)$",
+        pattern="^(off|observe|quiet|conservative|standard)$",
+        description=(
+            "Consolidation preset. 'quiet' is the consumer footprint profile: "
+            "brain work is intended for the cold process (worker off, careful "
+            "phases); pair with ENGRAM_RUNTIME_ROLE=shell on always-on serve."
+        ),
     )
     integration_profile: str = Field(
         default="off",
@@ -2667,6 +2672,41 @@ class ActivationConfig(BaseModel):
             _set("triage_enabled", True)
             _set("worker_enabled", True)
             _set("auto_recall_enabled", True)
+        elif profile == "quiet":
+            # Consumer footprint: careful live consolidation when a cold brain
+            # process runs it; never mass-project via EpisodeWorker. Shell role
+            # additionally refuses in-process scheduler/worker (see runtime_role).
+            _set("consolidation_enabled", True)
+            _set("consolidation_dry_run", False)
+            _set("consolidation_merge_threshold", 0.92)
+            _set("consolidation_prune_min_age_days", 30)
+            _set("consolidation_replay_enabled", True)
+            _set("consolidation_dream_enabled", True)
+            _set("consolidation_infer_pmi_enabled", True)
+            _set("consolidation_pressure_enabled", True)
+            _set("triage_enabled", True)
+            _set("triage_extract_ratio", 0.25)
+            _set("triage_multi_signal_enabled", True)
+            _set("triage_llm_judge_enabled", False)
+            _set("worker_enabled", False)
+            _set("auto_recall_enabled", True)
+            _set("consolidation_cross_encoder_enabled", False)
+            _set("consolidation_merge_multi_signal_enabled", True)
+            _set("consolidation_infer_auto_validation_enabled", True)
+            _set("consolidation_merge_llm_enabled", False)
+            _set("consolidation_infer_llm_enabled", False)
+            _set("graph_embedding_node2vec_enabled", False)
+            _set("memory_maturation_enabled", True)
+            _set("episode_transition_enabled", True)
+            _set("microglia_enabled", True)
+            _set("notification_surfacing_enabled", False)
+            # No local cross-encoder/reranker ONNX in quiet shell (footprint +
+            # avoids startup failure when model cache is incomplete).
+            _set("reranker_enabled", False)
+            # Consumer default recall: wave2 (not "all" rework stack).
+            if "recall_profile" not in self.model_fields_set:
+                recall_profile = "wave2"
+                _set("recall_profile", "wave2", force=True)
         elif profile == "conservative":
             _set("consolidation_enabled", True)
             _set("consolidation_dry_run", False)
@@ -2885,6 +2925,11 @@ class EngramConfig(BaseSettings):
 
     mode: Literal["lite", "full", "helix", "auto"] = "auto"
     default_group_id: str = "default"
+    # Process role for hot-shell / cold-brain split (see docs/design/hot-cold-process-split.md).
+    # shell: always-on serve — no in-process consolidation scheduler or EpisodeWorker
+    # monolith: legacy co-located brain (dogfood / power)
+    # brain: cold one-shot process (CLI); not used for serve
+    runtime_role: Literal["shell", "monolith", "brain"] = "monolith"
 
     # Sub-configs
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -2909,6 +2954,10 @@ class EngramConfig(BaseSettings):
             and "default_group_id" not in self.auth.model_fields_set
         ):
             self.auth.default_group_id = self.default_group_id
+
+    def shell_runs_in_process_brain(self) -> bool:
+        """Whether serve should start scheduler / EpisodeWorker in-process."""
+        return self.runtime_role == "monolith"
 
     def get_sqlite_path(self) -> Path:
         """Return expanded SQLite database path, creating parent dirs."""

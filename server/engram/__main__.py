@@ -86,6 +86,12 @@ def main():
         default=None,
         help="Native Helix data directory for --mode helix.",
     )
+    serve_parser.add_argument(
+        "--role",
+        choices=["shell", "monolith", "brain"],
+        default=None,
+        help="Runtime role (default: ENGRAM_RUNTIME_ROLE / monolith). shell = no in-process brain.",
+    )
 
     # --- mcp ---
     mcp_parser = subparsers.add_parser("mcp", help="Start MCP server")
@@ -292,6 +298,15 @@ def main():
     from engram.loop_cli import configure_loop_parser
 
     configure_loop_parser(loop_parser)
+
+    # --- brain (cold process; not public MCP) ---
+    brain_parser = subparsers.add_parser(
+        "brain",
+        help="Cold-brain process: run consolidation outside the hot shell",
+    )
+    from engram.brain_cli import configure_brain_parser
+
+    configure_brain_parser(brain_parser)
 
     # --- health ---
     subparsers.add_parser("health", help="Check if Engram server is running")
@@ -511,6 +526,12 @@ def main():
 
         sys.exit(run_loop_command(args))
 
+    # --- brain (cold process) ---
+    if args.command == "brain":
+        from engram.brain_cli import run_brain_command
+
+        sys.exit(run_brain_command(args))
+
     # --- health ---
     if args.command == "health":
         import urllib.error
@@ -623,6 +644,9 @@ def _apply_mode_override(args: argparse.Namespace) -> None:
     mode = getattr(args, "mode", None)
     if mode:
         os.environ["ENGRAM_MODE"] = mode
+    role = getattr(args, "role", None)
+    if role:
+        os.environ["ENGRAM_RUNTIME_ROLE"] = role
     helix_data_dir = getattr(args, "helix_data_dir", None)
     if helix_data_dir is not None:
         os.environ["ENGRAM_HELIX__TRANSPORT"] = "native"

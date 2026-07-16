@@ -388,10 +388,13 @@ VOYAGE_API_KEY=${voyage:-}
 ENGRAM_MODE=$engine_mode
 # Golden-loop tool freeze for agents (operator/full for debugging).
 ENGRAM_MCP_SURFACE=${ENGRAM_MCP_SURFACE:-public}
-ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}
-ENGRAM_ACTIVATION__RECALL_PROFILE=${ENGRAM_ACTIVATION__RECALL_PROFILE:-all}
-ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-rework}
-ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-true}
+# Hot shell / cold brain: shell never runs consolidation in-process.
+# Brain cycles: engram brain run (LaunchAgent dev.engram.brain or manual).
+ENGRAM_RUNTIME_ROLE=${ENGRAM_RUNTIME_ROLE:-shell}
+ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-quiet}
+ENGRAM_ACTIVATION__RECALL_PROFILE=${ENGRAM_ACTIVATION__RECALL_PROFILE:-wave2}
+ENGRAM_ACTIVATION__INTEGRATION_PROFILE=${ENGRAM_ACTIVATION__INTEGRATION_PROFILE:-off}
+ENGRAM_ACTIVATION__WORKER_ENABLED=${ENGRAM_ACTIVATION__WORKER_ENABLED:-false}
 FASTEMBED_CACHE_PATH=${FASTEMBED_CACHE_PATH:-$ENGRAM_HOME/models/fastembed}
 
 ENGRAM_AUTH__ENABLED=${ENGRAM_AUTH__ENABLED:-false}
@@ -1262,8 +1265,22 @@ lite_status() {
     storage_path_line "Size:   " "$sqlite_path"
   fi
   dim "Port:   $port"
+  dim "Role:   ${ENGRAM_RUNTIME_ROLE:-monolith}"
   dim "Logs:   $LITE_LOG_FILE"
   dim "Config: $LITE_ENV_FILE"
+  if [ -f "$ENGRAM_HOME/brain-status.json" ]; then
+    local brain_line
+    brain_line="$(python3 -c "
+import json
+from pathlib import Path
+p = Path('$ENGRAM_HOME') / 'brain-status.json'
+d = json.loads(p.read_text())
+print(f\"ok={d.get('ok')} tier={d.get('tier')} finished={d.get('finished_at')} duration_s={d.get('duration_s')}\")
+" 2>/dev/null || echo "present")"
+    dim "Brain:  $brain_line"
+  else
+    dim "Brain:  no runs yet (engram brain run)"
+  fi
   if launch_agent_available; then
     dim "Agent:  $LITE_LAUNCH_AGENT_PLIST"
   fi

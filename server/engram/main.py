@@ -205,8 +205,17 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     if config.activation.notification_temporal_enabled:
         temporal_scanner = TemporalIntentionScanner(notification_store, config.activation)
 
-    # Consolidation scheduler
+    # Consolidation scheduler + EpisodeWorker only in monolith role.
+    # Shell role keeps the golden-loop API small; cold brain is a separate process.
     from engram.consolidation.scheduler import ConsolidationScheduler
+
+    in_process_brain = config.shell_runs_in_process_brain()
+    if not in_process_brain:
+        logger.info(
+            "Runtime role=%s: in-process consolidation scheduler and "
+            "EpisodeWorker disabled (cold brain is external)",
+            config.runtime_role,
+        )
 
     consolidation_scheduler = ConsolidationScheduler(
         consolidation_engine,
@@ -217,7 +226,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         graph_store=graph_store,
         consolidation_store=consolidation_store,
     )
-    if config.activation.consolidation_enabled:
+    if in_process_brain and config.activation.consolidation_enabled:
         consolidation_scheduler.start()
 
     # Background episode worker
@@ -225,7 +234,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     from engram.worker import EpisodeWorker
 
     episode_worker = None
-    if config.activation.worker_enabled:
+    if in_process_brain and config.activation.worker_enabled:
         episode_worker = EpisodeWorker(
             manager,
             config.activation,
