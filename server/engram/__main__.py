@@ -204,6 +204,21 @@ def main():
         help="Max cold recall latency for --against-live (default 2000)",
     )
     continuity_parser.add_argument(
+        "--organic",
+        action="store_true",
+        help=(
+            "Metric v2 for --against-live: target must be a real Decision "
+            "aged >= --min-organic-age-days (no self-promotion) with 0 "
+            "Decision scrap in top-5"
+        ),
+    )
+    continuity_parser.add_argument(
+        "--min-organic-age-days",
+        type=float,
+        default=7.0,
+        help="Minimum age for the organic Decision target (default 7)",
+    )
+    continuity_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON instead of markdown",
@@ -446,6 +461,8 @@ def main():
                 run_continuity_against_live(
                     server_url=getattr(args, "server_url", "http://127.0.0.1:8100"),
                     max_recall_ms=float(getattr(args, "max_recall_ms", 2000.0)),
+                    require_organic=bool(getattr(args, "organic", False)),
+                    min_organic_age_days=float(getattr(args, "min_organic_age_days", 7.0)),
                 )
             )
         else:

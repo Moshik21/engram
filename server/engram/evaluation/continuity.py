@@ -229,17 +229,94 @@ def format_continuity_report(result: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def select_aged_organic_decision(
+    entities: list[dict[str, Any]],
+    *,
+    min_age_days: float = 7.0,
+    exclude_names: set[str] | None = None,
+    now: Any = None,
+) -> dict[str, Any] | None:
+    """Pick a real, aged Decision the gate must recall (no self-promotion).
+
+    The v1 gate could write a synthetic Decision and immediately recall it —
+    verifying write→read round-trip, not durable continuity. An organic
+    target must be ≥ min_age_days old, non-noise, and not gate-created.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from engram.extraction.promotion import is_decision_statement_noise
+
+    if now is None:
+        now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=min_age_days)
+    excluded = {n.casefold() for n in (exclude_names or set())}
+    candidates: list[tuple[Any, dict[str, Any]]] = []
+    for ent in entities:
+        if not isinstance(ent, dict):
+            continue
+        name = str(ent.get("name") or "").strip()
+        if not name or name.casefold() in excluded:
+            continue
+        if str(ent.get("entity_type") or "") != "Decision":
+            continue
+        if is_decision_statement_noise(name):
+            continue
+        raw_created = ent.get("created_at") or ent.get("createdAt")
+        if not raw_created:
+            continue
+        try:
+            created = datetime.fromisoformat(str(raw_created).replace("Z", "+00:00"))
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if created <= cutoff:
+            candidates.append((created, ent))
+    if not candidates:
+        return None
+    # Newest qualifying Decision: aged enough to prove durability, recent
+    # enough to still matter.
+    candidates.sort(key=lambda pair: pair[0], reverse=True)
+    return candidates[0][1]
+
+
+def count_decision_scrap_top5(recall_payload: dict[str, Any]) -> int:
+    """WEEKLY_NORTH_STAR anti-metric: decision_statement scrap in top-5."""
+    from engram.extraction.promotion import is_decision_statement_noise
+
+    scrap = 0
+    items = recall_payload.get("items") or recall_payload.get("results") or []
+    for item in items[:5]:
+        if not isinstance(item, dict):
+            continue
+        ent = item.get("entity") if isinstance(item.get("entity"), dict) else item
+        if not isinstance(ent, dict):
+            continue
+        name = str(ent.get("name") or "")
+        if name and is_decision_statement_noise(name):
+            scrap += 1
+    return scrap
+
+
 async def run_continuity_against_live(
     *,
     server_url: str = "http://127.0.0.1:8100",
     decision_name: str = "Cold Decision hit requires healthy search index",
     max_recall_ms: float = 2000.0,
     promote_if_missing: bool = True,
+    require_organic: bool = False,
+    min_organic_age_days: float = 7.0,
 ) -> dict[str, Any]:
     """Product gate: live get_context/recall must surface a Decision on the real brain.
 
     Fails when entity_count > 0 but cold surfaces show 0 Decision hits.
     Optionally promotes a known Decision first, then requires recall < max_recall_ms.
+
+    require_organic=True is metric v2: the target must be a real Decision at
+    least min_organic_age_days old (promote_if_missing is forced off), and
+    Decision scrap in the top-5 results fails the gate. A gate that can
+    self-satisfy by writing its own Decision measures index round-trip, not
+    continuity.
     """
     import json
     import urllib.error
@@ -288,6 +365,61 @@ async def run_continuity_against_live(
             break
 
     promoted: list[dict[str, str]] = []
+    organic_target: dict[str, Any] | None = None
+
+    if require_organic:
+        promote_if_missing = False
+        synthetic_names = {decision_name}
+        try:
+            search = _get(
+                "/api/entities/search?type=Decision&limit=100",
+                timeout=20.0,
+            )
+            entities = search.get("entities") or search.get("results") or []
+        except Exception:
+            entities = []
+        organic_target = select_aged_organic_decision(
+            entities if isinstance(entities, list) else [],
+            min_age_days=min_organic_age_days,
+            exclude_names=synthetic_names,
+        )
+        if organic_target is None:
+            if entity_count == 0:
+                return {
+                    "title": "Continuity against live brain (aged organic)",
+                    "status": "skipped",
+                    "passed": True,
+                    "mode": "live",
+                    "note": "empty brain: no organic Decisions to age yet",
+                    "entity_count": entity_count,
+                    "episode_count": episode_count,
+                    "data_dir": data_dir,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                    "metric": (
+                        f"Aged (≥{min_organic_age_days:.0f}d) organic Decision "
+                        "recallable within budget, 0 scrap in top-5"
+                    ),
+                }
+            return {
+                "title": "Continuity against live brain (aged organic)",
+                "status": "failed",
+                "passed": False,
+                "mode": "live",
+                "error": (
+                    f"no organic Decision ≥{min_organic_age_days:.0f} days old is "
+                    "listable — either none survived consolidation or none were "
+                    "ever promoted (the v1 synthetic gate masked this)"
+                ),
+                "entity_count": entity_count,
+                "episode_count": episode_count,
+                "data_dir": data_dir,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                "metric": (
+                    f"Aged (≥{min_organic_age_days:.0f}d) organic Decision "
+                    "recallable within budget, 0 scrap in top-5"
+                ),
+            }
+        decision_name = str(organic_target.get("name"))
 
     def _recall_once() -> tuple[dict[str, Any], float]:
         recall_q = urllib.parse.quote(decision_name)
@@ -399,15 +531,45 @@ async def run_continuity_against_live(
     if not recall_hit:
         passed = False
 
+    # Precision anti-metric (WEEKLY_NORTH_STAR): decision_statement scrap in
+    # the top-5. Reported always; hard-fails the aged-organic gate.
+    decision_scrap_top5 = count_decision_scrap_top5(recall_payload)
+    if require_organic and decision_scrap_top5 > 0:
+        passed = False
+
+    # Availability (blind spot of v1: the gate only ran "when the shell was
+    # up", so multi-hour brain-window outages never failed anything).
+    availability: dict[str, Any] | None = None
+    try:
+        from engram.brain_runtime import read_brain_status
+        from engram.ops_metrics import brain_status_anomalies, compute_shell_availability
+
+        availability = compute_shell_availability().to_dict()
+        availability["brain_anomalies"] = brain_status_anomalies(read_brain_status())
+    except Exception:
+        availability = None
+
+    title = "Continuity against live brain"
+    metric = (
+        f"Live cold recall surfaces Decision within {max_recall_ms:.0f}ms "
+        "(fails if entity_count>0 and zero Decision hits)"
+    )
+    if require_organic:
+        title = "Continuity against live brain (aged organic)"
+        metric = (
+            f"Aged (≥{min_organic_age_days:.0f}d) organic Decision recallable "
+            f"within {max_recall_ms:.0f}ms, 0 Decision scrap in top-5"
+        )
+
     return {
-        "title": "Continuity against live brain",
+        "title": title,
         "status": "passed" if passed else "failed",
         "passed": passed,
         "mode": "live",
-        "metric": (
-            f"Live cold recall surfaces Decision within {max_recall_ms:.0f}ms "
-            "(fails if entity_count>0 and zero Decision hits)"
-        ),
+        "metric": metric,
+        "organic_target": (organic_target or {}).get("name") if require_organic else None,
+        "decision_scrap_top5": decision_scrap_top5,
+        "availability": availability,
         "entity_count": entity_count,
         "episode_count": episode_count,
         "data_dir": data_dir,

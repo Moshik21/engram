@@ -173,6 +173,8 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
         _check_server(args, checks)
         _check_mcp(args, checks)
 
+    _check_brain_status(checks)
+
     smoke_report = None
     if args.no_smoke:
         _add_check(checks, "brain_loop_smoke", "skipped", "brain-loop smoke skipped")
@@ -734,6 +736,61 @@ def _check_promotion_window(checks: list[dict[str, Any]]) -> None:
         f"cannot write promotion window parent {parent}",
         metadata,
     )
+
+
+def _check_brain_status(checks: list[dict[str, Any]]) -> None:
+    """Surface cold-brain anomalies: failures, staleness, sleep-spanning runs.
+
+    The overnight 10h44m shell outage was invisible to every health surface;
+    doctor now reads brain-status.json and the shell availability log.
+    """
+    try:
+        from engram.brain_runtime import read_brain_status
+        from engram.ops_metrics import brain_status_anomalies, compute_shell_availability
+
+        status = read_brain_status()
+        anomalies = brain_status_anomalies(status)
+        availability = compute_shell_availability()
+        metadata: dict[str, Any] = {
+            "last_run_ok": (status or {}).get("ok"),
+            "last_run_finished_at": (status or {}).get("finished_at"),
+            "system_slept": (status or {}).get("system_slept"),
+            "availability_pct_24h": availability.availability_pct,
+            "max_outage_seconds_24h": availability.max_outage_seconds,
+            "outage_count_24h": availability.outage_count,
+        }
+        if status is None:
+            _add_check(
+                checks,
+                "brain_status",
+                "skipped",
+                "no cold-brain runs recorded (brain LaunchAgent not installed?)",
+                metadata,
+            )
+            return
+        if anomalies:
+            _add_check(
+                checks,
+                "brain_status",
+                "warn",
+                "; ".join(anomalies),
+                metadata,
+            )
+            return
+        avail_note = (
+            f"availability {availability.availability_pct}%/24h"
+            if availability.availability_pct is not None
+            else "availability n/a"
+        )
+        _add_check(
+            checks,
+            "brain_status",
+            "pass",
+            f"last brain run ok ({avail_note}, max outage {availability.max_outage_seconds:.0f}s)",
+            metadata,
+        )
+    except Exception as exc:
+        _add_check(checks, "brain_status", "warn", f"brain status check failed: {exc}")
 
 
 def _check_mcp_surface(checks: list[dict[str, Any]]) -> None:

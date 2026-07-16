@@ -504,8 +504,19 @@ def run_brain_command(args: argparse.Namespace) -> int:
     cmd = getattr(args, "brain_command", None)
     if cmd == "status":
         status = read_brain_status()
+        try:
+            from engram.ops_metrics import brain_status_anomalies, compute_shell_availability
+
+            anomalies = brain_status_anomalies(status)
+            availability = compute_shell_availability().to_dict()
+        except Exception:
+            anomalies = []
+            availability = None
         if getattr(args, "format", "text") == "json":
-            print(json.dumps(status or {"ok": None, "message": "no runs yet"}, indent=2))
+            payload = dict(status or {"ok": None, "message": "no runs yet"})
+            payload["anomalies"] = anomalies
+            payload["shell_availability_24h"] = availability
+            print(json.dumps(payload, indent=2, default=str))
         elif not status:
             print("Brain: no runs yet (status file missing)")
         else:
@@ -514,6 +525,14 @@ def run_brain_command(args: argparse.Namespace) -> int:
                 f"profile={status.get('profile')} finished={status.get('finished_at')} "
                 f"duration_s={status.get('duration_s')} paused_shell={status.get('paused_shell')}"
             )
+            if availability and availability.get("availability_pct") is not None:
+                print(
+                    f"  shell availability 24h: {availability['availability_pct']}% "
+                    f"(outages={availability['outage_count']}, "
+                    f"max={availability['max_outage_seconds']}s)"
+                )
+            for anomaly in anomalies:
+                print(f"  anomaly: {anomaly}", file=sys.stderr)
             if status.get("error"):
                 print(f"  error: {status['error']}", file=sys.stderr)
         return 0
