@@ -20,9 +20,14 @@ from typing import Any
 
 from engram.brain_runtime import (
     BrainStatus,
+    clear_pause_marker,
     exclusive_brain_lock,
+    on_battery_power,
     read_brain_status,
+    read_pause_marker,
+    serve_process_alive,
     utc_now_iso,
+    write_pause_marker,
 )
 from engram.consolidation.phase_registry import CONSOLIDATION_PHASE_TIERS
 
@@ -98,6 +103,20 @@ def configure_brain_parser(parser: argparse.ArgumentParser) -> None:
         default=1000,
         help="Mop budget (tier=mop only; default 1000)",
     )
+    run_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip the battery-power gate and the no-work preflight",
+    )
+    run_p.add_argument(
+        "--deadline-seconds",
+        type=float,
+        default=None,
+        help=(
+            "Hard runtime bound for the cycle (default: "
+            "ENGRAM_BRAIN_DEADLINE_SECONDS or 1800; 0 disables)"
+        ),
+    )
 
     status_p = sub.add_parser("status", help="Show last cold-brain run status")
     status_p.add_argument(
@@ -126,42 +145,37 @@ def _api_port() -> int:
         return 8100
 
 
+class BrainPauseError(RuntimeError):
+    """The shell could not be confirmed stopped; the graph must not be opened."""
+
+
+_ENGRAMCTL_CANDIDATES = (
+    ["engramctl"],
+    [str(Path.home() / "Engram" / "installer" / "engramctl")],
+)
+
+
 def _pause_shell() -> bool:
-    """Stop LaunchAgent/shell if possible. Returns True if we stopped something."""
-    if not _shell_healthy(_api_port()):
-        return False
-    # Prefer engramctl when on PATH
-    for cmd in (
-        ["engramctl", "stop"],
-        [str(Path.home() / "Engram" / "installer" / "engramctl"), "stop"],
-    ):
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
+    """Confirm exclusive graph access by stopping a healthy shell.
+
+    Returns True when this run stopped the shell, False when the shell is
+    already fully down (no serve process). Raises BrainPauseError whenever the
+    shell might still hold the graph — the caller must abort, never
+    "proceed carefully".
+    """
+    port = _api_port()
+    if not _shell_healthy(port):
+        if serve_process_alive():
+            raise BrainPauseError(
+                "an 'engram serve' process exists but /health is not responding "
+                "(starting or stopping); refusing to open the graph concurrently"
             )
-            if result.returncode == 0:
-                logger.info("Paused shell via %s", cmd[0])
-                # wait until health fails
-                for _ in range(30):
-                    if not _shell_healthy(_api_port()):
-                        return True
-                    time.sleep(0.5)
-                return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            continue
-    logger.warning("Could not pause shell via engramctl; proceeding carefully")
-    return False
-
-
-def _resume_shell() -> None:
-    for cmd in (
-        ["engramctl", "start"],
-        [str(Path.home() / "Engram" / "installer" / "engramctl"), "start"],
-    ):
+        return False
+    # Marker first: if we die after stopping the shell, the next run (or
+    # engramctl) knows the shell was stranded by a brain window.
+    write_pause_marker()
+    for base in _ENGRAMCTL_CANDIDATES:
+        cmd = [*base, "stop"]
         try:
             result = subprocess.run(
                 cmd,
@@ -170,12 +184,112 @@ def _resume_shell() -> None:
                 timeout=120,
                 check=False,
             )
-            if result.returncode == 0:
-                logger.info("Resumed shell via %s", cmd[0])
-                return
+        except FileNotFoundError:
+            continue
+        except subprocess.TimeoutExpired:
+            # State unknown; keep the marker so resume is attempted.
+            raise BrainPauseError(f"'{cmd[0]} stop' timed out; shell state unknown") from None
+        if result.returncode == 0:
+            logger.info("Paused shell via %s", cmd[0])
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                if not _shell_healthy(port) and not serve_process_alive():
+                    return True
+                time.sleep(0.5)
+            raise BrainPauseError("shell still up 60s after engramctl stop; refusing to proceed")
+    # engramctl unavailable while the shell is healthy: nothing was stopped.
+    clear_pause_marker()
+    raise BrainPauseError(
+        "could not stop the running shell (engramctl not found); "
+        "aborting instead of double-opening the graph"
+    )
+
+
+def _resume_shell() -> bool:
+    """Restart the shell; clear the pause marker only once health confirms."""
+    for base in _ENGRAMCTL_CANDIDATES:
+        cmd = [*base, "start"]
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
-    logger.warning("Could not resume shell via engramctl")
+        if result.returncode == 0:
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline:
+                if _shell_healthy(_api_port()):
+                    logger.info("Resumed shell via %s", cmd[0])
+                    clear_pause_marker()
+                    return True
+                time.sleep(1.0)
+    logger.warning("Could not confirm shell resume; pause marker retained for the next run")
+    return False
+
+
+def _preflight_skip_no_work(args: argparse.Namespace) -> bool:
+    """Ask the still-running shell whether a mop window has any actionable work.
+
+    Most windows historically drained nothing while costing minutes of shell
+    downtime; skipping them costs nothing — the debt is re-checked in 2h.
+    """
+    if getattr(args, "tier", None) != "mop" or not args.pause_shell:
+        return False
+    if getattr(args, "dry_run", None):
+        return False
+    if not _shell_healthy(_api_port()):
+        return False
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{_api_port()}/api/hygiene/debt", timeout=8
+        ) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return False
+    should = (payload.get("pressure") or {}).get("should_trigger_mop")
+    return should is False
+
+
+def _install_sigterm_handler() -> None:
+    """Convert SIGTERM into SystemExit so finally blocks (resume, status) run."""
+    import signal
+
+    def _terminate(signum: int, _frame: Any) -> None:
+        raise SystemExit(128 + signum)
+
+    try:
+        signal.signal(signal.SIGTERM, _terminate)
+    except (ValueError, OSError):  # non-main thread / unsupported platform
+        pass
+
+
+def _deadline_seconds(args: argparse.Namespace) -> float:
+    override = getattr(args, "deadline_seconds", None)
+    if override is not None:
+        return float(override)
+    raw = os.environ.get("ENGRAM_BRAIN_DEADLINE_SECONDS", "1800")
+    try:
+        return float(raw)
+    except ValueError:
+        return 1800.0
+
+
+async def _run_cycle_with_deadline(args: argparse.Namespace) -> dict[str, Any]:
+    deadline = _deadline_seconds(args)
+    if deadline <= 0:
+        return await _run_cycle(args)
+    try:
+        return await asyncio.wait_for(_run_cycle(args), timeout=deadline)
+    except TimeoutError:
+        raise RuntimeError(
+            f"brain run exceeded {deadline:.0f}s deadline and was cancelled"
+        ) from None
 
 
 async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
@@ -373,49 +487,118 @@ def run_brain_command(args: argparse.Namespace) -> int:
         print(f"Unknown brain command: {cmd}", file=sys.stderr)
         return 2
 
+    force = bool(getattr(args, "force", False))
+    # Stranded-shell recovery: a leftover pause marker with the shell down
+    # means a previous window died after stopping the shell — bring it back
+    # before anything else (including skip paths). Never while another brain
+    # holds the lock: its window legitimately has the shell paused.
+    from engram.brain_runtime import brain_lock_is_held
+
+    if (
+        read_pause_marker() is not None
+        and not _shell_healthy(_api_port())
+        and not brain_lock_is_held()
+    ):
+        logger.warning("Pause marker found with shell down; resuming stranded shell")
+        _resume_shell()
+    if not force and args.pause_shell and on_battery_power():
+        print(
+            "Brain run skipped: on battery power "
+            "(sleep would strand the paused shell; --force to override)"
+        )
+        return 0
+    if not force and _preflight_skip_no_work(args):
+        print("Brain run skipped: shell reports no actionable hygiene work")
+        return 0
+    if not args.pause_shell and not force and _shell_healthy(_api_port()):
+        print(
+            "Brain: shell is running; --no-pause-shell would double-open the graph. "
+            "Stop the shell or pass --force.",
+            file=sys.stderr,
+        )
+        return 2
+
+    _install_sigterm_handler()
     started = time.time()
+    started_mono = time.monotonic()
     started_at = utc_now_iso()
     paused = False
+    resume_needed = False
+    lock_skipped = False
+    signalled = False
     result: dict[str, Any] | None = None
     error: str | None = None
     try:
+        # NOTE: the shell is resumed in the OUTER finally, after the lock
+        # context exits — the restarting shell waits on brain.lock, so
+        # resuming while still holding it would stall every window.
         with exclusive_brain_lock():
+            # A leftover marker means a previous window stranded the shell.
+            stranded = read_pause_marker() is not None
             if args.pause_shell:
                 paused = _pause_shell()
-            try:
-                result = asyncio.run(_run_cycle(args))
-                if result.get("status") not in {None, "completed"}:
-                    error = result.get("error") or result.get("status")
-            finally:
-                if paused:
-                    _resume_shell()
+            resume_needed = paused or stranded
+            result = asyncio.run(_run_cycle_with_deadline(args))
+            if result.get("status") not in {None, "completed"}:
+                error = result.get("error") or result.get("status")
+    except BrainPauseError as exc:
+        error = f"pause-shell failed: {exc}"
+        logger.error("%s", error)
+        # If the stop was issued (marker written) and the shell ended up down,
+        # bring it back now instead of stranding it until the next window.
+        if read_pause_marker() is not None and not _shell_healthy(_api_port()):
+            resume_needed = True
     except RuntimeError as exc:
+        if "Another brain process holds" in str(exc):
+            # Lock contention: do NOT clobber the running winner's status file.
+            lock_skipped = True
+            error = str(exc)
+            if getattr(args, "format", "text") == "json":
+                print(json.dumps({"ok": False, "error": error, "skipped": True}, indent=2))
+            else:
+                print(f"Brain: {error}", file=sys.stderr)
+            return 1
         error = str(exc)
-        if getattr(args, "format", "text") == "json":
-            print(json.dumps({"ok": False, "error": error}, indent=2))
-        else:
-            print(f"Brain: {error}", file=sys.stderr)
-        return 1
+        logger.exception("Brain cycle failed")
+    except SystemExit as exc:
+        signalled = True
+        error = f"terminated by signal (exit {exc.code})"
+        logger.warning("%s", error)
     except Exception as exc:
         error = str(exc)
         logger.exception("Brain cycle failed")
     finally:
-        finished_at = utc_now_iso()
-        duration = time.time() - started
-        ok = error is None and (result or {}).get("status", "completed") == "completed"
-        BrainStatus(
-            ok=ok,
-            started_at=started_at,
-            finished_at=finished_at,
-            duration_s=round(duration, 3),
-            tier=getattr(args, "tier", "auto"),
-            profile=(result or {}).get("profile") or getattr(args, "profile", None) or "quiet",
-            paused_shell=paused,
-            pid=os.getpid(),
-            error=error,
-            cycle_id=(result or {}).get("cycle_id"),
-            summary=(result or {}).get("summary") or {},
-        ).write()
+        if not lock_skipped:
+            if resume_needed:
+                _resume_shell()
+            finished_at = utc_now_iso()
+            duration = time.time() - started
+            duration_mono = time.monotonic() - started_mono
+            slept = (duration - duration_mono) > 60.0
+            if slept:
+                logger.warning(
+                    "System slept during brain run: wall=%.0fs monotonic=%.0fs",
+                    duration,
+                    duration_mono,
+                )
+            ok = error is None and (result or {}).get("status", "completed") == "completed"
+            BrainStatus(
+                ok=ok,
+                started_at=started_at,
+                finished_at=finished_at,
+                duration_s=round(duration, 3),
+                tier=getattr(args, "tier", "auto"),
+                profile=(result or {}).get("profile") or getattr(args, "profile", None) or "quiet",
+                paused_shell=paused,
+                pid=os.getpid(),
+                error=error,
+                cycle_id=(result or {}).get("cycle_id"),
+                summary=(result or {}).get("summary") or {},
+                duration_monotonic_s=round(duration_mono, 3),
+                system_slept=slept,
+            ).write()
+    if signalled:
+        return 1
 
     payload = {
         "ok": error is None,

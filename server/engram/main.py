@@ -22,6 +22,7 @@ from engram.api.episodes import router as episodes_router
 from engram.api.evaluation import router as evaluation_router
 from engram.api.graph import router as graph_router
 from engram.api.health import router as health_router
+from engram.api.hygiene import router as hygiene_router
 from engram.api.ingest_ws import router as ingest_ws_router
 from engram.api.knowledge import router as knowledge_router
 from engram.api.lifecycle import router as lifecycle_router
@@ -56,8 +57,75 @@ _app_state: dict = {}
 _startup_background_tasks: set[asyncio.Task] = set()
 
 
+async def _wait_for_brain_window(config: EngramConfig) -> None:
+    """Never open the graph while a cold-brain window holds the flock.
+
+    Helix native must not be multi-opened; the brain pauses the shell for its
+    window, so a serve starting mid-window (user, login RunAtLoad) must wait
+    for the lock to clear instead of racing the brain's writes.
+    """
+    from engram.brain_runtime import brain_lock_is_held, brain_lock_path
+
+    try:
+        wait_budget = float(os.environ.get("ENGRAM_BRAIN_LOCK_WAIT_SECONDS", "300"))
+    except ValueError:
+        wait_budget = 300.0
+    if wait_budget <= 0 or not brain_lock_is_held():
+        return
+    logger.warning(
+        "Brain window active (%s held); waiting up to %.0fs before opening the graph",
+        brain_lock_path(),
+        wait_budget,
+    )
+    deadline = asyncio.get_event_loop().time() + wait_budget
+    while asyncio.get_event_loop().time() < deadline:
+        await asyncio.sleep(2.0)
+        if not brain_lock_is_held():
+            logger.info("Brain window cleared; continuing startup")
+            return
+    raise RuntimeError(
+        "brain window still active after "
+        f"{wait_budget:.0f}s (ENGRAM_BRAIN_LOCK_WAIT_SECONDS); refusing to "
+        "multi-open the graph — retry once 'engram brain run' finishes"
+    )
+
+
+def _start_capture_queue_drain(manager: GraphManager, config: EngramConfig) -> None:
+    """Replay offline captures (~/.engram/capture-queue.jsonl) after readiness.
+
+    Captures queued while the shell was down (brain windows, crashes) were
+    previously never replayed automatically — the queue rotted until someone
+    called POST /api/knowledge/replay-queue by hand.
+    """
+
+    async def _drain() -> None:
+        try:
+            from engram.api.knowledge import _dedup_check
+            from engram.ingestion.offline_replay import (
+                build_api_manager_offline_replay_surface,
+            )
+            from engram.utils.offline_queue import drain_queue
+
+            payload = await build_api_manager_offline_replay_surface(
+                manager,
+                drain_queue=drain_queue,
+                dedup_check=_dedup_check,
+                group_id=config.default_group_id,
+            )
+            replayed = payload.get("replayed")
+            if replayed:
+                logger.info("Capture queue drained on startup: %s", payload)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Capture queue startup drain failed", exc_info=True)
+
+    _track_startup_background_task(asyncio.create_task(_drain()))
+
+
 async def _startup(app: FastAPI, config: EngramConfig) -> None:
     """Initialize storage backends and services."""
+    await _wait_for_brain_window(config)
     mode = await resolve_mode(config.mode)
 
     graph_store, activation_store, search_index = create_stores(mode, config)
@@ -343,6 +411,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         _start_predicate_cache_warmup(predicate_cache, config, embedding_provider)
     if config.activation.continuity_startup_warmup_enabled:
         _start_continuity_warmup(manager, config)
+    _start_capture_queue_drain(manager, config)
 
     _app_state.update(
         {
@@ -403,11 +472,20 @@ async def _shutdown() -> None:
     # Stop consolidation scheduler
     await stop_if_supported(_app_state.get("consolidation_scheduler"))
 
-    await run_shutdown_consolidation(
-        _app_state.get("consolidation_engine"),
-        config=_app_state.get("config"),
-        logger=logger,
-    )
+    # Only the monolith role may run in-process consolidation. A shell-role
+    # stop is usually the brain pausing us — running a live cycle here races
+    # the brain's exclusive graph open (observed as zombie 'shutdown' cycles).
+    shutdown_config = _app_state.get("config")
+    if shutdown_config is not None and shutdown_config.shell_runs_in_process_brain():
+        await run_shutdown_consolidation(
+            _app_state.get("consolidation_engine"),
+            config=shutdown_config,
+            logger=logger,
+        )
+    else:
+        engine = _app_state.get("consolidation_engine")
+        if engine is not None and getattr(engine, "is_running", False):
+            engine.cancel()
 
     await close_if_supported(_app_state.get("redis_metering"))
     await close_if_supported(_app_state.get("consolidation_store"))
@@ -718,6 +796,7 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(activation_router)
     app.include_router(admin_router)
     app.include_router(consolidation_router)
+    app.include_router(hygiene_router)
     app.include_router(loop_router)
     app.include_router(evaluation_router)
     app.include_router(ws_router, tags=["websocket"])

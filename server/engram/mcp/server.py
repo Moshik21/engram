@@ -1512,6 +1512,16 @@ async def trigger_consolidation(dry_run: bool = True) -> str:
     Returns:
         JSON with cycle_id and status.
     """
+    if _runtime_config is not None and not _runtime_config.shell_runs_in_process_brain():
+        return json.dumps(
+            {
+                "status": "error",
+                "error": (
+                    f"runtime_role={_runtime_config.runtime_role}: consolidation "
+                    "runs in the cold brain, not the hot shell. Use 'engram brain run'."
+                ),
+            }
+        )
     manager = _get_manager()
 
     store = await resolve_mcp_consolidation_trigger_store(

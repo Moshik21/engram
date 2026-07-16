@@ -59,9 +59,25 @@ def configure_index_parser(parser: argparse.ArgumentParser) -> None:
         default="text",
         help="Output format",
     )
+    parser.add_argument(
+        "--force-local",
+        action="store_true",
+        help="Open the graph even if a shell appears to be running (unsafe)",
+    )
 
 
 async def run_index_command(args: argparse.Namespace) -> int:
+    from engram.brain_runtime import ExclusiveAccessError, require_exclusive_local_access
+
+    try:
+        with require_exclusive_local_access(force=bool(getattr(args, "force_local", False))):
+            return await _run_index_command_locked(args)
+    except ExclusiveAccessError as exc:
+        print(f"index: {exc}", file=sys.stderr)
+        return 2
+
+
+async def _run_index_command_locked(args: argparse.Namespace) -> int:
     from engram.config import EngramConfig
     from engram.storage.bootstrap import (
         close_if_supported,

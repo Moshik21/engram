@@ -1062,6 +1062,47 @@ stop_orphan_local_api_listeners() {
   wait_for_local_offline "$port" 5
 }
 
+brain_lock_is_held() {
+  # Non-destructive probe of the cold-brain flock (~/.engram/brain.lock).
+  local lock="$ENGRAM_HOME/brain.lock"
+  [ -f "$lock" ] || return 1
+  local state
+  state="$(/usr/bin/python3 - "$lock" 2>/dev/null <<'PY'
+import fcntl, sys
+try:
+    fh = open(sys.argv[1], "a+")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        print("free")
+    except BlockingIOError:
+        print("held")
+except OSError:
+    print("free")
+PY
+)"
+  [ "$state" = "held" ]
+}
+
+wait_for_brain_window() {
+  # A brain window holds the graph exclusively; starting serve mid-window
+  # would multi-open Helix native. Wait for the flock to clear.
+  local budget="${ENGRAM_BRAIN_LOCK_WAIT_SECONDS:-300}"
+  brain_lock_is_held || return 0
+  warn "Cold-brain window active (brain.lock held); waiting up to ${budget}s before starting the shell."
+  local waited=0
+  while [ "$waited" -lt "$budget" ]; do
+    sleep 2
+    waited=$((waited + 2))
+    if ! brain_lock_is_held; then
+      info "Brain window cleared after ${waited}s; starting."
+      return 0
+    fi
+  done
+  warn "Brain window still active after ${budget}s; not starting (retry when 'engram brain run' finishes)."
+  return 1
+}
+
 lite_start() {
   load_existing_env "$LITE_ENV_FILE"
   local port="${ENGRAM_API_PORT:-8100}"
@@ -1087,6 +1128,8 @@ lite_start() {
     rm -f "$LITE_PID_FILE"
     stop_orphan_local_api_listeners "$port" || true
   fi
+
+  wait_for_brain_window || return 1
 
   mkdir -p "$LITE_LOG_DIR"
 

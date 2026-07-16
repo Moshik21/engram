@@ -325,7 +325,11 @@ async def test_mop_cli_dry_run_uses_per_knob_steward_budgets(
             side_effect=fake_cue,
         ),
         patch("engram.consolidation.phases.prune.PrunePhase", _FakePhase),
+        # Exclusivity guard: pretend no shell is running so the CLI proceeds.
+        patch("engram.brain_runtime.shell_is_healthy", return_value=False),
+        patch("engram.brain_runtime.serve_process_alive", return_value=False),
     ):
+        monkeypatch.setenv("ENGRAM_HOME", str(tmp_path))
         from engram.hygiene_cli import run_hygiene_command
 
         rc = await run_hygiene_command(args)

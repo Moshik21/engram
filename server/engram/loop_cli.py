@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,8 @@ from engram.loop_adjustment import (
     stamp_applied,
     status_payload,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def configure_loop_parser(parser: argparse.ArgumentParser) -> None:
@@ -297,9 +300,32 @@ def _server_reachable(url: str = "http://127.0.0.1:8100/health") -> bool:
         return False
 
 
+def _collect_live_debt(port: int = 8100) -> dict[str, Any] | None:
+    """Fetch the debt scoreboard from the running shell (no local graph open)."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/hygiene/debt", timeout=8) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or "debt" not in payload:
+        return None
+    return {"debt": payload.get("debt"), "pressure": payload.get("pressure")}
+
+
 def _collect_live_or_offline_debt(args: argparse.Namespace) -> dict[str, Any] | None:
-    """Best-effort debt snapshot for steward-once when no --debt-json provided."""
+    """Best-effort debt snapshot for steward-once when no --debt-json provided.
+
+    Live path first: when the shell answers /health, sense debt over HTTP so
+    this command NEVER opens the native graph next to a running shell. The
+    local open only happens with the shell confirmed down, under the brain
+    flock.
+    """
     import asyncio
+
+    if _server_reachable():
+        return _collect_live_debt()
 
     async def _offline_report() -> dict[str, Any] | None:
 
@@ -364,7 +390,13 @@ def _collect_live_or_offline_debt(args: argparse.Namespace) -> dict[str, Any] | 
                 await close_if_supported(graph_store)
 
     try:
-        return asyncio.run(_offline_report())
+        from engram.brain_runtime import ExclusiveAccessError, require_exclusive_local_access
+
+        with require_exclusive_local_access():
+            return asyncio.run(_offline_report())
+    except ExclusiveAccessError as exc:
+        logger.warning("steward-once local debt sense refused: %s", exc)
+        return None
     except Exception:
         return None
 

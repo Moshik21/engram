@@ -38,6 +38,18 @@ async def trigger_consolidation(
     """Trigger a consolidation cycle. Runs in the background."""
     tenant = get_tenant(request)
     group_id = tenant.group_id
+    config = get_config()
+    if not config.shell_runs_in_process_brain():
+        return JSONResponse(
+            status_code=409,
+            content={
+                "status": "error",
+                "error": (
+                    f"runtime_role={config.runtime_role}: consolidation runs in "
+                    "the cold brain, not the hot shell. Use 'engram brain run'."
+                ),
+            },
+        )
     engine = get_consolidation_engine()
 
     result = build_api_consolidation_trigger_response_surface(

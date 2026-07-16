@@ -46,9 +46,30 @@ def configure_hygiene_parser(parser: argparse.ArgumentParser) -> None:
         choices=["json", "text"],
         default="text",
     )
+    parser.add_argument(
+        "--force-local",
+        action="store_true",
+        help="Open the graph even if a shell appears to be running (unsafe)",
+    )
 
 
 async def run_hygiene_command(args: argparse.Namespace) -> int:
+    from engram.brain_runtime import ExclusiveAccessError, require_exclusive_local_access
+
+    try:
+        with require_exclusive_local_access(force=bool(getattr(args, "force_local", False))):
+            return await _run_hygiene_command_locked(args)
+    except ExclusiveAccessError as exc:
+        print(f"hygiene: {exc}", file=sys.stderr)
+        print(
+            "hygiene: with the shell up, read debt via GET /api/hygiene/debt "
+            "and run drains via 'engram brain run --tier mop'.",
+            file=sys.stderr,
+        )
+        return 2
+
+
+async def _run_hygiene_command_locked(args: argparse.Namespace) -> int:
     from engram.config import EngramConfig
     from engram.consolidation.hygiene_debt import (
         collect_hygiene_debt_from_store,

@@ -55,15 +55,17 @@ body = f"""# Engram Loop Steward nudge
 **Preferred one-shot (operator/CLI/AXI only — never public MCP):**
 ```bash
 engram loop steward-once --format json
-# or: engram axi steward-once --format json
 # dry-run: engram loop steward-once --dry-run --format json
 ```
+Safe with the shell up: debt is sensed via the shell's HTTP API; the graph is
+never opened from a second process.
 
-1. Ensure runtime: `engramctl status` / health OK (start if needed).
-2. Run one-shot above. If `healthy_noop=true` / regime healthy → stop.
-3. Optional heavier: `engram loop steward-once --mop --budget 200`.
-4. Verify lived path: get_context / continuity when server up.
-5. Never expand public MCP. Never dump phases to the user.
+1. Run the one-shot above. If `healthy_noop=true` / regime healthy → stop.
+2. Heavier drains go through the cold brain, never a second local open:
+   `engram brain run --tier mop --budget 200` (pauses/resumes the shell itself).
+3. Verify lived path: get_context / continuity when server up.
+4. Never expand public MCP. Never dump phases to the user.
+5. Do NOT run `engram hygiene mop` / `engram index` while the shell is up.
 
 If scoreboard is quiet — **do nothing**.
 """
