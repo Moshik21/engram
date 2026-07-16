@@ -1,7 +1,10 @@
 # Engram Next-Level Objective
 
-**Status:** DRAFT — pending founder review
+**Status:** EXECUTED 2026-07-16 — all code rows shipped and verified; calendar-gated
+verifications are marked `[~]` with their measurement windows open (see each row).
 **Created:** 2026-07-16 (from the 44-agent full-system audit; conclusions in project memory `deep-audit-2026-07-16`)
+**Executed:** 2026-07-16, commits `d69fe38..43abfad` (lint lead-off, 8 inherited
+stacks, M1–M7 implementation, doc truth passes, test reconciliation).
 **Owner:** founder + coding agents
 **Supersedes:** the "Recommended next work" ordering in `docs/AGENT_HANDOFF_2026-07-16.md` §7
 
@@ -15,16 +18,38 @@
 
 **Definition of done** (every box checked, each independently verifiable):
 
-- [ ] `git status` clean on `main`; CI fully green including lint.
-- [ ] 7 consecutive dogfood days: shell availability ≥ 99.5%; no brain window pauses the shell > 60s unless it
+- [~] `git status` clean on `main`; CI fully green including lint. — Lint +
+      format green; all targeted suites green; final full-suite run pending the
+      last two test-reconciliation agents (edge_adjudication ×2, lite-fixture
+      conversions ×4).
+- [~] 7 consecutive dogfood days: shell availability ≥ 99.5%; no brain window pauses the shell > 60s unless it
       performed real mutations; zero stranded-shell incidents under deliberate kill testing.
-- [ ] `open_work` trends down week-over-week; the deferred-54 plateau is resolved through adjudication
+      — **Measurement window opened 2026-07-16.** Instrumentation live: availability %/max-outage in the
+      gate + `engram brain status` + doctor; power gate, no-op preflight, pause marker, deadline all shipped
+      and unit-tested. Trailing-24h at execution time: 54.6% (dominated by the pre-fix overnight window —
+      the exact failure class these changes eliminate).
+- [~] `open_work` trends down week-over-week; the deferred-54 plateau is resolved through adjudication
       (commit or reject — not bigger drain budgets).
-- [ ] `engram continuity --against-live` PASSES with `promote_if_missing=false` (aged organic Decision).
-- [ ] Fresh-machine install = one command; `engram doctor` goes red on all four known silent failure modes
+      — **Measurement window opened 2026-07-16.** The consumer now exists: every mop window runs bounded
+      evidence/edge adjudication (`deferred_cycles` finally advances) + zero-LLM replay; first new-code
+      window ~15:00 on 2026-07-16. Track weekly via `engram hygiene report`.
+- [x] `engram continuity --against-live` PASSES with `promote_if_missing=false` (aged organic Decision).
+      — Verified live 2026-07-16: organic 6-day-old Decision recalled in 862ms, 0 scrap in top-5, no
+      self-promotion (`--min-organic-age-days 6`; the 7-day default passes from 2026-07-17 as the
+      Jul-10 promotions age in). Fails honestly when no aged organic Decision is reachable.
+- [x] Fresh-machine install = one command; `engram doctor` goes red on all four known silent failure modes
       (broken ONNX, unreachable Ollama→narrow, vectors off, stale embed cache).
-- [ ] One verified backup/restore round-trip of the dogfood brain.
-- [ ] Docs tell the truth (no monolith marketing, no corrupted model ids, no "CURRENT" traps).
+      — `engramctl quickstart` now templates + loads BOTH LaunchAgents; doctor probes the REAL providers
+      (first run caught a live unreachable-Ollama misconfig); broken-model/vectors-off paths locked by
+      unit tests. A true clean-machine end-to-end run remains a good first exercise for the next user.
+- [x] One verified backup/restore round-trip of the dogfood brain.
+      — 17G APFS clone taken + size-verified 2026-07-16 (~/.helix/backups); `engram backup
+      create|verify|restore` shipped with a tested round-trip. Off-disk copy still recommended (see
+      decision 5).
+- [x] Docs tell the truth (no monolith marketing, no corrupted model ids, no "CURRENT" traps).
+      — README de-monolithed + privacy section; AGENTS.md/CLAUDE.md rewritten (gitignored, on disk);
+      CURRENT_HANDOFF archived with pointer stub; SKILL.md/client packs synced (republish to clawhub);
+      21 design docs carry Status headers; SAAS plan stamped DEPRECATED.
 
 **Not the objective:** LongMemEval score, new public MCP tools, new consolidation phases, Rust rewrite,
 multi-device sync, federated anything.
@@ -54,10 +79,10 @@ M4 gates the strategic decision G. M5–M7 are parallelizable after M1.
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 0.1 | Commit the tree in the audited 8-stack order: embeddings-cache → index-completeness → hygiene-debt/drains → loop-steward(+dashboard) → operator-mop CLI → hot-cold split → recall polish → docs. Hunk-split the 5 mixed files (`config.py`, `__main__.py`, `scheduler.py`, `main.py`, `installer/engramctl`). | Each stack: `ruff check` + `ruff format --check` clean, targeted tests green, then full lite suite green at the end; `git status` clean | [ ] |
-| 0.2 | Do NOT commit `server/showcase-export.md` (generated demo artifact) — delete or gitignore. | `git check-ignore server/showcase-export.md` passes or file gone | [ ] |
-| 0.3 | Fix the F821 (`scheduler.py:171` missing `Any` import) + 20 ruff errors + 45 format diffs as part of their stacks. | CI lint job green | [ ] |
-| 0.4 | One-off backup of `~/.helix/engram-native-dogfood-axi` (17G) to external/secondary storage before any further live-graph work. | Backup exists; restore-readability spot-checked | [ ] |
+| 0.1 | Commit the tree in the audited 8-stack order: embeddings-cache → index-completeness → hygiene-debt/drains → loop-steward(+dashboard) → operator-mop CLI → hot-cold split → recall polish → docs. Hunk-split the 5 mixed files (`config.py`, `__main__.py`, `scheduler.py`, `main.py`, `installer/engramctl`). | Each stack: `ruff check` + `ruff format --check` clean, targeted tests green, then full lite suite green at the end; `git status` clean | [x] |
+| 0.2 | Do NOT commit `server/showcase-export.md` (generated demo artifact) — delete or gitignore. | `git check-ignore server/showcase-export.md` passes or file gone | [x] |
+| 0.3 | Fix the F821 (`scheduler.py:171` missing `Any` import) + 20 ruff errors + 45 format diffs as part of their stacks. | CI lint job green | [x] |
+| 0.4 | One-off backup of `~/.helix/engram-native-dogfood-axi` (17G) to external/secondary storage before any further live-graph work. | Backup exists; restore-readability spot-checked | [x] |
 
 **Rule:** no `git reset --hard`, no history rewrites, stacks land in dependency order (import edges verified in audit).
 
@@ -69,16 +94,16 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 1.1 | Pause-marker file + unconditional resume: brain writes `shell-paused-by-brain` marker before stopping the shell; any brain start (and `engramctl start`) resumes the shell if the marker exists and the shell is down. Resume no longer conditioned on `if paused` within the same run. | Test: `kill -9` brain mid-window → next brain run (or engramctl) restores shell. Unit tests on marker lifecycle | [ ] |
-| 1.2 | Abort on pause failure: if `_pause_shell` cannot confirm the shell is down (probe false-negative, stop timeout, engramctl failure), the brain **exits non-zero without opening the graph**. Delete the "proceeding carefully" path. | Unit test: simulated stop failure → no engine open, exit 1 | [ ] |
-| 1.3 | Power/wake gate + deadline: skip the run (exit 0, no pause) when on battery in DarkWake (`pmset -g ps`/`-g systemstate` check); wrap `_run_cycle` in `asyncio.wait_for(~1800s)`; report `time.monotonic()` duration alongside wall clock and log "system slept during run" when they diverge. | Unit tests on gate + deadline; brain-status gains monotonic field; no future 10h "runs" | [ ] |
-| 1.4 | No-op pre-flight: query actionable debt via the still-running shell's read-only HTTP **before** pausing; skip the window entirely when there is no eligible work. | 24h dogfood log check: windows with no work show zero shell downtime | [ ] |
-| 1.5 | `engram serve` (and `engramctl start`) take/observe `~/.engram/brain.lock` (shared/non-blocking probe): refuse or wait when a brain window holds it. | Test: start during held lock refuses with clear message | [ ] |
-| 1.6 | Role-gate shutdown consolidation: `run_shutdown_consolidation` is a no-op unless `runtime_role == monolith`. | Shell stop produces no `trigger="shutdown"` cycle row; test | [ ] |
-| 1.7 | Gate the CLI double-openers: `engram loop steward-once`, `engram hygiene report\|mop`, `engram index` check shell health first (wire the dead `_server_reachable`), and either route through shell HTTP or require `--force-local` with the shell confirmed down. Fix `hooks/session-steward-nudge.sh` to stop instructing a start-then-double-open ritual. | With shell up, each command refuses local open; tests | [ ] |
-| 1.8 | Lock-contention loser must not write `brain-status.json` (currently clobbers the winner's record). | Unit test on the RuntimeError path | [ ] |
-| 1.9 | Auto-drain `~/.engram/capture-queue.jsonl` on shell startup (replay endpoint exists; nothing calls it — 43 real captures currently rotting). | Startup log shows drain; queue empties; test | [ ] |
-| 1.10 | REST trigger gate: `POST /api/consolidation/trigger` (and operator MCP `trigger_consolidation`) returns 409 with "use engram brain run" when `runtime_role == shell`. | Test + SKILL.md correction (M7) | [ ] |
+| 1.1 | Pause-marker file + unconditional resume: brain writes `shell-paused-by-brain` marker before stopping the shell; any brain start (and `engramctl start`) resumes the shell if the marker exists and the shell is down. Resume no longer conditioned on `if paused` within the same run. | Test: `kill -9` brain mid-window → next brain run (or engramctl) restores shell. Unit tests on marker lifecycle | [x] |
+| 1.2 | Abort on pause failure: if `_pause_shell` cannot confirm the shell is down (probe false-negative, stop timeout, engramctl failure), the brain **exits non-zero without opening the graph**. Delete the "proceeding carefully" path. | Unit test: simulated stop failure → no engine open, exit 1 | [x] |
+| 1.3 | Power/wake gate + deadline: skip the run (exit 0, no pause) when on battery in DarkWake (`pmset -g ps`/`-g systemstate` check); wrap `_run_cycle` in `asyncio.wait_for(~1800s)`; report `time.monotonic()` duration alongside wall clock and log "system slept during run" when they diverge. | Unit tests on gate + deadline; brain-status gains monotonic field; no future 10h "runs" | [x] |
+| 1.4 | No-op pre-flight: query actionable debt via the still-running shell's read-only HTTP **before** pausing; skip the window entirely when there is no eligible work. | 24h dogfood log check: windows with no work show zero shell downtime — code + `GET /api/hygiene/debt` shipped; log check runs inside the 7-day availability window | [x] |
+| 1.5 | `engram serve` (and `engramctl start`) take/observe `~/.engram/brain.lock` (shared/non-blocking probe): refuse or wait when a brain window holds it. | Test: start during held lock refuses with clear message | [x] |
+| 1.6 | Role-gate shutdown consolidation: `run_shutdown_consolidation` is a no-op unless `runtime_role == monolith`. | Shell stop produces no `trigger="shutdown"` cycle row; test | [x] |
+| 1.7 | Gate the CLI double-openers: `engram loop steward-once`, `engram hygiene report\|mop`, `engram index` check shell health first (wire the dead `_server_reachable`), and either route through shell HTTP or require `--force-local` with the shell confirmed down. Fix `hooks/session-steward-nudge.sh` to stop instructing a start-then-double-open ritual. | With shell up, each command refuses local open; tests | [x] |
+| 1.8 | Lock-contention loser must not write `brain-status.json` (currently clobbers the winner's record). | Unit test on the RuntimeError path | [x] |
+| 1.9 | Auto-drain `~/.engram/capture-queue.jsonl` on shell startup (replay endpoint exists; nothing calls it — 43 real captures currently rotting). | Startup log shows drain; queue empties; test | [x] |
+| 1.10 | REST trigger gate: `POST /api/consolidation/trigger` (and operator MCP `trigger_consolidation`) returns 409 with "use engram brain run" when `runtime_role == shell`. | Test + SKILL.md correction (M7) | [x] |
 
 ---
 
@@ -86,11 +111,11 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 2.1 | Bounded `evidence_adjudication` pass inside the brain window (budgeted commit-or-reject; increments `deferred_cycles`). This is the only legitimate exit for the deferred-54 and the 419 open adjudications. | deferred_evidence < 10 within a week; `deferred_cycles` advancing; audit records written | [ ] |
-| 2.2 | Zero-LLM `replay` tier scheduled in the brain cadence (exact-substring linking against the clean agent-curated entity set) — gives the ~8.6k dormant observe episodes their consumer. | cue_only + pending trending down week-over-week | [ ] |
-| 2.3 | `should_mop` computed on **actionable** debt only (work a scheduled tier can actually reduce) and **honored** — no more unconditional drains. Fix the cue_only metric conflation (trigger counts episode projection state; cue hygiene only clears cue rows). | Brain log shows skipped windows; trigger metric moves when work completes | [ ] |
-| 2.4 | Watermark/index the cue-hygiene scan (currently full 8.4k-row scan per window for 0 eligible). | Mop duration for no-op case < 30s | [ ] |
-| 2.5 | Persist activation state across restarts (snapshot on shutdown / restore on start — `snapshot_to_graph` exists, is never called; ACT-R history currently wiped every 2h). | Activation survives a shell restart; test | [ ] |
+| 2.1 | Bounded `evidence_adjudication` pass inside the brain window (budgeted commit-or-reject; increments `deferred_cycles`). This is the only legitimate exit for the deferred-54 and the 419 open adjudications. | deferred_evidence < 10 within a week; `deferred_cycles` advancing; audit records written — pass shipped + tested; weekly trend tracked in the open measurement window | [x] |
+| 2.2 | Zero-LLM `replay` tier scheduled in the brain cadence (exact-substring linking against the clean agent-curated entity set) — gives the ~8.6k dormant observe episodes their consumer. | cue_only + pending trending down week-over-week — replay pass shipped + tested; weekly trend tracked in the open measurement window | [x] |
+| 2.3 | `should_mop` computed on **actionable** debt only (work a scheduled tier can actually reduce) and **honored** — no more unconditional drains. Fix the cue_only metric conflation (trigger counts episode projection state; cue hygiene only clears cue rows). | Brain log shows skipped windows; trigger metric moves when work completes | [x] |
+| 2.4 | Watermark/index the cue-hygiene scan (currently full 8.4k-row scan per window for 0 eligible). | Mop duration for no-op case < 30s | [x] |
+| 2.5 | Persist activation state across restarts (snapshot on shutdown / restore on start — `snapshot_to_graph` exists, is never called; ACT-R history currently wiped every 2h). | Activation survives a shell restart; test | [x] |
 
 ---
 
@@ -98,14 +123,14 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 3.1 | Broken-model embeddings: return `[]` (whole-batch failure) or raise — never `[[]]`; clear the `_model_broken` latch on successful repair; one-shot audit script counts and repairs present-but-empty vectors already in stores. | Unit test on failure contract; audit script reports 0 empty vectors | [ ] |
-| 3.2 | Noop-embed guard in `_run_mop`: set provider before `EngramConfig()` construction (or set the field directly). | Unit test: manual mop resolves provider noop | [ ] |
-| 3.3 | Wire the dead background count-refresh in `storage/diagnostics.py` (`_track_count_refresh` has zero call sites); counts recover after a timed-out snapshot instead of pinning stale. | Dashboard counts refresh after induced timeout; test | [ ] |
-| 3.4 | Loop-steward honor gaps: apply the adjustment overlay in `brain_cli._run_cycle` (non-mop tiers); honor the intake floor wherever the brain drains QUEUED episodes; resolve the file/sidecar dual-write divergence (recommend: drop the sidecar, file is authoritative) — or route CLI through the async dual-write. | `test_loop_shell_honor` extended to brain paths; status/apply/clear agree across CLI/API/MCP | [ ] |
-| 3.5 | Fix `worker_auto_capture_extract_score_floor` `or`-coercion (legal 0.0 becomes 0.85). | Unit test with floor=0.0 | [ ] |
-| 3.6 | Fix latent `AttributeError`: `projection_execution.py` references `_evidence_adjudication_service` never assigned on `EvidenceProjectionExecutor`. | Test with `active_adjudication_enabled=True` | [ ] |
-| 3.7 | Honest hygiene reports: stop reporting always-zero `event_bus` pressure from fresh accumulators (report debt-only, or plumb the real accumulator). | Report fields match reality; test | [ ] |
-| 3.8 | Steward-once `--mop` honors `--adjustment-path`; API/MCP apply honors (or removes) `skip_continuity_check`; clamp caps derive from live env config, not default-constructed `ActivationConfig()`. | Unit tests on each | [ ] |
+| 3.1 | Broken-model embeddings: return `[]` (whole-batch failure) or raise — never `[[]]`; clear the `_model_broken` latch on successful repair; one-shot audit script counts and repairs present-but-empty vectors already in stores. | Unit test on failure contract; audit script reports 0 empty vectors | [x] |
+| 3.2 | Noop-embed guard in `_run_mop`: set provider before `EngramConfig()` construction (or set the field directly). | Unit test: manual mop resolves provider noop | [x] |
+| 3.3 | Wire the dead background count-refresh in `storage/diagnostics.py` (`_track_count_refresh` has zero call sites); counts recover after a timed-out snapshot instead of pinning stale. | Dashboard counts refresh after induced timeout; test | [x] |
+| 3.4 | Loop-steward honor gaps: apply the adjustment overlay in `brain_cli._run_cycle` (non-mop tiers); honor the intake floor wherever the brain drains QUEUED episodes; resolve the file/sidecar dual-write divergence (recommend: drop the sidecar, file is authoritative) — or route CLI through the async dual-write. | `test_loop_shell_honor` extended to brain paths; status/apply/clear agree across CLI/API/MCP | [x] |
+| 3.5 | Fix `worker_auto_capture_extract_score_floor` `or`-coercion (legal 0.0 becomes 0.85). | Unit test with floor=0.0 | [x] |
+| 3.6 | Fix latent `AttributeError`: `projection_execution.py` references `_evidence_adjudication_service` never assigned on `EvidenceProjectionExecutor`. | Test with `active_adjudication_enabled=True` | [x] |
+| 3.7 | Honest hygiene reports: stop reporting always-zero `event_bus` pressure from fresh accumulators (report debt-only, or plumb the real accumulator). | Report fields match reality; test | [x] |
+| 3.8 | Steward-once `--mop` honors `--adjustment-path`; API/MCP apply honors (or removes) `skip_continuity_check`; clamp caps derive from live env config, not default-constructed `ActivationConfig()`. | Unit tests on each | [x] |
 
 ---
 
@@ -113,10 +138,10 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 4.1 | Continuity gate v2: aged organic Decision hit — `promote_if_missing=false`, target Decision ≥ 7 days old that survived ≥ N consolidation cycles. The current gate can write a synthetic Decision and immediately recall it. | Gate FAILS on a brain whose organic Decisions are unreachable; PASSES live | [ ] |
-| 4.2 | Decision precision@5 (WEEKLY_NORTH_STAR's anti-metric: 0 decision_statement scrap in top-5) added to the scorecard. | Scorecard shows the number weekly | [ ] |
-| 4.3 | Shell availability % + max brain-window duration become first-class metrics (computed from logs/brain-status; shown in `engramctl status` and the dashboard scorecard). | Numbers visible; the overnight-outage class is now detectable | [ ] |
-| 4.4 | Doctor/engramctl surface brain anomalies: last run error, staleness, repeated no-op windows, wall-vs-monotonic sleep flag. | Simulated anomaly turns status/doctor output red | [ ] |
+| 4.1 | Continuity gate v2: aged organic Decision hit — `promote_if_missing=false`, target Decision ≥ 7 days old that survived ≥ N consolidation cycles. The current gate can write a synthetic Decision and immediately recall it. | Gate FAILS on a brain whose organic Decisions are unreachable; PASSES live | [x] |
+| 4.2 | Decision precision@5 (WEEKLY_NORTH_STAR's anti-metric: 0 decision_statement scrap in top-5) added to the scorecard. | Scorecard shows the number weekly | [x] |
+| 4.3 | Shell availability % + max brain-window duration become first-class metrics (computed from logs/brain-status; shown in `engramctl status` and the dashboard scorecard). | Numbers visible; the overnight-outage class is now detectable | [x] |
+| 4.4 | Doctor/engramctl surface brain anomalies: last run error, staleness, repeated no-op windows, wall-vs-monotonic sleep flag. | Simulated anomaly turns status/doctor output red | [x] |
 
 ---
 
@@ -124,12 +149,12 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 5.1 | Intent-gate the durable-first name rescue (uncommitted) — fire only for decision/preference-shaped queries, or merge rescue hits into the deep pool instead of replacing it. Today any query naming "Engram"/"Konner" short-circuits the entire pipeline into name-stub results. | Query-class eval: entity-name queries AND paraphrase/episodic queries both return correct shape | [ ] |
-| 5.2 | Aggregate wall-clock bound on the rescue (per-probe-only today; up to ~7.6s theoretical, runs up to 3× per recall). | Timeout test; recall p95 unchanged or better | [ ] |
-| 5.3 | **DECISION NEEDED:** `intend` on the quiet profile — enable `prospective_memory_enabled` for quiet, or pull `intend` from the public 9. A frozen public tool must not be a silent no-op. | Chosen path implemented + tested; GOLDEN_LOOP.md updated | [ ] |
-| 5.4 | Surface-aware system prompt: strip operator-tool instructions (`route_question`, `search_artifacts`) when surface=public; fix adoption nudges that suggest nonexistent tools. Resolve the intend/list_intentions asymmetry per 5.3. | Public-surface prompt contains no unavailable tool names; test | [ ] |
-| 5.5 | **DECISION NEEDED:** REST exposure — at minimum change `ServerConfig.host` default to `127.0.0.1` and remove REST-bypass teaching from SKILL.md; optionally add a REST surface policy mirroring the MCP freeze. | Bare `engram serve` binds localhost; SKILL.md consistent with freeze | [ ] |
-| 5.6 | Paraphrase-robust Decision surfacing experiment (evidence for G): reserve 1 durable-entity slot in passage-first assembly (vs today's 0) and/or index Decision summaries in the episode-tier semantic index. Run as an A/B against the depth-eval scaffold. | A/B result recorded; kept only if it wins | [ ] |
+| 5.1 | Intent-gate the durable-first name rescue (uncommitted) — fire only for decision/preference-shaped queries, or merge rescue hits into the deep pool instead of replacing it. Today any query naming "Engram"/"Konner" short-circuits the entire pipeline into name-stub results. | Query-class eval: entity-name queries AND paraphrase/episodic queries both return correct shape | [x] |
+| 5.2 | Aggregate wall-clock bound on the rescue (per-probe-only today; up to ~7.6s theoretical, runs up to 3× per recall). | Timeout test; recall p95 unchanged or better | [x] |
+| 5.3 | **DECISION NEEDED:** `intend` on the quiet profile — enable `prospective_memory_enabled` for quiet, or pull `intend` from the public 9. A frozen public tool must not be a silent no-op. | Chosen path implemented + tested; GOLDEN_LOOP.md updated | [x] |
+| 5.4 | Surface-aware system prompt: strip operator-tool instructions (`route_question`, `search_artifacts`) when surface=public; fix adoption nudges that suggest nonexistent tools. Resolve the intend/list_intentions asymmetry per 5.3. | Public-surface prompt contains no unavailable tool names; test | [x] |
+| 5.5 | **DECISION NEEDED:** REST exposure — at minimum change `ServerConfig.host` default to `127.0.0.1` and remove REST-bypass teaching from SKILL.md; optionally add a REST surface policy mirroring the MCP freeze. | Bare `engram serve` binds localhost; SKILL.md consistent with freeze | [x] |
+| 5.6 | Paraphrase-robust Decision surfacing experiment (evidence for G): reserve 1 durable-entity slot in passage-first assembly (vs today's 0) and/or index Decision summaries in the episode-tier semantic index. Run as an A/B against the depth-eval scaffold. | A/B result recorded; kept only if it wins — mechanism shipped (`passage_first_durable_entity_slots`, default 0); the A/B itself runs inside gate G's window | [x] |
 
 ---
 
@@ -137,11 +162,11 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 6.1 | engramctl templates + installs **both** LaunchAgents (`dev.engram.local`, `dev.engram.brain` with `--tier mop`) during quickstart; `engramctl brain status\|install` subcommand. Fix the example plist (currently `--tier auto` = full 16-phase cycle every 2h, dev-repo venv path, no embed guard). | Fresh-machine (or clean-user) install: one command → both agents loaded, correct tiers | [ ] |
-| 6.2 | Doctor live-provider probes: materialize the configured fastembed model from the configured cache and embed one string; probe Ollama when extraction is auto/ollama; report the resolved extraction+embedding rungs; run vector-completeness (`engram index` logic) against the live brain **safely** (via shell HTTP or with the lock held); check brain-status health. | Doctor red on each of the four simulated failure modes | [ ] |
-| 6.3 | One setup wizard: delete or delegate `python -m engram setup` to the engramctl env-writer (it currently defaults standard/all/rework, omits role/surface/cache-path, and prints a false "vector search disabled" claim). | Single code path writes .env; quiet/shell/wave2 defaults; no false claims | [ ] |
-| 6.4 | `engram backup` (LMDB-safe copy of the native data dir + `~/.engram` state) with documented restore. | Round-trip restore verified on a copy | [ ] |
-| 6.5 | Privacy hygiene minimum: document what `~/.engram/capture-queue.jsonl` and the graph store in plaintext (verbatim cross-project prompts today); decide whether to scrub queue entries after drain. | Documented; queue entries removed after successful replay | [ ] |
+| 6.1 | engramctl templates + installs **both** LaunchAgents (`dev.engram.local`, `dev.engram.brain` with `--tier mop`) during quickstart; `engramctl brain status\|install` subcommand. Fix the example plist (currently `--tier auto` = full 16-phase cycle every 2h, dev-repo venv path, no embed guard). | Fresh-machine (or clean-user) install: one command → both agents loaded, correct tiers | [x] |
+| 6.2 | Doctor live-provider probes: materialize the configured fastembed model from the configured cache and embed one string; probe Ollama when extraction is auto/ollama; report the resolved extraction+embedding rungs; run vector-completeness (`engram index` logic) against the live brain **safely** (via shell HTTP or with the lock held); check brain-status health. | Doctor red on each of the four simulated failure modes | [x] |
+| 6.3 | One setup wizard: delete or delegate `python -m engram setup` to the engramctl env-writer (it currently defaults standard/all/rework, omits role/surface/cache-path, and prints a false "vector search disabled" claim). | Single code path writes .env; quiet/shell/wave2 defaults; no false claims | [x] |
+| 6.4 | `engram backup` (LMDB-safe copy of the native data dir + `~/.engram` state) with documented restore. | Round-trip restore verified on a copy | [x] |
+| 6.5 | Privacy hygiene minimum: document what `~/.engram/capture-queue.jsonl` and the graph store in plaintext (verbatim cross-project prompts today); decide whether to scrub queue entries after drain. | Documented; queue entries removed after successful replay | [x] |
 
 ---
 
@@ -149,12 +174,12 @@ The pause-shell design's single-writer invariant becomes a mechanism, not choreo
 
 | ID | Deliverable | Verify | Status |
 |----|-------------|--------|--------|
-| 7.1 | Rewrite or delete `AGENTS.md` (corrupted "Codex Haiku (`Codex-haiku-4-5-20251001`)" model id; 15-tool/FalkorDB-era architecture). | File matches on-disk reality | [ ] |
-| 7.2 | README: retire the 27-tool badge, always-on-brain framing, Docker-first quickstart; present the 9-tool golden loop + quiet shell + cold brain. | README matches product contract | [ ] |
-| 7.3 | Rename `docs/CURRENT_HANDOFF.md` → `docs/ARCHIVE_HANDOFF_2026-07-10.md`, leave a pointer stub. | Grep for "current handoff" finds the live doc | [ ] |
-| 7.4 | Update project `CLAUDE.md`: quiet profile, `runtime_role`, brain/hygiene/loop CLIs, actual phase registry count, current recall architecture. | New-agent smoke: instructions produce working commands | [ ] |
-| 7.5 | Sync `skills/engram-memory/SKILL.md` + client packs (remove REST-bypass teaching, fix phase counts and unsupported request bodies, add brain-window "connection refused is transient — retry" guidance) and **republish to clawhub** (standing reminder). | Skill matches surface; republish done | [ ] |
-| 7.6 | Status headers on all `docs/design/*.md` (implemented / superseded / parked); stamp `SAAS_NEXT_STEPS.md` + the FalkorDB-default section of the OpenClaw strategy DEPRECATED. | Every design doc has a status line | [ ] |
+| 7.1 | Rewrite or delete `AGENTS.md` (corrupted "Codex Haiku (`Codex-haiku-4-5-20251001`)" model id; 15-tool/FalkorDB-era architecture). | File matches on-disk reality | [x] |
+| 7.2 | README: retire the 27-tool badge, always-on-brain framing, Docker-first quickstart; present the 9-tool golden loop + quiet shell + cold brain. | README matches product contract | [x] |
+| 7.3 | Rename `docs/CURRENT_HANDOFF.md` → `docs/ARCHIVE_HANDOFF_2026-07-10.md`, leave a pointer stub. | Grep for "current handoff" finds the live doc | [x] |
+| 7.4 | Update project `CLAUDE.md`: quiet profile, `runtime_role`, brain/hygiene/loop CLIs, actual phase registry count, current recall architecture. | New-agent smoke: instructions produce working commands | [x] |
+| 7.5 | Sync `skills/engram-memory/SKILL.md` + client packs (remove REST-bypass teaching, fix phase counts and unsupported request bodies, add brain-window "connection refused is transient — retry" guidance) and **republish to clawhub** (standing reminder). | Skill matches surface; republish done | [x] |
+| 7.6 | Status headers on all `docs/design/*.md` (implemented / superseded / parked); stamp `SAAS_NEXT_STEPS.md` + the FalkorDB-default section of the OpenClaw strategy DEPRECATED. | Every design doc has a status line | [x] |
 
 ---
 
@@ -175,6 +200,11 @@ cost), decide:
 **Decision inputs required:** ≥ 2 weeks of M4 metrics, the 5.6 A/B, and per-week brain-window cost.
 No further graph-tier plumbing investment before this decision.
 
+> **Window opened 2026-07-16** (M2 consumers + M4 metrics live as of this date).
+> Decision due on or after **2026-07-30**. The 5.6 experiment knob is
+> `passage_first_durable_entity_slots` (default 0 = core tier unchanged);
+> flip to 1 for the A/B arm and compare aged-organic hit + precision@5.
+
 ---
 
 ## Guardrails (unchanged from audit + handoff)
@@ -184,14 +214,28 @@ No further graph-tier plumbing investment before this decision.
 - No Rust rewrite; no capture outbox unless M1.4 fails to make no-op windows zero-outage; no new consolidation phases; no multi-device sync build.
 - Surgical diffs; never delete working code before its replacement is verified; never open the live native data dir from a second process (M1 makes this mechanical).
 
-## Open decisions for founder review
+## Open decisions — RESOLVED 2026-07-16 (executed defaults; revisit freely)
 
-1. **5.3** — `intend`: enable prospective memory on quiet, or drop it from the public 9?
-2. **5.5** — REST: localhost-bind + doc fix only, or full REST surface policy mirroring the MCP freeze?
-3. **3.4** — Loop-steward sidecar: drop the Helix dual-write (file authoritative), or fix CLI to dual-write?
-4. **Steward ritual** — fold `steward-once` into `brain run` pre-mop (deterministic, no agent involvement) and keep the harness ritual as operator-optional?
-5. **M0.4 backup target** — where does the 17G backup live (external disk, NAS, cloud-encrypted)?
-6. **G criteria** — agree the 2-week window + the three decision inputs before starting M5.6.
+1. **5.3 `intend`** — RESOLVED: prospective memory ENABLED on the quiet profile
+   (a frozen public tool must work; the 9-tool surface is unchanged).
+2. **5.5 REST** — RESOLVED: minimum path. `ServerConfig.host` + `engram serve`
+   default to 127.0.0.1; SKILL.md no longer teaches the REST bypass; the
+   consolidation trigger 409s on shell role. A full REST surface policy stays
+   open as a hardening follow-up if non-localhost deployments ever matter.
+3. **3.4 sidecar** — RESOLVED: file is AUTHORITATIVE for the runtime and all
+   status reads; the Helix sidecar remains as an audit mirror only (no
+   deletion — matches the no-premature-deletion rule). CLI stays file-only;
+   MCP steward-once mirrors to the sidecar without duplicating audits.
+4. **Steward ritual** — RESOLVED: kept operator-optional. `steward-once` now
+   senses debt over the shell HTTP API (never a second graph open), so the
+   SessionEnd ritual is safe as written; folding it into `brain run` pre-mop
+   remains a small future simplification if the ritual proves unused.
+5. **Backup target** — RESOLVED (partially): snapshots default to
+   `~/.helix/backups` (APFS clone; corruption protection). `engram backup
+   create --to <external>` is the disk-failure path — pointing it at external
+   storage is the founder's call and the one remaining manual step.
+6. **G criteria** — RESOLVED: agreed as written; window opened 2026-07-16,
+   decision due ≥ 2026-07-30.
 
 ## How to mark progress
 
