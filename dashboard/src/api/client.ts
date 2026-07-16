@@ -1053,6 +1053,27 @@ export const api = {
   getLifecycleSummary: () =>
     fetchJSON<LifecycleSummary>("/api/lifecycle/summary"),
 
+  getLoopStatus: () =>
+    fetchJSON<{
+      group_id?: string;
+      active: boolean;
+      regime?: string | null;
+      reason?: string | null;
+      expires_at?: string | null;
+      remaining_ttl_seconds?: number;
+      store?: string;
+      adjustment?: {
+        regime?: string;
+        reason?: string;
+        ttl_hours?: number;
+        expires_at?: string | null;
+        budgets?: Record<string, number>;
+        phase_boost?: string[];
+        phase_defer?: string[];
+        created_by?: string;
+      } | null;
+    }>("/api/loop/status"),
+
   getEvaluationReport: async (): Promise<BrainLoopEvaluationReport> => {
     const raw = await fetchJSON<RawEvaluationReport>("/api/evaluation/brain-loop/report");
     const totals = raw.totals ?? {};

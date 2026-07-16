@@ -10,6 +10,7 @@ import {
 import { useEngramStore } from "../store";
 import { entityColor, entityColorDim } from "../lib/colors";
 import { CerebralProfile } from "../views/CerebralProfile";
+import { LoopStewardCard } from "./LoopStewardCard";
 import type { StorageReport } from "../store/types";
 
 const EMPTY_CUE_METRICS = {
@@ -607,6 +608,8 @@ export function StatsPanel() {
           <div className="skeleton" style={{ width: "40%", height: 12 }} />
         </div>
       ) : null}
+
+      <LoopStewardCard />
 
       <div
         style={{
