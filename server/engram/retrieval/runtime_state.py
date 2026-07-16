@@ -362,7 +362,15 @@ def _build_agent_adoption_guidance(
     stale_count = int(artifact_bootstrap.get("staleArtifactCount") or 0)
     last_observed = artifact_bootstrap.get("lastObservedAt")
     artifact_gap = artifact_count == 0 or last_observed is None
-    metrics_gap = _metrics_are_empty_or_zero(recall_metrics) and _metrics_are_empty_or_zero(
+    # Drop config-constant fields (default recall-need thresholds are always
+    # non-zero) so a runtime with zero real activity still reads as empty/fresh
+    # instead of being masked as "ready".
+    recall_activity = {
+        key: value
+        for key, value in recall_metrics.items()
+        if key not in {"thresholds", "adaptive_thresholds_enabled"}
+    }
+    metrics_gap = _metrics_are_empty_or_zero(recall_activity) and _metrics_are_empty_or_zero(
         epistemic_metrics
     )
     fresh_runtime = artifact_gap and metrics_gap

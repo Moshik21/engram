@@ -1,5 +1,7 @@
 """Tests for live neural graph events: activation.access + enhanced graph.nodes_added."""
 
+from uuid import uuid4
+
 import pytest
 
 from engram.events.bus import EventBus
@@ -110,7 +112,12 @@ class TestEnhancedGraphNodesAdded:
     ):
         bus = EventBus()
 
-        queue = bus.subscribe("default")
+        # Unique group per run: this test asserts new_entities, which is only
+        # populated for freshly-created entities. The shared persistent native
+        # data dir accumulates React/TypeScript in "default" across runs, so a
+        # hardcoded group would resolve to existing entities and report none new.
+        group_id = f"live_{uuid4().hex[:8]}"
+        queue = bus.subscribe(group_id)
 
         extractor = MockExtractor(
             ExtractionResult(
@@ -133,7 +140,7 @@ class TestEnhancedGraphNodesAdded:
             graph_store, activation_store, search_index, extractor, event_bus=bus
         )
         await manager.ingest_episode(
-            content="React with TypeScript", group_id="default", source="test"
+            content="React with TypeScript", group_id=group_id, source="test"
         )
 
         collected: list[dict] = []

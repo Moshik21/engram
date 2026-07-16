@@ -1,6 +1,7 @@
 """Tests for conflict detection (exclusive predicates)."""
 
 from datetime import datetime
+from uuid import uuid4
 
 import pytest
 
@@ -43,32 +44,35 @@ class TestExclusivePredicates:
 class TestConflictDetection:
     async def test_find_conflicting_relationships(self, graph_store):
         """find_conflicting_relationships returns active rels with same source+predicate."""
+        # Unique ids + group so a persistent native store cannot accrue
+        # cross-run residue on shared "default"/fixed ids.
+        uid = uuid4().hex[:8]
+        gid = f"default_{uid}"
+        person, city1, city2 = f"ent_person_{uid}", f"ent_city1_{uid}", f"ent_city2_{uid}"
         await graph_store.create_entity(
-            Entity(id="ent_person", name="Alice", entity_type="Person", group_id="default")
+            Entity(id=person, name="Alice", entity_type="Person", group_id=gid)
         )
         await graph_store.create_entity(
-            Entity(id="ent_city1", name="Mesa", entity_type="Location", group_id="default")
+            Entity(id=city1, name="Mesa", entity_type="Location", group_id=gid)
         )
         await graph_store.create_entity(
-            Entity(id="ent_city2", name="Denver", entity_type="Location", group_id="default")
+            Entity(id=city2, name="Denver", entity_type="Location", group_id=gid)
         )
 
         # Create first LIVES_IN
         await graph_store.create_relationship(
             Relationship(
-                id="rel_lives1",
-                source_id="ent_person",
-                target_id="ent_city1",
+                id=f"rel_lives1_{uid}",
+                source_id=person,
+                target_id=city1,
                 predicate="LIVES_IN",
-                group_id="default",
+                group_id=gid,
             )
         )
 
-        conflicts = await graph_store.find_conflicting_relationships(
-            "ent_person", "LIVES_IN", "default"
-        )
+        conflicts = await graph_store.find_conflicting_relationships(person, "LIVES_IN", gid)
         assert len(conflicts) == 1
-        assert conflicts[0].target_id == "ent_city1"
+        assert conflicts[0].target_id == city1
 
     async def test_find_conflicting_ignores_invalidated(self, graph_store):
         """Already-invalidated relationships should not be returned as conflicts."""
@@ -102,24 +106,27 @@ class TestConflictDetection:
 
     async def test_same_target_no_conflict(self, graph_store):
         """Same source+predicate+target is not a real conflict."""
+        uid = uuid4().hex[:8]
+        gid = f"default_{uid}"
+        source, target = f"ent_s_{uid}", f"ent_t_{uid}"
         await graph_store.create_entity(
-            Entity(id="ent_s", name="S", entity_type="Person", group_id="default")
+            Entity(id=source, name="S", entity_type="Person", group_id=gid)
         )
         await graph_store.create_entity(
-            Entity(id="ent_t", name="T", entity_type="Location", group_id="default")
+            Entity(id=target, name="T", entity_type="Location", group_id=gid)
         )
 
         await graph_store.create_relationship(
             Relationship(
-                id="rel_same",
-                source_id="ent_s",
-                target_id="ent_t",
+                id=f"rel_same_{uid}",
+                source_id=source,
+                target_id=target,
                 predicate="LIVES_IN",
-                group_id="default",
+                group_id=gid,
             )
         )
 
-        conflicts = await graph_store.find_conflicting_relationships("ent_s", "LIVES_IN", "default")
+        conflicts = await graph_store.find_conflicting_relationships(source, "LIVES_IN", gid)
         # The existing rel is returned; the graph_manager would skip same-target
         assert len(conflicts) == 1
 

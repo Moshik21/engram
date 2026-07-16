@@ -364,8 +364,10 @@ class TestSchedulerPressureIntegration:
             except asyncio.CancelledError:
                 pass
 
-        # Should trigger from interval, not pressure
-        engine.run_cycle.assert_called_once_with(
-            group_id="default",
-            trigger="scheduled",
-        )
+        # Should trigger from interval, not pressure. The scheduler now also
+        # passes the loop-steward phase/cfg overlay, so assert on the load-
+        # bearing kwargs rather than the full signature.
+        engine.run_cycle.assert_called_once()
+        kwargs = engine.run_cycle.call_args.kwargs
+        assert kwargs["group_id"] == "default"
+        assert kwargs["trigger"] == "scheduled"

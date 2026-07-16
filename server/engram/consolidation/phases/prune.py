@@ -198,6 +198,21 @@ class PrunePhase(ConsolidationPhase):
                         entity = await graph_store.get_entity(cand.entity_id, group_id)
                         if entity is None or getattr(entity, "identity_core", False):
                             continue
+                        # Activation safety net: graph store access_count can be
+                        # stale, so honor the live activation record like the
+                        # dead-entity pass above before deleting.
+                        state = await activation_store.get_activation(cand.entity_id)
+                        if state:
+                            if state.access_count > max_lv_access:
+                                continue
+                            act_level = compute_activation(
+                                state.access_history,
+                                now,
+                                cfg,
+                                state.consolidated_strength,
+                            )
+                            if act_level > activation_floor:
+                                continue
                         if not dry_run:
                             await graph_store.delete_entity(
                                 cand.entity_id, soft=True, group_id=group_id

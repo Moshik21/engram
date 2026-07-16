@@ -1,9 +1,31 @@
 """Integration tests for temporal contradiction pipeline."""
 
+from uuid import uuid4
+
 import pytest
 
+from engram.config import HelixDBConfig
 from engram.extraction.extractor import ExtractionResult
 from engram.graph_manager import GraphManager
+from engram.models.entity import Entity
+from tests.conftest import _test_helix_config
+
+
+@pytest.fixture
+def helix_config(tmp_path):
+    """Per-test native data dir.
+
+    These tests write to group ``default`` with recurring entity names; on the
+    shared session-wide native data dir they collide with sibling tests and
+    across runs. Isolate each test on its own dir so projection sees a clean
+    graph. Falls back to the shared HTTP lane when native is unavailable.
+    """
+    base = _test_helix_config()
+    if base.transport != "native":
+        return base
+    data_dir = tmp_path / "helix"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return HelixDBConfig(transport="native", data_dir=str(data_dir), verbose=False)
 
 
 class MockTemporalExtractor:
@@ -28,18 +50,35 @@ class MockTemporalExtractor:
 class TestTemporalContradictionPipeline:
     async def test_location_contradiction(self, graph_store, activation_store, search_index):
         """'lives in Mesa' then 'moved to Denver' should invalidate Mesa."""
+        # A per-run unique person keeps a persistent native store from accruing
+        # cross-run LOCATED_IN residue on a shared "Alex". The relationship
+        # endpoints must already exist as committed entities or projection drops
+        # the edge as missing_entities (narrow-extracted proper nouns defer below
+        # the commit threshold), so seed Mesa/Denver up front.
+        gid = "default"
+        person = f"Alex_{uuid4().hex[:8]}"
+        for city in ("Mesa", "Denver"):
+            await graph_store.create_entity(
+                Entity(
+                    id=f"ent_{city.lower()}_{uuid4().hex[:8]}",
+                    name=city,
+                    entity_type="Location",
+                    group_id=gid,
+                )
+            )
+
         extractor = MockTemporalExtractor()
 
         # First episode: lives in Mesa
         extractor.add_result(
             ExtractionResult(
                 entities=[
-                    {"name": "Alex", "entity_type": "Person", "summary": "Lives in Mesa"},
+                    {"name": person, "entity_type": "Person", "summary": "Lives in Mesa"},
                     {"name": "Mesa", "entity_type": "Location", "summary": "City in Arizona"},
                 ],
                 relationships=[
                     {
-                        "source": "Alex",
+                        "source": person,
                         "target": "Mesa",
                         "predicate": "LIVES_IN",
                         "weight": 1.0,
@@ -52,12 +91,12 @@ class TestTemporalContradictionPipeline:
         extractor.add_result(
             ExtractionResult(
                 entities=[
-                    {"name": "Alex", "entity_type": "Person", "summary": "Moved to Denver"},
+                    {"name": person, "entity_type": "Person", "summary": "Moved to Denver"},
                     {"name": "Denver", "entity_type": "Location", "summary": "City in Colorado"},
                 ],
                 relationships=[
                     {
-                        "source": "Alex",
+                        "source": person,
                         "target": "Denver",
                         "predicate": "LIVES_IN",
                         "weight": 1.0,
@@ -69,11 +108,11 @@ class TestTemporalContradictionPipeline:
 
         manager = GraphManager(graph_store, activation_store, search_index, extractor)
 
-        await manager.ingest_episode("lives in Mesa", group_id="default")
-        await manager.ingest_episode("moved to Denver", group_id="default")
+        await manager.ingest_episode("lives in Mesa", group_id=gid)
+        await manager.ingest_episode("moved to Denver", group_id=gid)
 
-        # Find Alex's entity
-        entities = await graph_store.find_entities(name="Alex", group_id="default")
+        # Find the person's entity
+        entities = await graph_store.find_entities(name=person, group_id=gid)
         assert len(entities) == 1
         alex_id = entities[0].id
 
@@ -90,7 +129,7 @@ class TestTemporalContradictionPipeline:
         assert len(invalidated_rels) == 1
 
         # Active should be Denver
-        denver = await graph_store.get_entity(active_rels[0].target_id, "default")
+        denver = await graph_store.get_entity(active_rels[0].target_id, gid)
         assert denver is not None
         assert denver.name == "Denver"
 

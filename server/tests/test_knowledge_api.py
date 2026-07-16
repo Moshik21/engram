@@ -676,8 +676,13 @@ class TestRecall:
         assert len(data["items"]) <= 2
 
     @pytest.mark.asyncio
-    async def test_recall_empty_results(self, empty_knowledge_client):
+    async def test_recall_empty_results(self, empty_knowledge_client, monkeypatch):
         """GET /recall on empty graph returns empty items."""
+        # Without a project_path the recall surface falls back to local project
+        # files (the repo's own pyproject.toml) and now mirrors those rescue
+        # packets into `items`. Disable that fallback to assert the true
+        # empty-graph contract. Mirroring itself is covered elsewhere.
+        monkeypatch.setenv("ENGRAM_RECALL_PROJECT_FALLBACK", "0")
         resp = await empty_knowledge_client.get("/api/knowledge/recall?q=nothing")
         assert resp.status_code == 200
         data = resp.json()

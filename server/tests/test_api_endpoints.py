@@ -56,6 +56,9 @@ async def api_client(tmp_path):
     config = EngramConfig(
         mode="lite",
         sqlite={"path": str(tmp_path / "api_test.db")},
+        # Background continuity warmup runs an extra "default"-group recall on
+        # startup; disable it so per-operation metric counts stay deterministic.
+        activation={"continuity_startup_warmup_enabled": False},
     )
     app = create_app(config)
 
