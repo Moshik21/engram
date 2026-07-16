@@ -1,14 +1,69 @@
 """Shared hygiene mop operations (CLI + cold brain).
 
-Not a second consolidator — same local drains as warm evidence hygiene.
+Not a second consolidator — the same local drains as warm evidence hygiene,
+plus the bounded adjudication/replay passes that give the deferred and
+cue_only queues an actual consumer under mop-only scheduling.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _hygiene_state_path() -> Path:
+    home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
+    return home / "hygiene-state.json"
+
+
+def _read_hygiene_state() -> dict[str, Any]:
+    path = _hygiene_state_path()
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_hygiene_state(state: dict[str, Any]) -> None:
+    path = _hygiene_state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(state) + "\n", encoding="utf-8")
+    except OSError:
+        logger.debug("hygiene state write failed", exc_info=True)
+
+
+def cue_scan_due(now: float | None = None, interval_hours: float | None = None) -> bool:
+    """Whether a full cue-hygiene scan is due (watermarked, default daily).
+
+    Cues become eligible by AGE (min_age_days), so scanning all of them every
+    2h window is pure waste — one full scan per day tracks eligibility fine.
+    """
+    if interval_hours is None:
+        raw = os.environ.get("ENGRAM_CUE_SCAN_INTERVAL_HOURS", "24")
+        try:
+            interval_hours = float(raw)
+        except ValueError:
+            interval_hours = 24.0
+    if interval_hours <= 0:
+        return True
+    last = _read_hygiene_state().get("last_cue_scan_at")
+    if not isinstance(last, (int, float)):
+        return True
+    now = now if now is not None else time.time()
+    return (now - float(last)) >= interval_hours * 3600.0
+
+
+def mark_cue_scan_done(now: float | None = None) -> None:
+    state = _read_hygiene_state()
+    state["last_cue_scan_at"] = now if now is not None else time.time()
+    _write_hygiene_state(state)
 
 
 async def execute_hygiene_mop(
@@ -21,8 +76,12 @@ async def execute_hygiene_mop(
     budget: int = 200,
     dry_run: bool = False,
     loop_adj: Any | None = None,
+    graph_manager: Any | None = None,
+    extractor: Any | None = None,
+    skip_when_no_work: bool = False,
 ) -> dict[str, Any]:
-    """Run bounded debt drains. Returns mop stats + debt_before/after."""
+    """Run bounded debt drains (+ adjudication/replay when a manager/extractor
+    is provided). Returns mop stats + debt_before/after."""
     from engram.consolidation.cue_hygiene import run_cue_hygiene
     from engram.consolidation.evidence_drain import (
         load_deferred_evidence,
@@ -37,13 +96,10 @@ async def execute_hygiene_mop(
         debt_pressure_contribution,
         debt_should_trigger_mop,
     )
-    from engram.consolidation.pressure import ConsolidationPressure
     from engram.loop_adjustment import mop_knob_budgets
 
     debt = await collect_hygiene_debt_from_store(graph_store, group_id)
     debt_pressure = debt_pressure_contribution(debt)
-    event_pressure = ConsolidationPressure().compute(activation_cfg)
-    total_pressure = event_pressure + debt_pressure
     should_mop = debt_should_trigger_mop(
         debt,
         pressure_threshold=float(activation_cfg.consolidation_pressure_threshold),
@@ -52,13 +108,21 @@ async def execute_hygiene_mop(
         "group_id": group_id,
         "debt": debt.to_dict(),
         "pressure": {
-            "event_bus": round(event_pressure, 2),
+            # Event-bus pressure lives in the shell's accumulator; a fresh
+            # process cannot see it, so report debt honestly instead of a
+            # freshly-constructed ~0 that pretends to be a live reading.
+            "event_bus": None,
             "hygiene_debt": round(debt_pressure, 2),
-            "total": round(total_pressure, 2),
+            "total": round(debt_pressure, 2),
             "threshold": activation_cfg.consolidation_pressure_threshold,
             "should_trigger_mop": should_mop,
         },
     }
+
+    if skip_when_no_work and not should_mop:
+        report["mop"] = {"skipped": True, "reason": "no actionable hygiene work"}
+        report["debt_after"] = debt.to_dict()
+        return report
 
     cli_floor = max(1, int(budget))
     knob_budgets = mop_knob_budgets(cli_floor, loop_adj)
@@ -153,15 +217,82 @@ async def execute_hygiene_mop(
         reason_for_row=lambda _r: "stale_uncorroborated",
     )
 
-    mop["cue_hygiene"] = (
-        await run_cue_hygiene(
-            graph_store,
-            group_id,
-            max_per_cycle=cue_budget,
-            min_age_days=float(activation_cfg.consolidation_cue_hygiene_min_age_days),
-            dry_run=bool(dry_run),
+    if cue_scan_due():
+        mop["cue_hygiene"] = (
+            await run_cue_hygiene(
+                graph_store,
+                group_id,
+                max_per_cycle=cue_budget,
+                min_age_days=float(activation_cfg.consolidation_cue_hygiene_min_age_days),
+                dry_run=bool(dry_run),
+            )
+        ).to_dict()
+        if not dry_run:
+            mark_cue_scan_done()
+    else:
+        mop["cue_hygiene"] = {"skipped": True, "reason": "scan watermark not due"}
+
+    # Metabolize: the only legitimate exit for deferred/pending evidence and
+    # open adjudication requests is adjudication (commit-or-reject), and the
+    # only consumer for cue_only episodes is replay. Under mop-only
+    # scheduling these never ran anywhere — the queues froze (54 deferred /
+    # 3039 cue_only observed) while every window paid shell downtime.
+    if graph_manager is not None:
+        from engram.consolidation.phases.edge_adjudication import EdgeAdjudicationPhase
+        from engram.consolidation.phases.evidence_adjudication import (
+            EvidenceAdjudicationPhase,
         )
-    ).to_dict()
+        from engram.models.consolidation import CycleContext
+
+        for key, phase in (
+            ("evidence_adjudication", EvidenceAdjudicationPhase(graph_manager)),
+            ("edge_adjudication", EdgeAdjudicationPhase(graph_manager)),
+        ):
+            try:
+                result, records = await phase.execute(
+                    group_id=group_id,
+                    graph_store=graph_store,
+                    activation_store=activation_store,
+                    search_index=search_index,
+                    cfg=activation_cfg,
+                    cycle_id="mop_cli",
+                    dry_run=bool(dry_run),
+                    context=CycleContext(),
+                )
+                mop[key] = {
+                    "status": result.status,
+                    "items_processed": result.items_processed,
+                    "items_affected": result.items_affected,
+                    "records": len(records),
+                }
+            except Exception:
+                logger.exception("mop %s pass failed", key)
+                mop[key] = {"status": "error"}
+
+    if extractor is not None and getattr(activation_cfg, "consolidation_replay_enabled", False):
+        from engram.consolidation.phases.replay import EpisodeReplayPhase
+        from engram.models.consolidation import CycleContext
+
+        try:
+            result, records = await EpisodeReplayPhase(extractor=extractor).execute(
+                group_id=group_id,
+                graph_store=graph_store,
+                activation_store=activation_store,
+                search_index=search_index,
+                cfg=activation_cfg,
+                cycle_id="mop_cli",
+                dry_run=bool(dry_run),
+                context=CycleContext(),
+            )
+            mop["replay"] = {
+                "status": result.status,
+                "items_processed": result.items_processed,
+                "items_affected": result.items_affected,
+                "records": len(records),
+            }
+        except Exception:
+            logger.exception("mop replay pass failed")
+            mop["replay"] = {"status": "error"}
 
     from engram.consolidation.phases.prune import PrunePhase
     from engram.models.consolidation import CycleContext

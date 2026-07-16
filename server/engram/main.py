@@ -130,6 +130,13 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
     graph_store, activation_store, search_index = create_stores(mode, config)
 
+    # ACT-R access history lives in the in-memory activation store; restore
+    # the last snapshot so 2h brain-window restarts stop wiping it.
+    if hasattr(activation_store, "load_from_file"):
+        loaded = activation_store.load_from_file(_activation_snapshot_path())
+        if loaded:
+            logger.info("Restored activation snapshot: %d entities", loaded)
+
     await graph_store.initialize()
     await initialize_search_index_for_graph(
         search_index,
@@ -453,8 +460,21 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     )
 
 
+def _activation_snapshot_path():
+    from pathlib import Path
+
+    home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
+    return home / "activation-snapshot.json"
+
+
 async def _shutdown() -> None:
     """Cleanup on shutdown."""
+    activation_store = _app_state.get("activation_store")
+    if activation_store is not None and hasattr(activation_store, "save_to_file"):
+        saved = activation_store.save_to_file(_activation_snapshot_path())
+        if saved:
+            logger.info("Saved activation snapshot: %d entities", saved)
+
     cue_index_outbox_task = _app_state.get("cue_index_outbox_task")
     await stop_task_if_running(cue_index_outbox_task)
     for task in list(_startup_background_tasks):

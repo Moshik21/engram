@@ -293,8 +293,15 @@ async def _run_cycle_with_deadline(args: argparse.Namespace) -> dict[str, Any]:
 
 
 async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
-    """Debt drain via shared hygiene ops (no consolidation phase thrash)."""
+    """Debt drain + metabolize passes via shared hygiene ops.
+
+    Builds a GraphManager/extractor so the bounded evidence/edge adjudication
+    and zero-LLM replay passes run inside the window — the queues these
+    service have no other consumer under mop-only scheduling.
+    """
     from engram.config import EngramConfig
+    from engram.extraction.factory import create_extractor
+    from engram.graph_manager import GraphManager
     from engram.hygiene_ops import execute_hygiene_mop
     from engram.loop_adjustment import effective_activation_config, load_active_adjustment
     from engram.storage.bootstrap import (
@@ -306,9 +313,6 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
 
     config = EngramConfig()
     object.__setattr__(config, "runtime_role", "brain")
-    # Avoid embed thrash during mop if model cache is incomplete.
-    if not os.environ.get("ENGRAM_EMBEDDING__PROVIDER"):
-        os.environ["ENGRAM_EMBEDDING__PROVIDER"] = "noop"
 
     profile = args.profile or (
         config.activation.consolidation_profile
@@ -326,6 +330,14 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
         graph_store, activation_store, search_index = create_local_runtime_stores(mode, config)
         await graph_store.initialize()
         await initialize_search_index_for_graph(search_index, graph_store=graph_store, mode=mode)
+        extractor = create_extractor(config)
+        graph_manager = GraphManager(
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            extractor=extractor,
+            cfg=activation_cfg,
+        )
         report = await execute_hygiene_mop(
             graph_store=graph_store,
             activation_store=activation_store,
@@ -335,6 +347,9 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
             budget=max(1, int(getattr(args, "budget", 1000) or 1000)),
             dry_run=dry_run,
             loop_adj=loop_adj,
+            graph_manager=graph_manager,
+            extractor=extractor,
+            skip_when_no_work=not bool(getattr(args, "force", False)),
         )
         debt_before = report.get("debt") or {}
         debt_after = report.get("debt_after") or {}
@@ -342,6 +357,8 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
         rejected = 0
         for key in ("evidence_drain", "already_exists", "stale"):
             rejected += int((mop.get(key) or {}).get("rejected") or 0)
+        for key in ("evidence_adjudication", "edge_adjudication", "replay"):
+            rejected += int((mop.get(key) or {}).get("items_affected") or 0)
         return {
             "status": "completed",
             "error": None,

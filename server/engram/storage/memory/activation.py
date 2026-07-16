@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
+import time
+from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryActivationStore:
@@ -76,6 +83,63 @@ class MemoryActivationStore:
             scored.append((eid, state, act))
         scored.sort(key=lambda x: x[2], reverse=True)
         return [(eid, state) for eid, state, _ in scored[:limit]]
+
+    def save_to_file(self, path: Path) -> int:
+        """Persist activation states (incl. access_history) across restarts.
+
+        ACT-R activation is computed from access_history, which lives only in
+        this dict — without persistence every shell restart (12+/day under
+        the 2h brain cadence) silently wiped all recency/frequency signal.
+        """
+        states = {}
+        for eid, state in list(self._states.items())[:50000]:
+            entry = asdict(state)
+            entry["group_id"] = self._group_map.get(eid)
+            states[eid] = entry
+        payload = {"saved_at": time.time(), "states": states}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError:
+            logger.warning("Activation snapshot write failed: %s", path, exc_info=True)
+            return 0
+        return len(states)
+
+    def load_from_file(self, path: Path, max_age_days: float = 14.0) -> int:
+        """Restore a prior snapshot; stale snapshots are ignored."""
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return 0
+        saved_at = payload.get("saved_at")
+        if not isinstance(saved_at, (int, float)):
+            return 0
+        if (time.time() - float(saved_at)) > max_age_days * 86400.0:
+            return 0
+        loaded = 0
+        for eid, entry in (payload.get("states") or {}).items():
+            if eid in self._states:
+                continue  # live state wins over the snapshot
+            group_id = entry.pop("group_id", None)
+            try:
+                state = ActivationState(
+                    node_id=entry.get("node_id") or eid,
+                    access_history=[float(t) for t in entry.get("access_history") or []],
+                    spreading_bonus=float(entry.get("spreading_bonus") or 0.0),
+                    last_accessed=float(entry.get("last_accessed") or 0.0),
+                    access_count=int(entry.get("access_count") or 0),
+                    consolidated_strength=float(entry.get("consolidated_strength") or 0.0),
+                    last_compacted=float(entry.get("last_compacted") or 0.0),
+                    ts_alpha=float(entry.get("ts_alpha") or 1.0),
+                    ts_beta=float(entry.get("ts_beta") or 1.0),
+                )
+            except (TypeError, ValueError):
+                continue
+            self._states[eid] = state
+            if group_id:
+                self._group_map[eid] = group_id
+            loaded += 1
+        return loaded
 
     async def snapshot_to_graph(self, graph_store) -> None:
         """Persist current activation state to graph entity rows."""
