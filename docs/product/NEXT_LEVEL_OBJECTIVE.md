@@ -18,10 +18,11 @@ stacks, M1–M7 implementation, doc truth passes, test reconciliation).
 
 **Definition of done** (every box checked, each independently verifiable):
 
-- [~] `git status` clean on `main`; CI fully green including lint. — Lint +
-      format green; all targeted suites green; final full-suite run pending the
-      last two test-reconciliation agents (edge_adjudication ×2, lite-fixture
-      conversions ×4).
+- [x] `git status` clean on `main`; CI fully green including lint.
+      — VERIFIED 2026-07-16 16:45: tree clean; full lite suite 4405 passed /
+      0 failed / 1 documented xfail (was 51 failures at execution start);
+      ruff check + format clean repo-wide; dashboard 226 passed. All CI
+      gates verified locally (the branch is local-only; push when ready).
 - [~] 7 consecutive dogfood days: shell availability ≥ 99.5%; no brain window pauses the shell > 60s unless it
       performed real mutations; zero stranded-shell incidents under deliberate kill testing.
       — **Measurement window opened 2026-07-16.** Instrumentation live: availability %/max-outage in the
