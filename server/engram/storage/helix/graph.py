@@ -1791,7 +1791,7 @@ class HelixGraphStore:
                 "id": helix_id,
                 "status": current.get("status", "pending"),
                 "updated_at": current.get("updated_at", utc_now_iso()),
-                "error": current.get("error", ""),
+                "error": current.get("error") or "",
                 "retry_count": current.get("retry_count", 0),
                 "processing_duration_ms": current.get("processing_duration_ms", 0) or 0,
                 "content": current.get("content", ""),

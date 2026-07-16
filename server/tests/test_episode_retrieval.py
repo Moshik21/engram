@@ -639,8 +639,14 @@ class TestPipelineEpisodeRetrieval:
         assert expand_calls == 1
         assert stage_timings["recall_stats_timeout"] >= 25
         assert "graph_expand_skipped_stats_timeout" not in stage_timings
-        assert stage_timings["recall_primary_search_effective_timeout_ms"] == 40
-        assert 40 <= stage_timings["recall_primary_search_timeout"] < 100
+        # Probe timeouts must not poison explicit search: the effective timeout is
+        # floored at the explicit search budget (never shrunk to the adaptive cap),
+        # so primary search gets its full budget and completes without timing out.
+        assert (
+            stage_timings["recall_primary_search_effective_timeout_ms"]
+            == cfg.recall_budget_explicit_search_ms
+        )
+        assert "recall_primary_search_timeout" not in stage_timings
         assert stage_timings["graph_expand_timeout"] >= 25
 
     @pytest.mark.asyncio
@@ -682,8 +688,13 @@ class TestPipelineEpisodeRetrieval:
         assert results == []
         assert expand_calls == 1
         assert stage_timings["graph_expand_timeout"] >= 25
-        assert stage_timings["recall_primary_search_effective_timeout_ms"] == 40
-        assert 40 <= stage_timings["recall_primary_search_timeout"] < 100
+        # A graph-expansion timeout floors (not shrinks) the next primary search at
+        # the explicit search budget, so search runs to completion within budget.
+        assert (
+            stage_timings["recall_primary_search_effective_timeout_ms"]
+            == cfg.recall_budget_explicit_search_ms
+        )
+        assert "recall_primary_search_timeout" not in stage_timings
 
     @pytest.mark.asyncio
     async def test_gated_graph_store_blocks_secondary_reads_when_probe_timed_out(self):

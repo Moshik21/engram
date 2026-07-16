@@ -72,7 +72,9 @@ async def test_sqlite_graph_store_persists_episode_cue(graph_store):
 
 
 @pytest.mark.asyncio
-async def test_store_episode_generates_and_indexes_cue(graph_store, activation_store, search_index):
+async def test_store_episode_generates_and_indexes_cue(
+    graph_store, activation_store, search_index, test_group_id
+):
     cfg = ActivationConfig(cue_layer_enabled=True, cue_vector_index_enabled=False)
     manager = GraphManager(
         graph_store=graph_store,
@@ -84,21 +86,24 @@ async def test_store_episode_generates_and_indexes_cue(graph_store, activation_s
 
     episode_id = await manager.store_episode(
         "Alex moved to Phoenix in 2024 and is working on Engram extraction redesign",
-        group_id="default",
+        group_id=test_group_id,
         source="test",
     )
+    # Capture acknowledges after the cue upsert and finishes the episode
+    # projection-state sync in a bounded background task; drain it before asserting.
+    await manager._capture_service.drain_cue_indexing()
 
-    cue = await graph_store.get_episode_cue(episode_id, "default")
+    cue = await graph_store.get_episode_cue(episode_id, test_group_id)
     assert cue is not None
     assert cue.cue_text
 
-    episode = await graph_store.get_episode_by_id(episode_id, "default")
+    episode = await graph_store.get_episode_by_id(episode_id, test_group_id)
     assert episode is not None
     assert episode.projection_state in {
         EpisodeProjectionState.CUED,
         EpisodeProjectionState.SCHEDULED,
     }
 
-    results = await search_index.search_episode_cues("Phoenix redesign", group_id="default")
+    results = await search_index.search_episode_cues("Phoenix redesign", group_id=test_group_id)
     assert results
     assert results[0][0] == episode_id

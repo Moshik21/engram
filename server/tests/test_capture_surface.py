@@ -360,7 +360,10 @@ async def test_build_mcp_remember_write_surface_runs_capture_project_side_effect
     assert call_kwargs["model_tier"] == "opus"
     ingest_live_turn.assert_awaited_once_with(manager, "Alice works at Engram.", source="remember")
     recall_middleware.assert_awaited_once()
-    assert response["status"] == "stored"
+    # Hard-path surface: proposals were supplied but the mocked manager commits no
+    # entities/relationships, so the write reports the structured defer outcome.
+    assert response["status"] == "deferred"
+    assert response["error"]["code"] == "proposals_deferred"
     assert response["operation"] == "remember"
     assert response["adjudication_requests"][0]["request_id"] == "adj_1"
     assert response["recalled_context"] == {"source": "recall_lite"}

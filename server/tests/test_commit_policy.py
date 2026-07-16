@@ -9,6 +9,14 @@ def _make_candidate(
     confidence: float,
     signals: list[str] | None = None,
 ) -> EvidenceCandidate:
+    # Real candidates carry a name (entity) or subject/object (relationship);
+    # without them the hot-path junk gate rejects before threshold logic runs.
+    if fact_class == "entity":
+        payload = {"name": "Postgres"}
+    elif fact_class == "relationship":
+        payload = {"subject": "Postgres", "object": "Redis"}
+    else:
+        payload = {}
     return EvidenceCandidate(
         episode_id="ep1",
         group_id="default",
@@ -16,6 +24,7 @@ def _make_candidate(
         confidence=confidence,
         source_type="narrow_extractor",
         extractor_name="test",
+        payload=payload,
         corroborating_signals=signals,
     )
 

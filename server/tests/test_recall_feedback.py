@@ -155,9 +155,11 @@ class TestRecallInteractionRecorder:
 
 @pytest.mark.asyncio
 class TestRecallCueFeedbackRecorder:
-    async def test_promotes_hot_cue_through_shared_projection_state(self, graph_store):
+    async def test_promotes_hot_cue_through_shared_projection_state(
+        self, graph_store, test_group_id
+    ):
         bus = EventBus()
-        queue = bus.subscribe("default")
+        queue = bus.subscribe(test_group_id)
         need_controller = MagicMock(spec=RecallNeedController)
         cfg = ActivationConfig(
             cue_recall_hit_threshold=2,
@@ -170,19 +172,22 @@ class TestRecallCueFeedbackRecorder:
             recall_need_controller=need_controller,
             event_bus=bus,
         )
+        # Unique id + group so the persistent native store can't carry fixed-id
+        # episode state across runs into this test.
+        episode_id = f"ep_hot_cue_{test_group_id}"
         episode = Episode(
-            id="ep_hot_cue",
+            id=episode_id,
             content="React dashboard migration remains in scope.",
             source="test",
             status=EpisodeStatus.COMPLETED,
             projection_state=EpisodeProjectionState.CUE_ONLY,
-            group_id="default",
+            group_id=test_group_id,
         )
         await graph_store.create_episode(episode)
         await graph_store.upsert_episode_cue(
             EpisodeCue(
                 episode_id=episode.id,
-                group_id="default",
+                group_id=test_group_id,
                 projection_state=EpisodeProjectionState.CUE_ONLY,
                 route_reason="entity_dense",
                 cue_text="spans: React dashboard migration remains in scope",
@@ -199,8 +204,8 @@ class TestRecallCueFeedbackRecorder:
             interaction_type="surfaced",
         )
 
-        stored_episode = await graph_store.get_episode_by_id(episode.id, "default")
-        cue = await graph_store.get_episode_cue(episode.id, "default")
+        stored_episode = await graph_store.get_episode_by_id(episode.id, test_group_id)
+        cue = await graph_store.get_episode_cue(episode.id, test_group_id)
         events = []
         while not queue.empty():
             events.append(await queue.get())
@@ -217,10 +222,10 @@ class TestRecallCueFeedbackRecorder:
         assert [event for event in events if event["type"] == "cue.promoted"]
         assert [event for event in events if event["type"] == "episode.projection_scheduled"]
         need_controller.record_interaction.assert_called_once_with(
-            "default",
+            test_group_id,
             "surfaced",
             result_type="cue_episode",
-            memory_id="cue:ep_hot_cue",
+            memory_id=f"cue:{episode_id}",
         )
 
 
@@ -354,6 +359,7 @@ class TestRecallFeedback:
         graph_store,
         activation_store,
         search_index,
+        test_group_id,
     ):
         cfg = ActivationConfig(
             cue_policy_learning_enabled=True,
@@ -369,19 +375,23 @@ class TestRecallFeedback:
             cfg=cfg,
         )
 
+        # Unique id + group so the persistent native store can't carry fixed-id
+        # episode state across runs into this test.
+        episode_id = f"ep_cue_used_{test_group_id}"
+        lookup_id = f"cue:{episode_id}"
         episode = Episode(
-            id="ep_cue_used",
+            id=episode_id,
             content="React dashboard migration remains in scope.",
             source="test",
             status=EpisodeStatus.COMPLETED,
             projection_state=EpisodeProjectionState.CUE_ONLY,
-            group_id="default",
+            group_id=test_group_id,
         )
         await graph_store.create_episode(episode)
         await graph_store.upsert_episode_cue(
             EpisodeCue(
                 episode_id=episode.id,
-                group_id="default",
+                group_id=test_group_id,
                 projection_state=EpisodeProjectionState.CUE_ONLY,
                 projection_priority=0.48,
                 policy_score=0.48,
@@ -394,16 +404,16 @@ class TestRecallFeedback:
         )
 
         await manager.apply_memory_interaction(
-            ["cue:ep_cue_used"],
-            group_id="default",
+            [lookup_id],
+            group_id=test_group_id,
             interaction_type="used",
             source="chat_response",
             query="What remains in scope?",
             result_lookup={
-                "cue:ep_cue_used": {
-                    "lookup_id": "cue:ep_cue_used",
+                lookup_id: {
+                    "lookup_id": lookup_id,
                     "result_type": "cue_episode",
-                    "episode_id": "ep_cue_used",
+                    "episode_id": episode_id,
                     "cue_text": "spans: React dashboard migration remains in scope",
                     "supporting_spans": ["React dashboard migration remains in scope."],
                     "score": 0.95,
@@ -412,8 +422,8 @@ class TestRecallFeedback:
             },
         )
 
-        cue = await graph_store.get_episode_cue("ep_cue_used", "default")
-        stored_episode = await graph_store.get_episode_by_id("ep_cue_used", "default")
+        cue = await graph_store.get_episode_cue(episode_id, test_group_id)
+        stored_episode = await graph_store.get_episode_by_id(episode_id, test_group_id)
 
         assert cue is not None
         assert stored_episode is not None
@@ -427,6 +437,7 @@ class TestRecallFeedback:
         graph_store,
         activation_store,
         search_index,
+        test_group_id,
     ):
         bus = EventBus()
         extractor = MockExtractor(
@@ -438,6 +449,9 @@ class TestRecallFeedback:
         cfg = ActivationConfig(
             recall_telemetry_enabled=True,
             recall_usage_feedback_enabled=True,
+            # Entity recall telemetry needs entities in the top-k; opt into the
+            # graph depth tier (default episode-vector core surfaces no entities).
+            passage_first_entity_budget=1,
         )
         manager = GraphManager(
             graph_store,
@@ -449,19 +463,21 @@ class TestRecallFeedback:
         )
         await manager.ingest_episode(
             "Using Python in production",
-            group_id="default",
+            group_id=test_group_id,
             source="test",
         )
-        entity = (await graph_store.find_entities(name="Python", group_id="default", limit=1))[0]
+        entity = (await graph_store.find_entities(name="Python", group_id=test_group_id, limit=1))[
+            0
+        ]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
         before_alpha = before.ts_alpha if before else 1.0
         before_beta = before.ts_beta if before else 1.0
-        queue = bus.subscribe("default")
+        queue = bus.subscribe(test_group_id)
 
         await manager.recall(
             query="Python",
-            group_id="default",
+            group_id=test_group_id,
             record_access=False,
             interaction_type="surfaced",
             interaction_source="auto_recall",
@@ -491,6 +507,7 @@ class TestRecallFeedback:
         graph_store,
         activation_store,
         search_index,
+        test_group_id,
     ):
         bus = EventBus()
         extractor = MockExtractor(
@@ -499,7 +516,12 @@ class TestRecallFeedback:
                 relationships=[],
             )
         )
-        cfg = ActivationConfig(recall_telemetry_enabled=True)
+        cfg = ActivationConfig(
+            recall_telemetry_enabled=True,
+            # Entity recall telemetry needs entities in the top-k; opt into the
+            # graph depth tier (default episode-vector core surfaces no entities).
+            passage_first_entity_budget=1,
+        )
         manager = GraphManager(
             graph_store,
             activation_store,
@@ -508,16 +530,16 @@ class TestRecallFeedback:
             cfg=cfg,
             event_bus=bus,
         )
-        await manager.ingest_episode("We use React", group_id="default", source="test")
-        entity = (await graph_store.find_entities(name="React", group_id="default", limit=1))[0]
+        await manager.ingest_episode("We use React", group_id=test_group_id, source="test")
+        entity = (await graph_store.find_entities(name="React", group_id=test_group_id, limit=1))[0]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
         before_alpha = before.ts_alpha if before else 1.0
-        queue = bus.subscribe("default")
+        queue = bus.subscribe(test_group_id)
 
         await manager.recall(
             query="React",
-            group_id="default",
+            group_id=test_group_id,
             interaction_type="used",
             interaction_source="chat_tool_use",
         )
@@ -545,6 +567,7 @@ class TestRecallFeedback:
         graph_store,
         activation_store,
         search_index,
+        test_group_id,
     ):
         bus = EventBus()
         extractor = MockExtractor(
@@ -557,6 +580,9 @@ class TestRecallFeedback:
             recall_telemetry_enabled=True,
             recall_usage_feedback_enabled=True,
             ts_enabled=True,
+            # Entity recall telemetry needs entities in the top-k; opt into the
+            # graph depth tier (default episode-vector core surfaces no entities).
+            passage_first_entity_budget=1,
         )
         manager = GraphManager(
             graph_store,
@@ -566,17 +592,17 @@ class TestRecallFeedback:
             cfg=cfg,
             event_bus=bus,
         )
-        await manager.ingest_episode("We use Redis", group_id="default", source="test")
-        entity = (await graph_store.find_entities(name="Redis", group_id="default", limit=1))[0]
+        await manager.ingest_episode("We use Redis", group_id=test_group_id, source="test")
+        entity = (await graph_store.find_entities(name="Redis", group_id=test_group_id, limit=1))[0]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
         before_alpha = before.ts_alpha if before else 1.0
         before_beta = before.ts_beta if before else 1.0
-        queue = bus.subscribe("default")
+        queue = bus.subscribe(test_group_id)
 
         await manager.recall(
             query="Redis",
-            group_id="default",
+            group_id=test_group_id,
             record_access=False,
             interaction_type="selected",
             interaction_source="chat_tool_select",
