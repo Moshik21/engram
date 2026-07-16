@@ -82,8 +82,18 @@ class TestActivationAccessEvent:
             )
         )
 
+        from engram.config import ActivationConfig
+
         manager = GraphManager(
-            graph_store, activation_store, search_index, extractor, event_bus=bus
+            graph_store,
+            activation_store,
+            search_index,
+            extractor,
+            # Graph/depth tier opt-in — the core tier is episode-first by
+            # design (gate G); entity access events under test require
+            # entity results in top-k.
+            cfg=ActivationConfig(passage_first_entity_budget=1),
+            event_bus=bus,
         )
         await manager.ingest_episode(content="Using Python", group_id="default", source="test")
 
