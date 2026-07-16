@@ -1060,19 +1060,35 @@ stop_orphan_local_api_listeners() {
 }
 
 lite_start() {
-  if lite_pid_is_running; then
-    local pid
-    pid="$(cat "$LITE_PID_FILE")"
-    info "Engram is already running (PID $pid)."
+  load_existing_env "$LITE_ENV_FILE"
+  local port="${ENGRAM_API_PORT:-8100}"
+
+  # Already healthy → treat as up even if PID bookkeeping is messy.
+  if local_api_health_responds "$port"; then
+    if lite_pid_is_running; then
+      info "Engram is already running (PID $(cat "$LITE_PID_FILE"))."
+    elif launch_agent_is_running; then
+      info "Engram is already running (LaunchAgent ${LITE_LAUNCH_AGENT_LABEL})."
+    else
+      info "Engram API is healthy on port $port (listener ownership not tracked)."
+      dim "If this is unexpected: engramctl stop && engramctl start"
+    fi
     return 0
   fi
 
-  load_existing_env "$LITE_ENV_FILE"
+  if lite_pid_is_running; then
+    local pid
+    pid="$(cat "$LITE_PID_FILE")"
+    warn "PID file claims Engram is running (PID $pid) but health is not responding."
+    dim "Clearing stale PID and attempting recovery..."
+    rm -f "$LITE_PID_FILE"
+    stop_orphan_local_api_listeners "$port" || true
+  fi
+
   mkdir -p "$LITE_LOG_DIR"
 
   local engram_cmd
   engram_cmd="$(find_engram_command)"
-  local port="${ENGRAM_API_PORT:-8100}"
 
   if launch_agent_available; then
     if launch_agent_start; then
@@ -1085,12 +1101,26 @@ lite_start() {
         dim "LaunchAgent: $LITE_LAUNCH_AGENT_PLIST"
         return 0
       fi
+      # Stale listener or half-start: clean and retry once via LaunchAgent.
+      warn "LaunchAgent loaded but health not ready; clearing stale listeners and retrying once."
+      stop_orphan_local_api_listeners "$port" || true
+      launch_agent_stop >/dev/null 2>&1 || true
+      if launch_agent_start && wait_for_local_health "$port"; then
+        agent_pid="$(launch_agent_pid || true)"
+        info "Engram started with LaunchAgent ${LITE_LAUNCH_AGENT_LABEL}${agent_pid:+ (PID $agent_pid)} after recovery."
+        dim "API: http://127.0.0.1:${port}"
+        dim "Logs: $LITE_LOG_FILE"
+        return 0
+      fi
       warn "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL} is loaded but health is not responding yet."
       dim "Check logs: tail -f $LITE_LOG_FILE"
+      dim "Recovery: engramctl stop && engramctl start"
+      dim "If port stuck: lsof -nP -iTCP:${port} -sTCP:LISTEN"
       return 1
     fi
     warn "LaunchAgent ${LITE_LAUNCH_AGENT_LABEL} exists but could not be started."
     dim "LaunchAgent: $LITE_LAUNCH_AGENT_PLIST"
+    dim "Recovery: launchctl bootout gui/$(id -u)/${LITE_LAUNCH_AGENT_LABEL} 2>/dev/null; engramctl start"
     return 1
   fi
 
@@ -1193,6 +1223,12 @@ lite_status() {
   health_file="$(mktemp)"
   if curl --connect-timeout 1 --max-time 5 -fsS "http://127.0.0.1:${port}/health" -o "$health_file" 2>/dev/null; then
     api_ok=1
+  fi
+
+  # Stale PID bookkeeping: health down but PID file present
+  if [ "$api_ok" != "1" ] && [ -f "$LITE_PID_FILE" ] && ! lite_pid_is_running; then
+    warn "Stale PID file present but process is dead; removing $LITE_PID_FILE"
+    rm -f "$LITE_PID_FILE"
   fi
 
   echo -e "  ${BOLD}Engram Status (local mode)${RESET}"
