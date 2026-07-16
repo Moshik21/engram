@@ -193,8 +193,9 @@ class TestFactoryProviderResolution:
         class FakeTextEmbedding:
             embedding_size = 42
 
-            def __init__(self, model_name: str) -> None:
+            def __init__(self, model_name: str, cache_dir: str | None = None, **kwargs) -> None:
                 self.model_name = model_name
+                self.cache_dir = cache_dir
 
         fake_fastembed = SimpleNamespace(TextEmbedding=FakeTextEmbedding)
         with (

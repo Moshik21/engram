@@ -7,9 +7,29 @@ import os
 import threading
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def default_fastembed_cache_dir() -> str:
+    """Stable on-disk cache for local ONNX models (never system temp).
+
+    Fastembed defaults to ``$TMPDIR/fastembed_cache``, which macOS can purge and
+    which broke dogfood when a half-downloaded ``model.onnx`` was left incomplete.
+    Prefer an explicit ``FASTEMBED_CACHE_PATH``, else ``~/.engram/models/fastembed``.
+    """
+    explicit = os.environ.get("FASTEMBED_CACHE_PATH", "").strip()
+    if explicit:
+        path = Path(explicit).expanduser()
+    else:
+        path = Path.home() / ".engram" / "models" / "fastembed"
+    path.mkdir(parents=True, exist_ok=True)
+    # Ensure child TextEmbedding / TextCrossEncoder calls inherit the same root
+    # when they only read the env var (cache_dir=None path).
+    os.environ.setdefault("FASTEMBED_CACHE_PATH", str(path))
+    return str(path)
 
 
 class EmbeddingProvider(ABC):
@@ -115,12 +135,14 @@ class FastEmbedProvider(EmbeddingProvider):
     CACHE_MAX_SIZE = 256
     KNOWN_MODEL_DIMENSIONS = {
         "nomic-ai/nomic-embed-text-v1.5": 768,
+        "nomic-ai/nomic-embed-text-v1.5-Q": 768,  # quantized; same dim, smaller download
     }
 
     def __init__(
         self,
         model: str = "nomic-ai/nomic-embed-text-v1.5",
         dimensions: int | None = None,
+        cache_dir: str | None = None,
     ) -> None:
         import importlib.util
 
@@ -128,6 +150,7 @@ class FastEmbedProvider(EmbeddingProvider):
             raise ImportError("fastembed not installed")
 
         self._model_name = model
+        self._cache_dir = cache_dir or default_fastembed_cache_dir()
         self._model: Any | None = None
         self._model_lock = threading.Lock()
         self._dimensions = (
@@ -140,27 +163,51 @@ class FastEmbedProvider(EmbeddingProvider):
             self._ensure_model()
         else:
             logger.info(
-                "FastEmbedProvider configured lazy: model=%s, dim=%d",
+                "FastEmbedProvider configured lazy: model=%s, dim=%d, cache=%s",
                 model,
                 self._dimensions,
+                self._cache_dir,
             )
 
     def _ensure_model(self) -> Any:
-        """Load the ONNX model only when embeddings are actually requested."""
+        """Load the ONNX model only when embeddings are actually requested.
+
+        On load failure, mark the provider broken and return None so callers
+        can fall back (BM25) instead of thrashing retries forever.
+        """
+        if getattr(self, "_model_broken", False):
+            return None
         if self._model is not None:
             return self._model
         with self._model_lock:
+            if getattr(self, "_model_broken", False):
+                return None
             if self._model is None:
-                from fastembed import TextEmbedding
+                try:
+                    from fastembed import TextEmbedding
 
-                self._model = TextEmbedding(model_name=self._model_name)
-                if self._dimensions <= 0:
-                    self._dimensions = self._model.embedding_size  # type: ignore[attr-defined]
-                logger.info(
-                    "FastEmbedProvider ready: model=%s, dim=%d",
-                    self._model_name,
-                    self._dimensions,
-                )
+                    self._model = TextEmbedding(
+                        model_name=self._model_name,
+                        cache_dir=self._cache_dir,
+                    )
+                    if self._dimensions <= 0:
+                        self._dimensions = self._model.embedding_size  # type: ignore[attr-defined]
+                    logger.info(
+                        "FastEmbedProvider ready: model=%s, dim=%d, cache=%s",
+                        self._model_name,
+                        self._dimensions,
+                        self._cache_dir,
+                    )
+                except Exception as exc:
+                    self._model_broken = True
+                    logger.error(
+                        "FastEmbedProvider model load failed (cache=%s model=%s): %s. "
+                        "Vector embeds disabled until model is repaired.",
+                        self._cache_dir,
+                        self._model_name,
+                        exc,
+                    )
+                    return None
         return self._model
 
     @property
@@ -178,6 +225,8 @@ class FastEmbedProvider(EmbeddingProvider):
 
     def _embed_sync(self, texts: list[str]) -> list[list[float]]:
         model = self._ensure_model()
+        if model is None:
+            return [[] for _ in texts]
         return [vec.tolist() for vec in model.embed(texts)]
 
     async def embed_query(self, text: str) -> list[float]:

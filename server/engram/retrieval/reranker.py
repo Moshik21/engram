@@ -96,8 +96,11 @@ class FastEmbedReranker(RerankerProvider):
     def __init__(self, model: str = "Xenova/ms-marco-MiniLM-L-6-v2") -> None:
         from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-        self._model = TextCrossEncoder(model_name=model)
-        logger.info("FastEmbedReranker ready: model=%s", model)
+        from engram.embeddings.provider import default_fastembed_cache_dir
+
+        cache_dir = default_fastembed_cache_dir()
+        self._model = TextCrossEncoder(model_name=model, cache_dir=cache_dir)
+        logger.info("FastEmbedReranker ready: model=%s, cache=%s", model, cache_dir)
 
     async def rerank(
         self,

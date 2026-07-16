@@ -41,11 +41,18 @@ async def _get_cross_encoder():
         try:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
 
+            from engram.embeddings.provider import default_fastembed_cache_dir
+
+            cache_dir = default_fastembed_cache_dir()
             _cross_encoder = await asyncio.to_thread(
                 TextCrossEncoder,
                 model_name="Xenova/ms-marco-MiniLM-L-6-v2",
+                cache_dir=cache_dir,
             )
-            logger.info("Cross-encoder loaded for consolidation scoring")
+            logger.info(
+                "Cross-encoder loaded for consolidation scoring (cache=%s)",
+                cache_dir,
+            )
             return _cross_encoder
         except ImportError:
             logger.warning("fastembed not installed — cross-encoder unavailable")
