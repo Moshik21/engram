@@ -130,7 +130,7 @@ def _collect_config(preset_mode: str | None = None) -> dict:
         _check("Voyage AI key configured")
     else:
         cfg["VOYAGE_API_KEY"] = None
-        _warn("Voyage AI skipped — vector search disabled")
+        _check("Voyage AI skipped — local fastembed vectors remain enabled (default)")
 
     # --- Mode ---
     if preset_mode is not None:
@@ -164,12 +164,16 @@ def _collect_config(preset_mode: str | None = None) -> dict:
     _section("Consolidation Profile")
     print(f"  {_DIM}off          = no background consolidation{_RESET}")
     print(f"  {_DIM}observe      = dry-run (logs only, no mutations){_RESET}")
+    print(
+        f"  {_DIM}quiet        = consumer footprint: cold-brain phases, "
+        f"worker off (recommended){_RESET}"
+    )
     print(f"  {_DIM}conservative = merge + prune, no LLM inference{_RESET}")
-    print(f"  {_DIM}standard     = all phases enabled{_RESET}")
+    print(f"  {_DIM}standard     = all phases enabled (monolith/power installs only){_RESET}")
     profile = _ask(
         "Profile",
-        default="standard",
-        choices=["off", "observe", "conservative", "standard"],
+        default="quiet",
+        choices=["off", "observe", "quiet", "conservative", "standard"],
     )
     cfg["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] = profile
     _check(f"Consolidation profile: {profile}")
@@ -184,7 +188,7 @@ def _collect_config(preset_mode: str | None = None) -> dict:
     print(f"  {_DIM}all    = all recall features enabled{_RESET}")
     recall_profile = _ask(
         "Recall profile",
-        default="all",
+        default="wave2",
         choices=["off", "wave1", "wave2", "wave3", "wave4", "all"],
     )
     cfg["ENGRAM_ACTIVATION__RECALL_PROFILE"] = recall_profile
@@ -201,7 +205,7 @@ def _collect_config(preset_mode: str | None = None) -> dict:
     )
     integration_profile = _ask(
         "Integration profile",
-        default="rework",
+        default="off",
         choices=["off", "rework"],
     )
     cfg["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] = integration_profile
@@ -337,14 +341,23 @@ def _print_mcp_config(config: dict) -> None:
         "ENGRAM_MODE": str(config.get("ENGRAM_MODE", "auto")),
         # Agent installs get the golden-loop tool freeze by default.
         "ENGRAM_MCP_SURFACE": str(config.get("ENGRAM_MCP_SURFACE", "public")),
+        # Hot shell / cold brain split: serve never runs consolidation in-process.
+        "ENGRAM_RUNTIME_ROLE": str(config.get("ENGRAM_RUNTIME_ROLE", "shell")),
+        # Stable ONNX cache (a purgeable temp dir caused broken half-downloads).
+        "FASTEMBED_CACHE_PATH": str(
+            config.get(
+                "FASTEMBED_CACHE_PATH",
+                str(Path.home() / ".engram" / "models" / "fastembed"),
+            )
+        ),
         "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": str(
-            config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE", "standard")
+            config.get("ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE", "quiet")
         ),
         "ENGRAM_ACTIVATION__RECALL_PROFILE": str(
             config.get("ENGRAM_ACTIVATION__RECALL_PROFILE", "all")
         ),
         "ENGRAM_ACTIVATION__INTEGRATION_PROFILE": str(
-            config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE", "rework")
+            config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE", "off")
         ),
     }
     voyage_key = config.get("VOYAGE_API_KEY")
@@ -402,16 +415,16 @@ def _print_recall_ready_summary(config: dict) -> None:
     print("    - analyzer + structural signals live")
     print("    - graph grounding live")
     print("    - shift + impoverishment live")
-    print("    - cue/projection rework enabled")
+    print("    - integration profile applied")
     print("    - surfaced/used recall telemetry enabled")
     print("    - adaptive thresholds, graph override, and chat retry stay off by default")
     print()
     print(f"  {_DIM}Mode: {config.get('ENGRAM_MODE', 'auto')}{_RESET}")
     print(
         f"  {_DIM}Profiles: consolidation="
-        f"{config.get('ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE', 'standard')}, "
+        f"{config.get('ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE', 'quiet')}, "
         f"recall={config.get('ENGRAM_ACTIVATION__RECALL_PROFILE', 'all')}, "
-        f"integration={config.get('ENGRAM_ACTIVATION__INTEGRATION_PROFILE', 'rework')}"
+        f"integration={config.get('ENGRAM_ACTIVATION__INTEGRATION_PROFILE', 'off')}"
         f"{_RESET}"
     )
     print()
@@ -480,7 +493,7 @@ _SETTINGS: list[tuple[str, str, str, bool, list[str] | None]] = [
         "Consolidation",
         "Profile",
         False,
-        ["off", "observe", "conservative", "standard"],
+        ["off", "observe", "quiet", "conservative", "standard"],
     ),
     (
         "ENGRAM_ACTIVATION__RECALL_PROFILE",

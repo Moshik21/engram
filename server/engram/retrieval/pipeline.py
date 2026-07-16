@@ -1955,6 +1955,41 @@ async def retrieve(
             except Exception as e:
                 logger.warning("GC-MMR failed (non-fatal): %s", e)
 
+    async def _reserve_durable_entity_slots(
+        assembled: list,
+        top_n_slots: int,
+    ) -> list:
+        """Gate-G experiment: guarantee durable-type entities the TAIL slots.
+
+        Additive-only — a durable entity may replace the lowest-ranked tail
+        item but never a top episode, so the episode-vector core is untouched
+        when the knob is off (default 0) and minimally displaced when on.
+        """
+        slots = int(getattr(cfg, "passage_first_durable_entity_slots", 0) or 0)
+        if slots <= 0:
+            return assembled
+        from engram.extraction.promotion import is_durable_recall_entity_type
+
+        present = {r.node_id for r in assembled}
+        reserved = 0
+        for sr in scored[:20]:
+            if reserved >= slots:
+                break
+            if sr.result_type != "entity" or sr.node_id in present:
+                continue
+            try:
+                ent = await graph_store.get_entity(sr.node_id, group_id)
+            except Exception:
+                continue
+            if ent is None or not is_durable_recall_entity_type(ent.entity_type):
+                continue
+            if len(assembled) >= top_n_slots and assembled:
+                assembled = assembled[:-1]
+            assembled = assembled + [sr]
+            present.add(sr.node_id)
+            reserved += 1
+        return assembled
+
     # Step 6: Return top-N, mixing entities, episodes, and cue-backed episodes
     top_n = min(limit, cfg.retrieval_top_n)
     special_budget = 0
@@ -2017,6 +2052,9 @@ async def retrieve(
             results = results[:top_n]
     else:
         results = scored[:top_n]
+
+    if _passage_first:
+        results = await _reserve_durable_entity_slots(results, top_n)
 
     # Step 7: Record Thompson Sampling feedback only for true-usage recalls.
     if cfg.ts_enabled and record_feedback:

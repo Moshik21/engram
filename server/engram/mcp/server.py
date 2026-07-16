@@ -47,7 +47,7 @@ from engram.ingestion.capture_surface import (
 from engram.ingestion.project_bootstrap import build_project_bootstrap_surface
 from engram.lifecycle_summary import build_mcp_lifecycle_summary_surface
 from engram.mcp.errors import McpToolError, format_tool_exception
-from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, ENGRAM_SYSTEM_PROMPT
+from engram.mcp.prompts import ENGRAM_CONTEXT_LOADER_PROMPT, build_system_prompt
 from engram.notifications.surface import build_mcp_notifications_surface
 from engram.retrieval.adoption_debt import build_adoption_debt
 from engram.retrieval.artifacts import build_mcp_artifact_search_tool_surface
@@ -152,7 +152,8 @@ async def _lifespan(app: FastMCP) -> AsyncIterator[None]:
                 await _shutdown()
 
 
-mcp = FastMCP("engram", instructions=ENGRAM_SYSTEM_PROMPT, lifespan=_lifespan)
+# Surface-aware: public installs must not be instructed to call operator tools.
+mcp = FastMCP("engram", instructions=build_system_prompt(), lifespan=_lifespan)
 
 
 # ─── Session State ──────────────────────────────────────────────────
@@ -1948,7 +1949,7 @@ def engram_system(
     auto_remember: str = "important",
 ) -> str:
     """System prompt instructions for using Engram memory tools in conversation."""
-    return ENGRAM_SYSTEM_PROMPT
+    return build_system_prompt()
 
 
 @mcp.prompt()

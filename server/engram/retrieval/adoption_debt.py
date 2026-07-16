@@ -143,9 +143,19 @@ def _resolve_wake_reason(
     return None
 
 
+def _public_surface() -> bool:
+    try:
+        from engram.mcp.surface import resolve_mcp_surface
+
+        return resolve_mcp_surface() == "public"
+    except Exception:
+        return True
+
+
 def _suggested_action(wake_reason: str) -> str:
     if wake_reason == "project_switched":
-        return "get_context + search_artifacts"
+        # search_artifacts is operator-only; never point public agents at it.
+        return "get_context" if _public_surface() else "get_context + search_artifacts"
     if wake_reason == "identity_query":
         return "recall"
     if wake_reason in {"session_unprimed", "capture_without_recall"}:
@@ -191,6 +201,8 @@ def _consequence_text(
     if wake_reason == "session_unprimed":
         return "Session not primed — call get_context before the first substantive answer."
     if wake_reason == "project_switched":
+        if _public_surface():
+            return "Project changed since last context load — reload get_context."
         return "Project changed since last context load — reload get_context and search_artifacts."
     if wake_reason == "identity_query":
         return "Identity or preference query with thin personal graph — call recall."
@@ -207,7 +219,11 @@ def _consequence_text(
         return (
             f"{captured} episodes captured, 0 recalled — "
             "memory is compounding in storage but invisible until you call "
-            "get_context/recall/search_artifacts."
+            + (
+                "get_context/recall."
+                if _public_surface()
+                else "get_context/recall/search_artifacts."
+            )
         )
     if turns_without_recall > 0:
         return (

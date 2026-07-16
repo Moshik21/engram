@@ -27,6 +27,9 @@ CHECK_ORDER = (
     "lifecycle_snapshot",
     "server",
     "mcp",
+    "brain_status",
+    "embedding_provider",
+    "extraction_provider",
     "brain_loop_smoke",
     "hooks",
     "promotion_window",
@@ -174,6 +177,11 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
         _check_mcp(args, checks)
 
     _check_brain_status(checks)
+    if config is not None:
+        await _check_live_providers(config, checks)
+    else:
+        _add_check(checks, "embedding_provider", "skipped", "config did not load")
+        _add_check(checks, "extraction_provider", "skipped", "config did not load")
 
     smoke_report = None
     if args.no_smoke:
@@ -736,6 +744,129 @@ def _check_promotion_window(checks: list[dict[str, Any]]) -> None:
         f"cannot write promotion window parent {parent}",
         metadata,
     )
+
+
+async def _check_live_providers(config: EngramConfig, checks: list[dict[str, Any]]) -> None:
+    """Probe the REAL configured embedding + extraction providers.
+
+    The old smokes hardcoded noop/narrow, so all four known silent failure
+    modes (broken ONNX, unreachable Ollama→narrow, vectors OFF, stale
+    FASTEMBED_CACHE_PATH) passed doctor green.
+    """
+    # Embedding: materialize the configured provider and embed one string.
+    try:
+        from engram.storage.factory import _create_embedding_provider
+
+        provider = _create_embedding_provider(config)
+        provider_name = type(provider).__name__
+        metadata: dict[str, Any] = {
+            "configured": config.embedding.provider,
+            "resolved": provider_name,
+            "model": getattr(provider, "_model_name", None),
+            "cache_dir": str(getattr(provider, "_cache_dir", "") or ""),
+            "fastembed_cache_env": os.environ.get("FASTEMBED_CACHE_PATH", ""),
+        }
+        if provider_name == "NoopProvider":
+            wanted_vectors = config.embedding.provider not in {"noop", ""}
+            _add_check(
+                checks,
+                "embedding_provider",
+                "warn" if wanted_vectors else "pass",
+                (
+                    "vectors are OFF (NoopProvider resolved"
+                    + (
+                        f" from configured '{config.embedding.provider}')"
+                        if wanted_vectors
+                        else ")"
+                    )
+                ),
+                metadata,
+            )
+        else:
+            try:
+                vecs = await asyncio.wait_for(provider.embed(["doctor probe"]), timeout=30.0)
+            except TimeoutError:
+                vecs = []
+            if vecs and vecs[0]:
+                _add_check(
+                    checks,
+                    "embedding_provider",
+                    "pass",
+                    f"{provider_name} embeds ok (dim={len(vecs[0])})",
+                    metadata,
+                )
+            else:
+                _add_check(
+                    checks,
+                    "embedding_provider",
+                    "fail",
+                    (
+                        f"{provider_name} resolved but cannot embed — broken/"
+                        "incomplete model cache? Vector search is silently OFF. "
+                        "Check FASTEMBED_CACHE_PATH and the configured LOCAL_MODEL."
+                    ),
+                    metadata,
+                )
+        await _maybe_close(provider)
+    except Exception as exc:
+        _add_check(checks, "embedding_provider", "warn", f"embedding probe failed: {exc}")
+
+    # Extraction: report the resolved ladder rung; probe Ollama when relevant.
+    try:
+        raw = getattr(config.activation, "extraction_provider", "narrow")
+        metadata = {"configured": raw}
+        if raw in {"auto", "ollama"}:
+            import urllib.request
+
+            base = getattr(config.activation, "ollama_base_url", "") or "http://127.0.0.1:11434"
+            try:
+                with urllib.request.urlopen(f"{base.rstrip('/')}/api/tags", timeout=3.0) as resp:
+                    reachable = resp.status == 200
+            except Exception:
+                reachable = False
+            metadata["ollama_base_url"] = base
+            metadata["ollama_reachable"] = reachable
+            if raw == "ollama" and not reachable:
+                _add_check(
+                    checks,
+                    "extraction_provider",
+                    "fail",
+                    f"extraction_provider=ollama but {base} is unreachable — "
+                    "extraction silently degrades to the narrow deterministic rung",
+                    metadata,
+                )
+                return
+            if raw == "auto" and not reachable and not os.environ.get("ANTHROPIC_API_KEY"):
+                _add_check(
+                    checks,
+                    "extraction_provider",
+                    "warn",
+                    "extraction_provider=auto resolves to NARROW (no Anthropic "
+                    f"key, Ollama unreachable at {base}) — high-signal structure "
+                    "comes only from harness remember() proposals",
+                    metadata,
+                )
+                return
+        _add_check(
+            checks,
+            "extraction_provider",
+            "pass",
+            f"extraction ladder rung: {raw}",
+            metadata,
+        )
+    except Exception as exc:
+        _add_check(checks, "extraction_provider", "warn", f"extraction probe failed: {exc}")
+
+
+async def _maybe_close(obj: Any) -> None:
+    close = getattr(obj, "close", None)
+    if callable(close):
+        try:
+            result = close()
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            pass
 
 
 def _check_brain_status(checks: list[dict[str, Any]]) -> None:

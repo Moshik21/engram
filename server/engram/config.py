@@ -18,7 +18,9 @@ DEFAULT_ENV_FILES = (
 
 
 class ServerConfig(BaseModel):
-    host: str = "0.0.0.0"
+    # Loopback by default: a personal memory graph's unauthenticated REST API
+    # (auth off by default) must not bind the LAN unless explicitly asked.
+    host: str = "127.0.0.1"
     port: int = 8100
     log_level: str = "info"
     auto_observe_enabled: bool = True
@@ -648,6 +650,18 @@ class ActivationConfig(BaseModel):
             "-1 = legacy heuristic min(3, top_n//3). "
             "Defaulting to 0 keeps graph entities out of the needle top-k so "
             "recall is episode-vector + rerank by default."
+        ),
+    )
+    passage_first_durable_entity_slots: int = Field(
+        default=0,
+        ge=0,
+        le=5,
+        description=(
+            "Reserve up to N tail slots in passage_first top-k for durable-type "
+            "entities (Decision/Preference/Person/...). 0 = off (default). "
+            "Gate-G experiment knob: the cheap, honest way to re-test whether "
+            "the graph tier lifts aged-organic Decision hit rate — a durable "
+            "entity can only take the LAST slots, never evict a top episode."
         ),
     )
     passage_first_channel_separated: bool = Field(
@@ -2703,6 +2717,10 @@ class ActivationConfig(BaseModel):
             # No local cross-encoder/reranker ONNX in quiet shell (footprint +
             # avoids startup failure when model cache is incomplete).
             _set("reranker_enabled", False)
+            # intend() is one of the 9 frozen public MCP tools; quiet is the
+            # consumer profile, so intentions must be able to FIRE here —
+            # otherwise a public tool silently does nothing.
+            _set("prospective_memory_enabled", True)
             # Consumer default recall: wave2 (not "all" rework stack).
             if "recall_profile" not in self.model_fields_set:
                 recall_profile = "wave2"

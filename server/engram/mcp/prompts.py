@@ -22,14 +22,14 @@ relevant — e.g. "I checked project memory — the extraction rework doc descri
 progressive projection, which is relevant here." Then integrate quietly afterward.
 
 Your job every session: `get_context` once before substantive answers, `recall`
-when people/projects/prior work appear, `search_artifacts` for project truth.
+when people/projects/prior work appear@@ARTIFACTS_CLAUSE@@.
 Harness auto-capture handles routine turns when installed — do not duplicate
 with per-turn `observe`. Use `remember` for high-signal facts. Empty graphs are
 onboarding state, not proof Engram is useless.
 
 """
 
-ENGRAM_SYSTEM_PROMPT = (
+_SYSTEM_PROMPT_TEMPLATE = (
     _ADOPTION_MOTIVATION
     + """\
 You have access to Engram, a persistent memory system that makes you \
@@ -110,7 +110,7 @@ need a synthesized narrative.
 If the runtime appears fresh or empty (`artifactCount` is 0, `lastObservedAt` \
 is null, or recall/evaluation stats are all zero), do not conclude Engram is \
 not useful. In a project workspace, call `bootstrap_project(project_path)` once \
-when a project path is available, then use `get_context`, `route_question`, or \
+when a project path is available, then use `get_context`@@ROUTING_OR@@or \
 `recall` normally. A fresh graph is an onboarding state, not a reason to route \
 around Engram. If you are deciding between Engram and a file/project-local \
 memory source, call `claim_authority(project_path, user_message, \
@@ -186,30 +186,13 @@ let harness capture.
 Call `recall` when prior context could change your answer — even if the user \
 does not explicitly ask for memory. If someone references a person, project, \
 event, or past discussion, look it up before responding. In a project \
-workspace, pass the same `project_path` you used for `get_context`, \
-`route_question`, or `search_artifacts` so recall can prefer project-scoped \
+workspace, pass the same `project_path` you used for `get_context`@@RECALL_ROUTING@@ \
+so recall can prefer project-scoped \
 memory before falling back to local project files.
 
-## Epistemic Routing
+@@EPISTEMIC_ROUTING@@## Auto-Recall on Tool Calls
 
-For project install/config/current-truth questions, call `route_question` first.
-
-- Use the returned `answerContract` as response policy, not just source routing.
-- If `evidencePlan.requiredNextSources` includes `artifacts`, call \
-`search_artifacts` with the same `project_path`. If it includes `runtime`, \
-call `get_runtime_state`. Carry the same `project_path` through all follow-ups.
-- Do not substitute `search_facts` for required artifact inspection on \
-`reconcile` turns.
-- On coding-agent surfaces with repo access, prefer native workspace search \
-for exact code truth; use Engram artifacts as supporting evidence.
-- `compare`: contrast raw defaults, install defaults, repo posture, runtime state.
-- `reconcile` / `unresolved_state_report`: preserve earlier discussion vs \
-current documented/implemented truth.
-- `recommend` / `plan`: state evidence first, then give advice.
-
-## Auto-Recall on Tool Calls
-
-All read-oriented tools (recall, get_context, route_question, search_artifacts) \
+All read-oriented tools (recall, get_context@@AUTO_RECALL_EXTRA@@) \
 may include recalled_context, session_context, triggered_intentions, \
 memory_notifications, and adoptionDebt in their responses. Deprecated compat \
 aliases (`search_entities`, `search_facts`) still piggyback recall but should \
@@ -251,6 +234,67 @@ When the user corrects previously stored information:
 1. Call `forget()` on the outdated entity or fact
 2. Call `remember()` with the corrected information"""
 )
+
+_EPISTEMIC_ROUTING_OPERATOR = """\
+## Epistemic Routing
+
+For project install/config/current-truth questions, call `route_question` first.
+
+- Use the returned `answerContract` as response policy, not just source routing.
+- If `evidencePlan.requiredNextSources` includes `artifacts`, call \
+`search_artifacts` with the same `project_path`. If it includes `runtime`, \
+call `get_runtime_state`. Carry the same `project_path` through all follow-ups.
+- Do not substitute `search_facts` for required artifact inspection on \
+`reconcile` turns.
+- On coding-agent surfaces with repo access, prefer native workspace search \
+for exact code truth; use Engram artifacts as supporting evidence.
+- `compare`: contrast raw defaults, install defaults, repo posture, runtime state.
+- `reconcile` / `unresolved_state_report`: preserve earlier discussion vs \
+current documented/implemented truth.
+- `recommend` / `plan`: state evidence first, then give advice.
+
+"""
+
+_EPISTEMIC_ROUTING_PUBLIC = """\
+## Epistemic Routing (public surface)
+
+For project install/config/current-truth questions, prefer native workspace \
+search for exact code truth, `get_context(project_path=...)` for durable \
+decisions, and `recall(query, project_path=...)` for prior discussion. \
+Operator routing tools (`route_question`, `search_artifacts`) are not \
+available on the public surface — never call them here.
+
+"""
+
+
+def build_system_prompt(surface: str | None = None) -> str:
+    """Render the system prompt for an MCP surface.
+
+    The public 9-tool surface must never be instructed to call operator-only
+    tools (route_question / search_artifacts) — agents following those
+    instructions burned turns on tool-not-found errors.
+    """
+    from engram.mcp.surface import resolve_mcp_surface
+
+    profile = resolve_mcp_surface(surface)
+    public = profile == "public"
+    replacements = {
+        "@@ARTIFACTS_CLAUSE@@": "" if public else ", `search_artifacts` for project truth",
+        "@@ROUTING_OR@@": " " if public else ", `route_question`, ",
+        "@@EPISTEMIC_ROUTING@@": (
+            _EPISTEMIC_ROUTING_PUBLIC if public else _EPISTEMIC_ROUTING_OPERATOR
+        ),
+        "@@RECALL_ROUTING@@": "" if public else ", `route_question`, or `search_artifacts`",
+        "@@AUTO_RECALL_EXTRA@@": "" if public else ", route_question, search_artifacts",
+    }
+    rendered = _SYSTEM_PROMPT_TEMPLATE
+    for token, value in replacements.items():
+        rendered = rendered.replace(token, value)
+    return rendered
+
+
+# Legacy constant: full-surface rendering (kept for import compatibility).
+ENGRAM_SYSTEM_PROMPT = build_system_prompt("full")
 
 ENGRAM_CONTEXT_LOADER_PROMPT = (
     "Before responding, call get_context to load what you know about the user. "

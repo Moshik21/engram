@@ -72,7 +72,14 @@ def main():
 
     # --- serve (REST API) ---
     serve_parser = subparsers.add_parser("serve", help="Start REST API server")
-    serve_parser.add_argument("--host", default="0.0.0.0", help="Bind address (default: 0.0.0.0)")
+    serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help=(
+            "Bind address (default: 127.0.0.1 — the REST API is unauthenticated "
+            "by default; pass 0.0.0.0 only if you understand the exposure)"
+        ),
+    )
     serve_parser.add_argument("--port", type=int, default=8100, help="Port (default: 8100)")
     serve_parser.add_argument(
         "--mode",
@@ -314,6 +321,15 @@ def main():
 
     configure_loop_parser(loop_parser)
 
+    # --- backup (operator; native data dir + state snapshot) ---
+    backup_parser = subparsers.add_parser(
+        "backup",
+        help="Snapshot/verify/restore the native brain (operator; shell must be down)",
+    )
+    from engram.backup_cli import configure_backup_parser
+
+    configure_backup_parser(backup_parser)
+
     # --- brain (cold process; not public MCP) ---
     brain_parser = subparsers.add_parser(
         "brain",
@@ -542,6 +558,14 @@ def main():
         from engram.loop_cli import run_loop_command
 
         sys.exit(run_loop_command(args))
+
+    # --- backup ---
+    if args.command == "backup":
+        import asyncio
+
+        from engram.backup_cli import run_backup_command
+
+        sys.exit(asyncio.run(run_backup_command(args)))
 
     # --- brain (cold process) ---
     if args.command == "brain":

@@ -1,15 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Cold-brain LaunchAgent (optional).
-  Install:
+  Cold-brain LaunchAgent (reference only).
+
+  PREFERRED INSTALL: engramctl brain install
+  (templates this for the installed `engram` binary and loads it).
+
+  Manual install:
     cp installer/launchd/dev.engram.brain.plist.example \
        ~/Library/LaunchAgents/dev.engram.brain.plist
-    # edit paths if needed, then:
+    # replace REPLACE_ME with your username, then:
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.engram.brain.plist
 
-  Runs every 2 hours (warm-ish). Uses pause-shell by default so Helix exclusive
-  open is safe. Hot shell is dev.engram.local (always-on).
+  Runs a MOP every 2 hours: bounded hygiene drains + evidence/edge
+  adjudication + zero-LLM replay. tier=mop ONLY — never tier=auto/full here
+  (a full 16-phase cycle every 2h caused multi-minute shell outages).
+  The run skips itself on battery power and when the shell reports no
+  actionable work, so most windows cost zero downtime.
+  Hot shell is dev.engram.local (always-on).
 -->
 <plist version="1.0">
 <dict>
@@ -19,10 +27,8 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>set -a; source "$HOME/.engram/.env"; set +a; exec "$HOME/Engram/server/.venv/bin/engram" brain run --tier auto --profile quiet --pause-shell</string>
+    <string>set -a; [ -f "$HOME/.engram/.env" ] &amp;&amp; source "$HOME/.engram/.env"; set +a; exec "$HOME/.local/bin/engram" brain run --tier mop --budget 1000 --pause-shell</string>
   </array>
-  <key>WorkingDirectory</key>
-  <string>/Users/REPLACE_ME/Engram/server</string>
   <key>StartInterval</key>
   <integer>7200</integer>
   <key>RunAtLoad</key>
@@ -38,7 +44,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/Users/REPLACE_ME/Engram/server/.venv/bin:/Users/REPLACE_ME/.local/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>/Users/REPLACE_ME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
 </dict>
 </plist>

@@ -45,6 +45,9 @@ LITE_LOG_FILE="$LITE_LOG_DIR/engram.log"
 LITE_DB_FILE="$ENGRAM_HOME/engram.db"
 LITE_LAUNCH_AGENT_LABEL="${ENGRAM_LAUNCH_AGENT_LABEL:-dev.engram.local}"
 LITE_LAUNCH_AGENT_PLIST="${ENGRAM_LAUNCH_AGENT_PLIST:-$HOME/Library/LaunchAgents/${LITE_LAUNCH_AGENT_LABEL}.plist}"
+BRAIN_LAUNCH_AGENT_LABEL="${ENGRAM_BRAIN_LAUNCH_AGENT_LABEL:-dev.engram.brain}"
+BRAIN_LAUNCH_AGENT_PLIST="${ENGRAM_BRAIN_LAUNCH_AGENT_PLIST:-$HOME/Library/LaunchAgents/${BRAIN_LAUNCH_AGENT_LABEL}.plist}"
+BRAIN_INTERVAL_SECONDS="${ENGRAM_BRAIN_INTERVAL_SECONDS:-7200}"
 
 # Full mode paths
 FULL_ENV_FILE="$INSTALL_ROOT/.env"
@@ -224,6 +227,7 @@ Commands:
   start
   stop
   status
+  brain [status|install|uninstall] Manage the cold-brain LaunchAgent (2h mop)
   storage                        Show resolved storage paths and disk growth
   logs [service]
   update
@@ -951,6 +955,155 @@ launch_agent_stop() {
   return 1
 }
 
+write_local_launch_agent_plist() {
+  # Idempotent unless force: templates the always-on shell LaunchAgent so a
+  # fresh install survives logout/login instead of a nohup PID that dies.
+  local force="${1:-0}"
+  if [ -f "$LITE_LAUNCH_AGENT_PLIST" ] && [ "$force" != "1" ]; then
+    return 0
+  fi
+  local engram_cmd port
+  engram_cmd="$(find_engram_command)" || return 1
+  load_existing_env "$LITE_ENV_FILE"
+  port="${ENGRAM_API_PORT:-8100}"
+  mkdir -p "$(dirname "$LITE_LAUNCH_AGENT_PLIST")" "$LITE_LOG_DIR"
+  cat > "$LITE_LAUNCH_AGENT_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LITE_LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>set -a; [ -f "\$HOME/.engram/.env" ] \&\& source "\$HOME/.engram/.env"; set +a; exec ${engram_cmd} serve --host 127.0.0.1 --port ${port}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>${LITE_LOG_FILE}</string>
+  <key>StandardErrorPath</key>
+  <string>${LITE_LOG_FILE}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+  info "Wrote shell LaunchAgent: $LITE_LAUNCH_AGENT_PLIST"
+}
+
+write_brain_launch_agent_plist() {
+  # Cold-brain mop every BRAIN_INTERVAL_SECONDS. tier=mop only — never the
+  # full 16-phase cycle (that class of window caused multi-minute outages).
+  local force="${1:-0}"
+  if [ -f "$BRAIN_LAUNCH_AGENT_PLIST" ] && [ "$force" != "1" ]; then
+    return 0
+  fi
+  local engram_cmd
+  engram_cmd="$(find_engram_command)" || return 1
+  mkdir -p "$(dirname "$BRAIN_LAUNCH_AGENT_PLIST")" "$LITE_LOG_DIR"
+  cat > "$BRAIN_LAUNCH_AGENT_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${BRAIN_LAUNCH_AGENT_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>set -a; [ -f "\$HOME/.engram/.env" ] \&\& source "\$HOME/.engram/.env"; set +a; exec ${engram_cmd} brain run --tier mop --budget 1000 --pause-shell</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>${BRAIN_INTERVAL_SECONDS}</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>${LITE_LOG_DIR}/engram-brain.log</string>
+  <key>StandardErrorPath</key>
+  <string>${LITE_LOG_DIR}/engram-brain.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+PLIST
+  info "Wrote brain LaunchAgent: $BRAIN_LAUNCH_AGENT_PLIST"
+}
+
+brain_agent_is_loaded() {
+  launchctl print "gui/$(id -u)/${BRAIN_LAUNCH_AGENT_LABEL}" >/dev/null 2>&1
+}
+
+brain_agent_install() {
+  local force="${1:-0}"
+  write_brain_launch_agent_plist "$force" || return 1
+  if brain_agent_is_loaded; then
+    launchctl bootout "gui/$(id -u)/${BRAIN_LAUNCH_AGENT_LABEL}" >/dev/null 2>&1 || true
+  fi
+  if launchctl bootstrap "gui/$(id -u)" "$BRAIN_LAUNCH_AGENT_PLIST" >/dev/null 2>&1; then
+    info "Brain LaunchAgent loaded (${BRAIN_LAUNCH_AGENT_LABEL}, every ${BRAIN_INTERVAL_SECONDS}s)."
+    return 0
+  fi
+  warn "Could not bootstrap ${BRAIN_LAUNCH_AGENT_LABEL}; load manually:"
+  dim "  launchctl bootstrap gui/$(id -u) $BRAIN_LAUNCH_AGENT_PLIST"
+  return 1
+}
+
+command_brain() {
+  local sub="${1:-status}"
+  shift || true
+  case "$sub" in
+    install)
+      local force=0
+      [ "${1:-}" = "--force" ] && force=1
+      brain_agent_install "$force"
+      ;;
+    uninstall)
+      if brain_agent_is_loaded; then
+        launchctl bootout "gui/$(id -u)/${BRAIN_LAUNCH_AGENT_LABEL}" >/dev/null 2>&1 || true
+      fi
+      rm -f "$BRAIN_LAUNCH_AGENT_PLIST"
+      info "Brain LaunchAgent removed."
+      ;;
+    status)
+      if brain_agent_is_loaded; then
+        info "Brain LaunchAgent loaded (${BRAIN_LAUNCH_AGENT_LABEL}, every ${BRAIN_INTERVAL_SECONDS}s)."
+      elif [ -f "$BRAIN_LAUNCH_AGENT_PLIST" ]; then
+        warn "Brain LaunchAgent plist exists but is not loaded."
+        dim "  launchctl bootstrap gui/$(id -u) $BRAIN_LAUNCH_AGENT_PLIST"
+      else
+        warn "Brain LaunchAgent not installed (engramctl brain install)."
+      fi
+      local engram_cmd
+      engram_cmd="$(find_engram_command_optional)"
+      if [ -n "$engram_cmd" ]; then
+        "$engram_cmd" brain status || true
+      fi
+      ;;
+    *)
+      die "Unknown brain subcommand: $sub (install|uninstall|status)"
+      ;;
+  esac
+}
+
 lite_pid_is_running() {
   if [ -f "$LITE_PID_FILE" ]; then
     local pid
@@ -1132,6 +1285,7 @@ lite_start() {
   wait_for_brain_window || return 1
 
   mkdir -p "$LITE_LOG_DIR"
+  write_local_launch_agent_plist 0 || true
 
   local engram_cmd
   engram_cmd="$(find_engram_command)"
@@ -2038,6 +2192,8 @@ command_quickstart() {
       dim "Logs:   engramctl logs"
       return 1
     fi
+    # Cold-brain hygiene agent: 2h mop windows (skips when no work / battery).
+    brain_agent_install 0 || warn "Brain LaunchAgent install failed; run: engramctl brain install"
   fi
 
   if [ "$install_openclaw" = "1" ]; then
@@ -2466,6 +2622,7 @@ main() {
     start) command_start ;;
     stop) command_stop ;;
     status) command_status ;;
+    brain) command_brain "$@" ;;
     storage) command_storage ;;
     logs) command_logs "$@" ;;
     update) command_update ;;
