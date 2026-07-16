@@ -95,3 +95,6 @@ CLAUDE.md
 .windsurf/
 .cline/
 copilot-*
+
+# Generated demo artifacts
+server/showcase-export.md

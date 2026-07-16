@@ -1288,9 +1288,7 @@ async def build_mcp_remember_write_surface(
     )
     response["promotion"] = promotion_meta
     # Hard path surface: extraction_path + proposal outcome summary for agents.
-    response["extraction_path"] = (
-        "client_proposals" if has_proposals else "narrow_or_legacy"
-    )
+    response["extraction_path"] = "client_proposals" if has_proposals else "narrow_or_legacy"
     if has_proposals:
         response["harness_extractor"] = {
             "path": "client_proposals",

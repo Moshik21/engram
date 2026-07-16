@@ -60,9 +60,7 @@ def _build_helix_config() -> HelixDBConfig:
 
 
 _probe = probe_helix(prefer_native=True)
-_skip_reason = (
-    f"Helix not available (native={_probe.get('native')}, http={_probe.get('http')})"
-)
+_skip_reason = f"Helix not available (native={_probe.get('native')}, http={_probe.get('http')})"
 
 pytestmark = [
     pytest.mark.requires_helix,

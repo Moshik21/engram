@@ -200,14 +200,10 @@ def present_api_memory_write(
     # Auto-hint when remember lands identity_core (protected) entities.
     if operation == "remember":
         protected = [
-            e
-            for e in committed_entities
-            if isinstance(e, Mapping) and e.get("identityCore")
+            e for e in committed_entities if isinstance(e, Mapping) and e.get("identityCore")
         ]
         if protected:
-            names = ", ".join(
-                str(e.get("name") or e.get("id") or "entity") for e in protected[:5]
-            )
+            names = ", ".join(str(e.get("name") or e.get("id") or "entity") for e in protected[:5])
             response["identityProtectHint"] = (
                 f"Protected identity_core ({len(protected)}): {names}. "
                 "Merge/prune will prefer these; use mark_identity_core to adjust."
@@ -303,9 +299,7 @@ def present_mcp_memory_write(
             e for e in committed_entities if isinstance(e, Mapping) and e.get("identity_core")
         ]
         if protected:
-            names = ", ".join(
-                str(e.get("name") or e.get("id") or "entity") for e in protected[:5]
-            )
+            names = ", ".join(str(e.get("name") or e.get("id") or "entity") for e in protected[:5])
             response["identity_protect_hint"] = (
                 f"Protected identity_core ({len(protected)}): {names}. "
                 "Merge/prune will prefer these; use mark_identity_core to adjust."

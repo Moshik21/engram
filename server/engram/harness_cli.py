@@ -94,9 +94,7 @@ def run_harness_command(args: argparse.Namespace) -> int:
             print(f"  promote_rate: {metrics.get('promote_rate')}")
             print(f"  client_proposal_share: {metrics.get('client_proposal_share')}")
             print(f"  remember_with_proposals: {metrics.get('remember_with_proposals')}")
-            print(
-                f"  external_extractor_skipped: {metrics.get('external_extractor_skipped')}"
-            )
+            print(f"  external_extractor_skipped: {metrics.get('external_extractor_skipped')}")
             print(f"  north_star: {payload.get('north_star')}")
         if getattr(args, "reset", False):
             reset_harness_metrics()

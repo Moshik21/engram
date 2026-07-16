@@ -257,19 +257,9 @@ class EvidenceProjectionExecutor:
         ):
             from engram.extraction.harness_metrics import record_client_proposal_outcomes
 
-            span_defers = sum(
-                1
-                for _ev, d in deferred
-                if d.reason == "span_unverified"
-            )
-            pred_rejects = sum(
-                1 for _ev, d in rejected if d.reason == "predicate_not_allowed"
-            )
-            id_conflicts = sum(
-                1
-                for _ev, d in deferred
-                if d.reason == "identity_core_conflict"
-            )
+            span_defers = sum(1 for _ev, d in deferred if d.reason == "span_unverified")
+            pred_rejects = sum(1 for _ev, d in rejected if d.reason == "predicate_not_allowed")
+            id_conflicts = sum(1 for _ev, d in deferred if d.reason == "identity_core_conflict")
             record_client_proposal_outcomes(
                 commits=len(committed),
                 defers=len(deferred),
@@ -381,9 +371,7 @@ class EvidenceProjectionExecutor:
         out_stats = dict(evidence_bundle.extractor_stats or {})
         out_stats["extraction_path"] = "client_proposals"
         out_stats["span_unverified"] = sum(
-            1
-            for c in verified
-            if "span_unverified" in (c.corroborating_signals or [])
+            1 for c in verified if "span_unverified" in (c.corroborating_signals or [])
         )
         return EvidenceBundle(
             episode_id=evidence_bundle.episode_id,

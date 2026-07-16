@@ -372,7 +372,7 @@ async def run_continuity_against_live(
     recall_blob = _payload_blob(recall_payload) if isinstance(recall_payload, dict) else ""
     context_blob = _payload_blob(context_payload) if isinstance(context_payload, dict) else ""
     # Also check results entities by name
-    for item in (recall_payload.get("items") or recall_payload.get("results") or []):
+    for item in recall_payload.get("items") or recall_payload.get("results") or []:
         if isinstance(item, dict):
             ent = item.get("entity") if isinstance(item.get("entity"), dict) else item
             if isinstance(ent, dict) and ent.get("name"):

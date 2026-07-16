@@ -23,6 +23,7 @@ def _fake_session() -> SimpleNamespace:
         auto_recall_primed=False,
     )
 
+
 # ─── _should_recall gate tests ─────────────────────────────────────
 
 

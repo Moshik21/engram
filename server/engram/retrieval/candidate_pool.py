@@ -549,9 +549,7 @@ def _primary_search_timeout_seconds(
     if probe_timed_out:
         # Floor (not ceiling): after a failed stats probe, give search at least
         # the explicit search budget so large brains can still hit BM25/name.
-        explicit_floor_ms = int(
-            getattr(cfg, "recall_budget_explicit_search_ms", 1500) or 1500
-        )
+        explicit_floor_ms = int(getattr(cfg, "recall_budget_explicit_search_ms", 1500) or 1500)
         adaptive_ms = int(
             getattr(cfg, "retrieval_primary_search_timeout_after_probe_timeout_ms", 0) or 0
         )

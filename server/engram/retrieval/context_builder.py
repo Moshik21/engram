@@ -2113,9 +2113,7 @@ async def _list_durable_entities_by_type(
 
     graph = getattr(manager, "_graph", None) or getattr(manager, "graph_store", None)
     find_by_type = getattr(graph, "find_entities_by_type", None) if graph is not None else None
-    get_identity = (
-        getattr(graph, "get_identity_core_entities", None) if graph is not None else None
-    )
+    get_identity = getattr(graph, "get_identity_core_entities", None) if graph is not None else None
     search = getattr(manager, "search_entities", None)
     if not callable(find_by_type) and not callable(search) and not callable(get_identity):
         return []

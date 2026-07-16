@@ -40,9 +40,7 @@ def resolve_helix_data_dir(explicit: str | Path | None = None) -> Path:
     """Resolve native data directory from arg, env, or default."""
     if explicit is not None:
         return Path(explicit).expanduser().resolve()
-    env = os.environ.get("ENGRAM_HELIX__DATA_DIR") or os.environ.get(
-        "ENGRAM_HELIX_DATA_DIR"
-    )
+    env = os.environ.get("ENGRAM_HELIX__DATA_DIR") or os.environ.get("ENGRAM_HELIX_DATA_DIR")
     if env:
         return Path(env).expanduser().resolve()
     return (Path.home() / ".helix" / "engram-native").resolve()

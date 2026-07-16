@@ -97,6 +97,7 @@ class AxiRestClient:
         if timeout_seconds is not None:
             query["timeoutSeconds"] = timeout_seconds
         return self.request_json("GET", "/api/storage", query=query)
+
     def context(
         self,
         *,

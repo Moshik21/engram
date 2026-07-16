@@ -48,12 +48,11 @@ def _test_helix_config() -> HelixDBConfig:
     if helix_native_available():
         data_dir = os.environ.get("ENGRAM_TEST_HELIX_DATA_DIR")
         if not data_dir:
-            data_dir = str(
-                Path(os.environ.get("TMPDIR", "/tmp")) / "engram-helix-pytest-native"
-            )
+            data_dir = str(Path(os.environ.get("TMPDIR", "/tmp")) / "engram-helix-pytest-native")
         os.makedirs(data_dir, exist_ok=True)
         return HelixDBConfig(transport="native", data_dir=data_dir, verbose=False)
     return HelixDBConfig(host="localhost", port=6969, transport="http")
+
 
 @pytest.fixture(scope="session")
 def event_loop():
