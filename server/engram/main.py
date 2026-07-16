@@ -585,6 +585,10 @@ def _start_continuity_warmup(manager: GraphManager, config: EngramConfig) -> Non
                 probe_name,
                 timings,
             )
+            # Product readiness: first Decision/identity path is warm.
+            _app_state["product_ready"] = True
+            _app_state["product_ready_timings_ms"] = dict(timings)
+            _app_state.pop("product_ready_degraded", None)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -593,6 +597,9 @@ def _start_continuity_warmup(manager: GraphManager, config: EngramConfig) -> Non
                 timings,
                 exc_info=True,
             )
+            # Mark ready-ish so clients prefer durable/packet paths over hybrid thrash.
+            _app_state["product_ready"] = True
+            _app_state["product_ready_degraded"] = True
 
     async def _warm_bounded() -> None:
         timeout_ms = int(
@@ -606,6 +613,8 @@ def _start_continuity_warmup(manager: GraphManager, config: EngramConfig) -> Non
                 "Continuity startup warmup exceeded %.1fs; continuing in background cancel",
                 timeout_seconds,
             )
+            _app_state["product_ready"] = True
+            _app_state["product_ready_degraded"] = True
         except asyncio.CancelledError:
             raise
 

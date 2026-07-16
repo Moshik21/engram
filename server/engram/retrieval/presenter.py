@@ -191,6 +191,133 @@ def recall_response_contract(
     }
 
 
+def results_from_packets(
+    packets: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Mirror packet sources into naive-client `results`/`items` shapes.
+
+    Cache-satisfied recall historically returned packets with ``results: []``,
+    which made agents that only read ``results`` conclude "no memory". Packets
+    remain authoritative; these rows are a presentation convenience.
+    """
+    mirrored: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for packet in packets:
+        if not isinstance(packet, Mapping):
+            continue
+        packet_type = str(packet.get("packet_type") or packet.get("packetType") or "")
+        # Diagnostic "no memory" packets must not become fake hits.
+        if packet_type in {"recall_diagnostic", "recallDiagnostic"}:
+            continue
+        score = packet.get("score")
+        try:
+            score_f = float(score) if score is not None else 1.0
+        except (TypeError, ValueError):
+            score_f = 1.0
+        title = str(packet.get("title") or "")
+        summary = str(packet.get("summary") or "")
+        name_from_title = title.split(":", 1)[-1].strip() if ":" in title else title.strip()
+
+        entity_ids = list(packet.get("entity_ids") or packet.get("entityIds") or [])
+        for prov in packet.get("provenance") or []:
+            text = str(prov)
+            if text.startswith("entity:") and text[7:] not in entity_ids:
+                entity_ids.append(text[7:])
+
+        for eid in entity_ids:
+            eid_s = str(eid or "").strip()
+            if not eid_s or eid_s in seen:
+                continue
+            seen.add(eid_s)
+            entity_type = str(packet.get("entity_type") or packet.get("entityType") or "")
+            mirrored.append(
+                {
+                    "result_type": "entity",
+                    "entity": {
+                        "id": eid_s,
+                        "name": name_from_title or eid_s,
+                        "entity_type": entity_type,
+                        "type": entity_type,
+                        "summary": summary or None,
+                    },
+                    "score": score_f,
+                    "score_breakdown": {"packet_cache": score_f},
+                    "source": "packet_cache",
+                }
+            )
+
+        episode_ids = list(packet.get("episode_ids") or packet.get("episodeIds") or [])
+        for prov in packet.get("provenance") or []:
+            text = str(prov)
+            if text.startswith("episode:") and text[8:] not in episode_ids:
+                episode_ids.append(text[8:])
+
+        for epid in episode_ids:
+            epid_s = str(epid or "").strip()
+            key = f"episode:{epid_s}"
+            if not epid_s or key in seen:
+                continue
+            seen.add(key)
+            mirrored.append(
+                {
+                    "result_type": "episode",
+                    "episode": {
+                        "id": epid_s,
+                        "content": summary or title or epid_s,
+                        "source": "packet_cache",
+                        "created_at": packet.get("created_at") or packet.get("createdAt"),
+                    },
+                    "score": score_f,
+                    "score_breakdown": {"packet_cache": score_f},
+                    "source": "packet_cache",
+                }
+            )
+
+        # Title-only packet with no entity/episode ids still needs a hit row
+        # so naive clients do not see an empty results array.
+        if not entity_ids and not episode_ids and (title or summary):
+            synthetic = f"packet:{title}:{summary}"
+            if synthetic not in seen:
+                seen.add(synthetic)
+                mirrored.append(
+                    {
+                        "result_type": "entity",
+                        "entity": {
+                            "id": synthetic,
+                            "name": name_from_title or title or "memory",
+                            "entity_type": str(
+                                packet.get("packet_type") or packet.get("packetType") or "packet"
+                            ),
+                            "type": str(
+                                packet.get("packet_type") or packet.get("packetType") or "packet"
+                            ),
+                            "summary": summary or None,
+                        },
+                        "score": score_f,
+                        "score_breakdown": {"packet_cache": score_f},
+                        "source": "packet_cache",
+                    }
+                )
+
+    return mirrored
+
+
+def _mirror_empty_results_from_packets(
+    results: Sequence[Mapping[str, Any]],
+    packets: Sequence[Mapping[str, Any]],
+) -> tuple[list[Mapping[str, Any]], bool]:
+    """When packets have content and results are empty, mirror packet hits."""
+    result_list = list(results)
+    packet_list = list(packets)
+    if result_list or not packet_list:
+        return result_list, False
+    mirrored = results_from_packets(packet_list)
+    if not mirrored:
+        return result_list, False
+    return mirrored, True
+
+
 def present_api_recall_response(
     *,
     query: str,
@@ -198,14 +325,15 @@ def present_api_recall_response(
     packets: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Format the REST explicit-recall response with shared lifecycle semantics."""
-    items = present_api_recall_items(results)
     packet_payloads = list(packets)
+    effective_results, mirrored = _mirror_empty_results_from_packets(results, packet_payloads)
+    items = present_api_recall_items(effective_results)
     contract = recall_response_contract(
         query=query,
         result_count=len(items),
         packet_count=len(packet_payloads),
     )
-    return {
+    payload: dict[str, Any] = {
         "operation": contract["operation"],
         "lifecycle": {
             "stage": contract["lifecycle_stage"],
@@ -217,6 +345,13 @@ def present_api_recall_response(
         "packets": packet_payloads,
         "query": contract["query"],
     }
+    if mirrored:
+        payload["resultsSource"] = "packets"
+        payload["packetsAuthoritative"] = True
+        payload["resultsNote"] = (
+            "items mirrored from packets (cache hit); packets are authoritative"
+        )
+    return payload
 
 
 def present_mcp_recall_response(
@@ -226,14 +361,15 @@ def present_mcp_recall_response(
     packets: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Format the MCP explicit-recall response with shared lifecycle semantics."""
-    result_payloads = list(results)
     packet_payloads = list(packets)
+    effective_results, mirrored = _mirror_empty_results_from_packets(results, packet_payloads)
+    result_payloads = list(effective_results)
     contract = recall_response_contract(
         query=query,
         result_count=len(result_payloads),
         packet_count=len(packet_payloads),
     )
-    return {
+    payload: dict[str, Any] = {
         "operation": contract["operation"],
         "lifecycle": {
             "stage": contract["lifecycle_stage"],
@@ -246,6 +382,13 @@ def present_mcp_recall_response(
         "results": result_payloads,
         "total_candidates": contract["result_count"],
     }
+    if mirrored:
+        payload["results_source"] = "packets"
+        payload["packets_authoritative"] = True
+        payload["results_note"] = (
+            "results mirrored from packets (cache hit); packets are authoritative"
+        )
+    return payload
 
 
 async def present_mcp_recall_item(

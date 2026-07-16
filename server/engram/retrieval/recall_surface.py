@@ -608,6 +608,47 @@ async def _run_explicit_recall_with_budget(
             fallback_result_count=0,
         )
 
+    # Product polish: Decision/identity must not wait on hybrid first.
+    # Cheap durable exact-name / type rescue before preflight or BM25/HNSW thrash.
+    durable_first_started = time.perf_counter()
+    durable_first = await _durable_entity_name_rescue(
+        manager,
+        group_id=group_id,
+        query=query,
+        limit=limit,
+        timeout_seconds=min(0.75, max(0.2, timeout_seconds * 0.4)),
+    )
+    stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
+    if durable_first:
+        duration_ms = round((time.perf_counter() - started) * 1000, 4)
+        await record_manager_memory_operation(
+            manager,
+            group_id,
+            MemoryOperationSample(
+                operation="recall",
+                source=operation_source,
+                mode=operation_source,
+                status="ok",
+                duration_ms=duration_ms,
+                timeout=False,
+                degraded=False,
+                budget_miss=budget.exceeded(duration_ms),
+                budget_ms=budget.budget_ms,
+                budget_tokens=budget.budget_tokens,
+                result_count=len(durable_first),
+                packet_count=0,
+            ),
+        )
+        return list(durable_first), _recall_budget_metadata(
+            budget,
+            status="ok",
+            duration_ms=duration_ms,
+            budget_miss=budget.exceeded(duration_ms),
+            stage_timings_ms=stage_timings,
+            fallback_status="durable_entity_first",
+            fallback_result_count=len(durable_first),
+        )
+
     if _fast_recall_preflight_enabled(cfg):
         fallback_started = time.perf_counter()
         preflight_timeout_seconds = _fast_recall_preflight_timeout_seconds(cfg)
@@ -1007,10 +1048,19 @@ def _mark_project_file_recall_fallback(
     *,
     packet_count: int,
 ) -> None:
-    """Mark that local project packets rescued an otherwise empty/degraded recall."""
+    """Mark that local project packets rescued an otherwise empty/degraded recall.
+
+    Project-file rescue is not a clean graph-memory win — keep status honest.
+    """
     metadata["fallback_status"] = "project_file_recall_fallback"
     metadata["fallback_result_count"] = 0
     metadata["project_file_packet_count"] = max(0, int(packet_count))
+    metadata["degraded"] = True
+    # Do not present multi-second timeout-then-docs as unqualified success.
+    if metadata.get("status") == "ok" or not metadata.get("status"):
+        metadata["status"] = "degraded"
+    if not metadata.get("skip_reason"):
+        metadata["skip_reason"] = "project_file_fallback"
 
 
 def _pop_early_project_file_packets(metadata: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1026,10 +1076,18 @@ def _mark_context_packet_recall_fallback(
     *,
     packet_count: int,
 ) -> None:
-    """Mark that cached context packets carried an otherwise empty recall."""
+    """Mark that cached context packets carried an otherwise empty recall.
+
+    Soft-hold context packets after a graph miss remain a fallback path, not a
+    clean primary hit (unless already marked cache_satisfied earlier).
+    """
     metadata["fallback_status"] = "context_packet_fallback"
     metadata["fallback_result_count"] = 0
     metadata["context_packet_count"] = max(0, int(packet_count))
+    # When primary search already degraded/timed out, keep degraded visible.
+    if metadata.get("timeout") or metadata.get("budget_miss") or metadata.get("degraded"):
+        metadata["status"] = "degraded"
+        metadata["degraded"] = True
 
 
 def _metadata_budget_exceeded(metadata: Mapping[str, Any]) -> bool:
@@ -1359,9 +1417,7 @@ async def _durable_entity_name_rescue(
         durable_hits = [
             h
             for h in hits
-            if is_durable_recall_entity_type(
-                str((h.get("entity") or {}).get("type") or "")
-            )
+            if is_durable_recall_entity_type(str((h.get("entity") or {}).get("type") or ""))
         ]
         if len(durable_hits) >= max(1, limit):
             break

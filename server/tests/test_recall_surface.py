@@ -697,7 +697,8 @@ async def test_api_recall_surface_uses_context_packets_when_deep_recall_times_ou
     )
 
     assert result["status"] == "degraded"
-    assert result["items"] == []
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["packets"] == [context_packet]
     assert result["lifecycle"]["timeout"] is True
     manager.get_recent_cached_memory_packets.assert_any_call(
@@ -799,7 +800,8 @@ async def test_api_recall_surface_returns_recent_context_packets_on_degraded_cac
     )
 
     assert result["status"] == "degraded"
-    assert result["items"] == []
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["packets"] == [context_packet]
     assert result["lifecycle"]["timeout"] is True
     manager.recall.assert_awaited_once()
@@ -846,7 +848,8 @@ async def test_api_recall_surface_uses_project_files_when_degraded_cache_is_cold
     )
 
     assert result["status"] == "degraded"
-    assert result["items"] == []
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["packets"][0]["packet_type"] == "project_home"
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
     assert "Native PyO3 dogfood recall" in result["packets"][0]["evidence_lines"][0]
@@ -1016,7 +1019,8 @@ async def test_api_recall_surface_skips_deep_search_when_memory_cache_satisfies_
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["items"] == []
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["budget"]["skipReason"] == "cache_satisfied"
     assert result["lifecycle"]["fallbackStatus"] == "cache_satisfied"
     assert result["diagnostics"]["stageTimingsMs"]["cacheSatisfied"] >= 0
@@ -1555,7 +1559,8 @@ async def test_api_recall_surface_returns_context_packets_on_empty_success() -> 
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["items"] == []
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["budget"]["skipReason"] is None
     assert result["lifecycle"]["fallbackStatus"] == "context_packet_fallback"
     manager.recall.assert_awaited_once()
@@ -1597,12 +1602,13 @@ async def test_api_recall_surface_returns_project_packets_on_empty_success(
         operation_source="axi_recall",
     )
 
-    assert result["status"] == "ok"
-    assert result["items"] == []
+    assert result["status"] == "degraded"
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
-    assert result["budget"]["skipReason"] is None
     assert result["lifecycle"]["packetCount"] == 1
     assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
+    assert result["lifecycle"]["degraded"] is True
     assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 0
     manager.recall.assert_awaited_once()
     manager.fast_recall_fallback.assert_awaited_once_with(
@@ -1674,7 +1680,7 @@ async def test_api_recall_surface_waits_for_cold_project_packets_on_empty_succes
         operation_source="axi_recall",
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == "degraded"
     assert result["packets"] == [packet]
     assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
     assert result["diagnostics"]["stageTimingsMs"]["projectFileRecallFallback"] >= 200
@@ -1723,8 +1729,9 @@ async def test_api_recall_surface_uses_project_packets_after_preflight_timeout(
         operation_source="axi_recall",
     )
 
-    assert result["status"] == "ok"
-    assert result["items"] == []
+    assert result["status"] == "degraded"
+    assert result["items"], "packets should mirror into items for naive clients"
+    assert result.get("resultsSource") == "packets"
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
     # Soft-hold project files, continue deep recall, then surface project packets.
     assert result["lifecycle"]["fallbackStatus"] == "project_file_recall_fallback"
@@ -1938,7 +1945,8 @@ async def test_mcp_recall_surface_skips_deep_search_when_memory_cache_satisfies_
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["results"] == []
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     assert result["budget"]["skip_reason"] == "cache_satisfied"
     assert result["lifecycle"]["fallback_status"] == "cache_satisfied"
     assert result["diagnostics"]["stage_timings_ms"]["cache_satisfied"] >= 0
@@ -1979,7 +1987,8 @@ async def test_mcp_recall_surface_returns_context_packets_on_empty_success() -> 
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["results"] == []
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     assert result["budget"]["skip_reason"] is None
     assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
     manager.recall.assert_awaited_once()
@@ -2021,7 +2030,8 @@ async def test_mcp_recall_surface_uses_context_packets_after_preflight_miss() ->
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["results"] == []
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     # Soft-hold context packets, continue deep recall, then surface as fallback.
     assert result["lifecycle"]["fallback_status"] == "context_packet_fallback"
     assert result["diagnostics"]["stage_timings_ms"]["recall_fast_preflight"] >= 0
@@ -2070,7 +2080,8 @@ async def test_mcp_recall_surface_uses_project_home_packet_after_preflight_miss(
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["results"] == []
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     assert result["lifecycle"]["fallback_status"] in {
         "context_packet_fallback",
         "project_file_recall_fallback",
@@ -2141,7 +2152,8 @@ async def test_mcp_recall_surface_uses_context_packets_after_preflight_timeout()
 
     assert result["status"] == "ok"
     assert result["packets"] == [context_packet]
-    assert result["results"] == []
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     assert result["lifecycle"]["fallback_status"] in {
         "context_packet_fallback",
         "project_file_recall_fallback",
@@ -2183,12 +2195,13 @@ async def test_mcp_recall_surface_returns_project_packets_on_empty_success(
         ),
     )
 
-    assert result["status"] == "ok"
-    assert result["results"] == []
+    assert result["status"] == "degraded"
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
-    assert result["budget"]["skip_reason"] is None
     assert result["lifecycle"]["packet_count"] == 1
     assert result["lifecycle"]["fallback_status"] == "project_file_recall_fallback"
+    assert result["lifecycle"]["degraded"] is True
     assert result["diagnostics"]["stage_timings_ms"]["project_file_recall_fallback"] >= 0
     manager.recall.assert_awaited_once()
     manager.fast_recall_fallback.assert_awaited_once_with(
@@ -2252,8 +2265,9 @@ async def test_mcp_recall_surface_uses_project_packets_after_preflight_timeout(
         ),
     )
 
-    assert result["status"] == "ok"
-    assert result["results"] == []
+    assert result["status"] == "degraded"
+    assert result["results"], "packets should mirror into results for naive clients"
+    assert result.get("results_source") == "packets"
     assert result["packets"][0]["title"] == "Project File: docs/memory-value-latency-plan.md"
     assert result["lifecycle"]["fallback_status"] == "project_file_recall_fallback"
     assert result["diagnostics"]["stage_timings_ms"]["project_file_recall_fallback"] >= 0
