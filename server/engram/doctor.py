@@ -177,7 +177,10 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
         _check_mcp(args, checks)
 
     _check_brain_status(checks)
-    if config is not None:
+    if args.no_smoke:
+        _add_check(checks, "embedding_provider", "skipped", "provider probes skipped (--no-smoke)")
+        _add_check(checks, "extraction_provider", "skipped", "provider probes skipped (--no-smoke)")
+    elif config is not None:
         await _check_live_providers(config, checks)
     else:
         _add_check(checks, "embedding_provider", "skipped", "config did not load")

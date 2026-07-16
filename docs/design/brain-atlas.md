@@ -1,5 +1,8 @@
 # Brain Atlas - Multi-Scale Graph Visualization and Drill-Down
 
+> Status: implemented — AtlasBuilder, /atlas API, dashboard AtlasView/RegionView
+
+
 ## Status: Proposed Build Path
 
 This document defines how Engram should expose an "ever growing brain" in the

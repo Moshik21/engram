@@ -106,6 +106,10 @@ def _stdio_test_env(tmp_path: Path) -> dict[str, str]:
         {
             "ENGRAM_MODE": "lite",
             "ENGRAM_TRANSPORT": "stdio",
+            # The bootstrap flow under test requires the artifact substrate;
+            # dev/CI env profiles must not decide this test's behavior.
+            "ENGRAM_ACTIVATION__ARTIFACT_BOOTSTRAP_ENABLED": "true",
+            "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "off",
             "ENGRAM_SQLITE__PATH": str(tmp_path / "engram-mcp-adoption.db"),
             "ENGRAM_EMBEDDING__PROVIDER": "noop",
             "ENGRAM_DEFAULT_GROUP_ID": "mcp_adoption_test",

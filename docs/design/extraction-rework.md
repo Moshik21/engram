@@ -1,5 +1,8 @@
 # Extraction Rework — Progressive Projection and Cue-First Memory
 
+> Status: implemented behind integration_profile=rework — cue layer + projector v2 off by consumer default
+
+
 ## Status: Proposed Build Path
 
 This document proposes a rework of Engram's extraction pipeline.

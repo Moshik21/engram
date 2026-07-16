@@ -1,5 +1,8 @@
 # Pragmatic Recall Signals: Detecting Unstated Memory Need
 
+> Status: implemented — pragmatic detectors in need.py/signals.py; flag-gated off by default
+
+
 Design document for conversational pragmatics layer in `analyze_memory_need()`.
 
 **Problem**: The current memory-need analyzer (`server/engram/retrieval/need.py`) uses keyword patterns that detect *explicit* recall requests ("catch me up", "what changed", "do you remember"). Real conversation doesn't work this way. When someone says "picking up Emma from practice," they aren't requesting memory — they're *assuming* the listener already knows who Emma is and what sport she plays. The current system returns `need_type="none"` for this input. That is a fundamental failure.

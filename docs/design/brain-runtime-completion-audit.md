@@ -1,5 +1,8 @@
 # Brain Runtime Completion Audit
 
+> Status: implemented — cold-brain runtime shipped (brain_runtime.py, brain_cli.py, runtime_role)
+
+
 Date: 2026-05-19
 
 This is the completion audit for the long-running brain-runtime goal. The

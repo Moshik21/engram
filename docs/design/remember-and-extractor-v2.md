@@ -1,5 +1,8 @@
 # Remember and EntityExtractor v2
 
+> Status: partially implemented — harness-as-extractor proposals + commit_policy shipped; full v2 partial/rework-gated
+
+
 ## Status
 
 Proposed design.

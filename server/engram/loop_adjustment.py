@@ -240,7 +240,7 @@ def clamp_loop_adjustment(
 
     clamped = LoopAdjustment(
         version=1,
-        group_id=adj.group_id or "default",
+        group_id=adj.group_id if adj.group_id else "default",
         regime=regime,
         reason=str(adj.reason).strip(),
         ttl_hours=ttl,
@@ -500,7 +500,7 @@ def clear_active_adjustment(
         keep_file = False
         try:
             raw = json.loads(store_path.read_text(encoding="utf-8"))
-            prev_group = str((raw or {}).get("group_id") or "default")
+            prev_group = str((raw or {}).get("group_id") or "") or "default"
             if prev_group != group_id and isinstance(raw, Mapping):
                 # Different group — leave the file, but still clear OUR
                 # group's graph sidecar copy below (an early return here

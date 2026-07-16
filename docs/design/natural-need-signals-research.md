@@ -1,5 +1,8 @@
 # Natural Memory Need Signals - Unified Design
 
+> Status: implemented — design realized in signals.py/need.py; signal controls gated off by default
+
+
 ## Status: Proposed Build Path
 
 Synthesized from five independent research threads: semantic shift detection,

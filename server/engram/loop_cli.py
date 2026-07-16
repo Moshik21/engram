@@ -152,7 +152,7 @@ def configure_loop_parser(parser: argparse.ArgumentParser) -> None:
 
 
 def run_loop_command(args: argparse.Namespace) -> int:
-    group_id = args.group_id or "default"
+    group_id = str(args.group_id or "") or "default"
     path = args.adjustment_path
     audit = args.audit_path
 

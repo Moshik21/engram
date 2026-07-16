@@ -1,5 +1,8 @@
 # Temporal-Relational Need Patterns
 
+> Status: implemented — structural need signals in signals.py/need.py; flag-gated off by default
+
+
 ## Design Document: Structural Memory Need Detection
 
 **Date:** 2026-03-06

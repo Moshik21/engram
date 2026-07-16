@@ -1,5 +1,8 @@
 # Natural Memory Need Signals - Rollout Status
 
+> Status: implemented — need.py + signals.py wired into recall; optional controls gated off by default
+
+
 ## Status: Phases 0-5 shipped; optional controls remain gated
 
 Research background:

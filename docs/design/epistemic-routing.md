@@ -1,5 +1,8 @@
 # Epistemic Routing - Memory, Artifacts, and Decision Reconciliation
 
+> Status: partially implemented — route_question + artifact bootstrap shipped; reconciliation strengthening gated behind rework
+
+
 ## Status: Core routing, artifact bootstrap, runtime inspection, and reconciliation shipped
 
 What is implemented now:

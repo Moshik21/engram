@@ -324,11 +324,13 @@ async def test_api_consolidation_status_surface_includes_scheduler_pressure_and_
         "episodes_since_last": 3,
         "entities_created": 2,
         "last_cycle_time": 10.0,
+        # Hygiene debt now folds into pressure; no graph store here -> 0.0.
+        "hygiene_debt_pressure": 0.0,
     }
     assert result["latest_cycle"]["id"] == "cyc_status"
     engine.get_latest_cycle.assert_awaited_once_with("native_brain")
     pressure.get_snapshot.assert_called_once_with("native_brain")
-    pressure.get_pressure.assert_called_once_with("native_brain", cfg)
+    pressure.get_pressure.assert_called_once_with("native_brain", cfg, hygiene_debt=None)
 
 
 @pytest.mark.asyncio
@@ -385,7 +387,7 @@ async def test_api_consolidation_status_response_surface_uses_config_activation(
     )
 
     assert result["pressure"]["threshold"] == cfg.activation.consolidation_pressure_threshold
-    pressure.get_pressure.assert_called_once_with("native_brain", cfg.activation)
+    pressure.get_pressure.assert_called_once_with("native_brain", cfg.activation, hygiene_debt=None)
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,8 @@
 # Brain Runtime Audit
 
+> Status: superseded — interim audit closed out by brain-runtime-completion-audit.md
+
+
 Date: 2026-05-11
 
 This audit anchors the long-running goal of turning Engram into a coherent

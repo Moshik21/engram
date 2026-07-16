@@ -839,7 +839,9 @@ class TestJSONResponses:
         assert isinstance(results, list)
         if results:
             r = results[0]
-            assert "entity" in r
+            # Core tier is episode-vector first (passage_first_entity_budget=0);
+            # entity results appear only on the opt-in graph/depth tier.
+            assert ("entity" in r) or ("episode" in r) or ("cue" in r)
             assert "score" in r
             assert "score_breakdown" in r
 

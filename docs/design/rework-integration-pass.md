@@ -1,5 +1,8 @@
 # Rework Integration Pass — Extraction, Recall, and Consolidation
 
+> Status: implemented behind integration_profile=rework — binds the three reworks; not the consumer default
+
+
 ## Status: Integration Checklist
 
 This document is the integration pass for the three reworks:

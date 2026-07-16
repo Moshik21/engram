@@ -1,5 +1,8 @@
 # Consolidation Rework — Correctness, Deterministic Decisioning, and Store Parity
 
+> Status: implemented behind integration_profile=rework — not the consumer default (quiet + wave2)
+
+
 ## Status: Proposed Build Path
 
 This document proposes a rework of Engram's consolidation pipeline.

@@ -1,5 +1,8 @@
 # Recall Rework — Arbitration, Memory Packets, and Usage Feedback
 
+> Status: implemented behind integration_profile=rework — memory packets + usage feedback off by consumer default
+
+
 ## Status: Proposed Build Path
 
 This document is the next-stage recall design for Engram.

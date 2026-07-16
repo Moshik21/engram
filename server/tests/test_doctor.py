@@ -75,6 +75,9 @@ async def test_doctor_can_run_config_only(tmp_path, monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_doctor_runs_brain_loop_smoke(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+    # Deterministic provider probes (dev server/.env may configure ollama).
+    monkeypatch.setenv("ENGRAM_ACTIVATION__EXTRACTION_PROVIDER", "narrow")
+    monkeypatch.setenv("ENGRAM_EMBEDDING__PROVIDER", "noop")
     args = _parse_doctor_args(
         "--mode",
         "lite",
@@ -107,6 +110,9 @@ async def test_doctor_runs_brain_loop_smoke(tmp_path, monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_doctor_smoke_uses_native_mode_when_resolved(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+    # Deterministic provider probes (dev server/.env may configure ollama).
+    monkeypatch.setenv("ENGRAM_ACTIVATION__EXTRACTION_PROVIDER", "narrow")
+    monkeypatch.setenv("ENGRAM_EMBEDDING__PROVIDER", "noop")
     native_dir = tmp_path / "native-data"
     requested: dict[str, object] = {}
     lifecycle_kwargs: dict[str, object] = {}
@@ -435,6 +441,9 @@ async def test_doctor_warns_when_lifecycle_snapshot_times_out(tmp_path, monkeypa
 @pytest.mark.asyncio
 async def test_doctor_warns_when_brain_loop_smoke_times_out(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("ENGRAM_SQLITE__PATH", str(tmp_path / "configured.db"))
+    # Deterministic provider probes (dev server/.env may configure ollama).
+    monkeypatch.setenv("ENGRAM_ACTIVATION__EXTRACTION_PROVIDER", "narrow")
+    monkeypatch.setenv("ENGRAM_EMBEDDING__PROVIDER", "noop")
 
     async def fake_lifecycle_summary(*args, **kwargs):
         return {

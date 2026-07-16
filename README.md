@@ -15,13 +15,13 @@
   <a href="https://engram-roan.vercel.app"><img src="https://img.shields.io/badge/website-engram-8b5cf6?style=flat-square" alt="Website"></a>
   <img src="https://github.com/Moshik21/engram/actions/workflows/ci.yml/badge.svg" alt="CI">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/MCP-27_tools-6366f1?style=flat-square" alt="MCP Tools">
+  <img src="https://img.shields.io/badge/MCP-9_tool_golden_loop-6366f1?style=flat-square" alt="MCP Tools">
   <img src="https://img.shields.io/badge/license-Apache_2.0-22c55e?style=flat-square" alt="License">
 </p>
 
 <br>
 
-**Engram is long-term memory for AI agents.** It stores conversations as episodes, builds a temporal knowledge graph of people, facts, and relationships, ranks recall with ACT-R activation, and runs consolidation in the background to merge duplicates and prune stale entries.
+**Engram is long-term memory for AI agents.** It stores conversations as episodes, builds a temporal knowledge graph of people, facts, and relationships, ranks recall with ACT-R activation, and runs offline consolidation in a separate cold-brain process to merge duplicates and prune stale entries.
 
 <table>
 <tr>
@@ -40,7 +40,7 @@ Session-start injection, auto-observe hooks, offline queue replay. Routine turns
 <td width="33%" valign="top">
 
 ### Brain consolidates
-Triage, projection, 16-phase consolidation, dream associations. Graph maintenance runs while you work.
+Triage, projection, 16-phase consolidation, dream associations. Runs as a separate cold-brain process on a schedule — not while you work.
 
 </td>
 </tr>
@@ -70,14 +70,16 @@ Triage, projection, 16-phase consolidation, dream associations. Graph maintenanc
   <img src="docs/assets/readme/harness-flow.svg" alt="Harness, Agent, and Brain layers" width="920">
 </p>
 
-The harness handles capture and session injection. The agent spends tokens on recall and explicit `remember` calls. Consolidation runs in the background.
+The harness handles capture and session injection. The agent spends tokens on recall and explicit `remember` calls. Consolidation runs out-of-band in a separate cold-brain process, not during your session.
 
 | Tier | Trigger | Action | Budget |
 |------|---------|--------|--------|
 | **Hot** | Session start, project open | AXI home, bootstrap, session prime | &lt; 3s |
 | **Warm** | Read tools, proper nouns | auto_recall lite, packet cache | &lt; 350ms |
-| **Cold** | Identity query, deep prior work | `recall`, `search_artifacts` | &lt; 2s |
-| **Background** | Session end, schedule | triage, merge, dream | async |
+| **Cold** | Identity query, deep prior work | `recall`, `get_context` | &lt; 2s |
+| **Background** | Scheduled (~2h), off-battery | Cold-brain consolidation, separate process | async |
+
+**Runtime split:** a **hot shell** (`engram serve`, role `shell`) serves the golden loop with no in-process consolidation. A separate **cold brain** (`engram brain run`, a LaunchAgent every ~2h) does the heavy consolidation — it briefly pauses the shell and skips on battery or when there is no actionable work. Consolidation does not run while you work.
 
 <p align="center">
   <img src="docs/assets/readme/memory-tiers.svg" alt="Episodic to Transitional to Semantic memory tiers" width="760">
@@ -220,19 +222,19 @@ Design doc: [docs/harness-memory-adoption-plan.md](docs/harness-memory-adoption-
 
 ## MCP tools
 
-**27 tools**, **3 resources**, **2 prompts**. Stdio or streamable HTTP.
+The public MCP surface is frozen to a **9-tool golden loop** (`ENGRAM_MCP_SURFACE=public`, the default). Stdio or streamable HTTP.
 
 | Tool | Purpose |
 |------|---------|
 | `observe` / `remember` | Capture (fast queue vs immediate extraction) |
 | `recall` / `get_context` | Activation-aware retrieval and briefing |
-| `bootstrap_project` | Ingest project docs as artifacts |
+| `intend` | Prospective memory (topic-triggered intentions) |
+| `forget` | Retract or correct a memory |
 | `claim_authority` | Memory ownership and tool protocol for the turn |
-| `route_question` | Route to memory, artifacts, or runtime state |
-| `intend` / `list_intentions` | Prospective memory |
-| `trigger_consolidation` | Run a consolidation cycle |
+| `bootstrap_project` | Ingest project docs on first run |
+| `get_runtime_state` | Report brain readiness and adoption debt |
 
-MCP instructions tell compatible clients to call memory tools on session start. Harness auto-capture handles routine turns; agents focus on recall.
+Operator and evaluation tools (consolidation triggers, artifact search, timeline, question routing, Loop Steward) live on the `operator` and `full` surfaces via `ENGRAM_MCP_SURFACE` — they are not part of the public agent loop. See [docs/GOLDEN_LOOP.md](docs/GOLDEN_LOOP.md).
 
 Full tool list: [docs/REFERENCE.md#mcp-integration](docs/REFERENCE.md#mcp-integration)
 
@@ -250,6 +252,18 @@ Full tool list: [docs/REFERENCE.md#mcp-integration](docs/REFERENCE.md#mcp-integr
 HelixDB combines graph, HNSW vector search, and field-level BM25 in one engine (171 compiled HelixQL queries).
 
 Details: [docs/install/helix.md](docs/install/helix.md) · [Benchmarks](docs/REFERENCE.md#benchmarks)
+
+<br>
+
+## Privacy & data
+
+Everything runs and stays local by default.
+
+- No API keys are required to operate. Embeddings are local (fastembed / nomic); extraction falls back through harness `remember` proposals → optional local Ollama → a deterministic narrow pipeline.
+- The offline capture queue at `~/.engram/capture-queue.jsonl` holds **verbatim prompts** until they are replayed into the graph on the next session start.
+- The graph store is **plaintext on disk**. An encryption config exists (`ENGRAM_ENCRYPTION__ENABLED`) but is **off by default**.
+- The REST API binds `127.0.0.1` and is **unauthenticated** by default. Only pass `--host 0.0.0.0` if you understand the exposure.
+- Use `engram backup create` for snapshots (and `engram backup verify` / `engram backup restore` to check and roll back).
 
 <br>
 
@@ -284,7 +298,7 @@ server/engram/
   activation/       ACT-R engine, BFS, PPR
   consolidation/    16-phase engine + scheduler
   ingestion/        CQRS: store_episode / project_episode
-  mcp/              27 tools, resources, prompts
+  mcp/              9-tool golden loop + operator surface
   retrieval/        Hybrid search, packets, auto_recall
   storage/          Helix native, SQLite, FalkorDB
 

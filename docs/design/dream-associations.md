@@ -1,5 +1,8 @@
 # Dream Associations — Cross-Domain Creative Linking
 
+> Status: implemented — DreamSpreadingPhase + DREAM_ASSOCIATED edges; gated by consolidation_dream_associations_enabled
+
+
 ## Status: Design (Reviewed)
 
 *Original draft reviewed by 5-agent deep analysis (March 2026). This version

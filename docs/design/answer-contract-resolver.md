@@ -1,5 +1,8 @@
 # Answer Contract Resolver - Claim State, Provenance, and Response Operators
 
+> Status: partially implemented — claim-state/operator models shipped; gated behind integration_profile=rework (off by consumer default)
+
+
 ## Status: Proposed follow-on to epistemic routing
 
 This document is a follow-on to [epistemic-routing.md](./epistemic-routing.md).

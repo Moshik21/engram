@@ -148,9 +148,9 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
             "auto",  # mode
             "engram_dev",  # Falkor password
             "engram_dev",  # Redis password
-            "",  # consolidation profile -> default standard
-            "",  # recall profile -> default all
-            "",  # integration profile -> default rework
+            "",  # consolidation profile -> default quiet (consumer)
+            "",  # recall profile -> default wave2
+            "",  # integration profile -> default off
             "n",  # auth
             "n",  # encryption
         ]
@@ -161,9 +161,10 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
     config = _collect_config()
 
     assert config["ENGRAM_MODE"] == "auto"
-    assert config["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] == "standard"
-    assert config["ENGRAM_ACTIVATION__RECALL_PROFILE"] == "all"
-    assert config["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] == "rework"
+    # Consumer defaults: quiet shell footprint, wave2 recall, integration off.
+    assert config["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] == "quiet"
+    assert config["ENGRAM_ACTIVATION__RECALL_PROFILE"] == "wave2"
+    assert config["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] == "off"
 
 
 def test_collect_config_helix_uses_native_transport(monkeypatch):
@@ -172,9 +173,9 @@ def test_collect_config_helix_uses_native_transport(monkeypatch):
     input_responses = iter(
         [
             "helix",  # mode
-            "",  # consolidation profile -> default standard
-            "",  # recall profile -> default all
-            "",  # integration profile -> default rework
+            "",  # consolidation profile -> default quiet (consumer)
+            "",  # recall profile -> default wave2
+            "",  # integration profile -> default off
             "n",  # auth
             "n",  # encryption
         ]

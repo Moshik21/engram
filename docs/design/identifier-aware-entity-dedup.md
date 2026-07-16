@@ -1,5 +1,8 @@
 # Identifier-Aware Entity Dedup — SKU-Safe Resolution and Consolidation
 
+> Status: implemented — entity_dedup_policy.py IDENTIFIER type + exact-identifier match
+
+
 ## Status: Proposed Build Path
 
 This document proposes a targeted rework of Engram's entity dedup behavior for
