@@ -275,6 +275,15 @@ def main():
 
     configure_index_parser(index_parser)
 
+    # --- hygiene (operator mop protocol; not public MCP) ---
+    hygiene_parser = subparsers.add_parser(
+        "hygiene",
+        help="Debt scoreboard + bounded mop drains (operator; not public MCP)",
+    )
+    from engram.hygiene_cli import configure_hygiene_parser
+
+    configure_hygiene_parser(hygiene_parser)
+
     # --- loop (Loop Steward control plane; operator / harness only) ---
     loop_parser = subparsers.add_parser(
         "loop",
@@ -487,6 +496,14 @@ def main():
         from engram.index_cli import run_index_command
 
         sys.exit(asyncio.run(run_index_command(args)))
+
+    # --- hygiene (operator mop) ---
+    if args.command == "hygiene":
+        import asyncio
+
+        from engram.hygiene_cli import run_hygiene_command
+
+        sys.exit(asyncio.run(run_hygiene_command(args)))
 
     # --- loop (Loop Steward) ---
     if args.command == "loop":
