@@ -610,6 +610,14 @@ async def _run_explicit_recall_with_budget(
 
     # Product polish: Decision/identity must not wait on hybrid first.
     # Cheap durable exact-name / type rescue before preflight or BM25/HNSW thrash.
+    #
+    # INTENT-GATED short-circuit: returning rescue stubs for ANY query that
+    # merely names a known entity ("Engram", the user) silently converted
+    # explicit recall into exact-name lookup for most real queries (no
+    # episodes, no relationships). The fast path only replaces the deep
+    # pipeline when the query is durable-lookup shaped or the top hit is a
+    # high-signal durable fact with strong overlap; otherwise the deep
+    # pipeline runs as before (later rescue stages still cover miss/timeout).
     durable_first_started = time.perf_counter()
     durable_first = await _durable_entity_name_rescue(
         manager,
@@ -619,6 +627,9 @@ async def _run_explicit_recall_with_budget(
         timeout_seconds=min(0.75, max(0.2, timeout_seconds * 0.4)),
     )
     stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
+    if durable_first and not _durable_first_short_circuit_allowed(query, durable_first):
+        stage_timings["durable_entity_first_gated"] = 1.0
+        durable_first = []
     if durable_first:
         duration_ms = round((time.perf_counter() - started) * 1000, 4)
         await record_manager_memory_operation(
@@ -1284,6 +1295,77 @@ async def _durable_entity_name_rescue(
     - Require real name↔query overlap (not generic "decision"/"strategy" alone).
     - Prefer high-overlap durable types over weak Decision scrap.
     """
+    try:
+        return await asyncio.wait_for(
+            _durable_entity_name_rescue_inner(
+                manager,
+                group_id=group_id,
+                query=query,
+                limit=limit,
+                timeout_seconds=timeout_seconds,
+            ),
+            # Aggregate wall bound: per-probe timeouts alone allowed up to
+            # 4 probes x ~1.9s of stacked waits (~7.6s theoretical) before
+            # the budgeted stages even started.
+            timeout=max(0.2, timeout_seconds * 2.0),
+        )
+    except TimeoutError:
+        return []
+
+
+# Only these types justify replacing the whole deep pipeline with name-stub
+# results. Person/Project/Organization are durable for RANKING but far too
+# broad for a short-circuit ("Engram" or the user's name appears in most
+# queries).
+_HIGH_SIGNAL_SHORT_CIRCUIT_TYPES = frozenset(
+    {"Decision", "Preference", "Correction", "Goal", "Commitment", "Intention"}
+)
+
+_DURABLE_LOOKUP_INTENT_TERMS = (
+    "decision",
+    "decide",
+    "decided",
+    "preference",
+    "prefer",
+    "goal",
+    "commitment",
+    "committed",
+    "correction",
+    "policy",
+    "convention",
+    "strategy",
+    "north star",
+    "agreed",
+    "agreement",
+    "rule we",
+    "what did we",
+    "did we settle",
+    "remind me what",
+)
+
+
+def _durable_first_short_circuit_allowed(query: str, hits: list[dict[str, Any]]) -> bool:
+    """Whether rescue hits may REPLACE the deep pipeline for this query."""
+    q = " ".join((query or "").lower().split())
+    if any(term in q for term in _DURABLE_LOOKUP_INTENT_TERMS):
+        return True
+    for hit in hits:
+        entity = hit.get("entity") or {}
+        entity_type = str(entity.get("type") or "")
+        overlap = float((hit.get("score_breakdown") or {}).get("name_overlap") or 0.0)
+        if entity_type in _HIGH_SIGNAL_SHORT_CIRCUIT_TYPES and overlap >= 0.6:
+            return True
+    return False
+
+
+async def _durable_entity_name_rescue_inner(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+    timeout_seconds: float,
+) -> list[dict[str, Any]]:
     from engram.extraction.promotion import (
         durable_result_boost,
         is_durable_recall_entity_type,

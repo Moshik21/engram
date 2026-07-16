@@ -210,11 +210,22 @@ def results_from_packets(
         # Diagnostic "no memory" packets must not become fake hits.
         if packet_type in {"recall_diagnostic", "recallDiagnostic"}:
             continue
+        # Project-file/degraded fallback packets still mirror (naive clients
+        # should see the fallback), but never as clean score=1.0 memory —
+        # that made an empty graph look like strong recall of the repo's own
+        # files.
+        is_fallback = packet_type in {"project_home", "projectHome"} or (
+            bool(packet.get("degraded")) or str(packet.get("status") or "") == "degraded"
+        )
+        default_score = 0.35 if is_fallback else 1.0
         score = packet.get("score")
         try:
-            score_f = float(score) if score is not None else 1.0
+            score_f = float(score) if score is not None else default_score
         except (TypeError, ValueError):
-            score_f = 1.0
+            score_f = default_score
+        if is_fallback:
+            score_f = min(score_f, 0.5)
+        source_label = "project_file_fallback" if is_fallback else "packet_cache"
         title = str(packet.get("title") or "")
         summary = str(packet.get("summary") or "")
         name_from_title = title.split(":", 1)[-1].strip() if ":" in title else title.strip()
@@ -243,7 +254,7 @@ def results_from_packets(
                     },
                     "score": score_f,
                     "score_breakdown": {"packet_cache": score_f},
-                    "source": "packet_cache",
+                    "source": source_label,
                 }
             )
 
@@ -265,12 +276,12 @@ def results_from_packets(
                     "episode": {
                         "id": epid_s,
                         "content": summary or title or epid_s,
-                        "source": "packet_cache",
+                        "source": source_label,
                         "created_at": packet.get("created_at") or packet.get("createdAt"),
                     },
                     "score": score_f,
                     "score_breakdown": {"packet_cache": score_f},
-                    "source": "packet_cache",
+                    "source": source_label,
                 }
             )
 
@@ -296,7 +307,7 @@ def results_from_packets(
                         },
                         "score": score_f,
                         "score_breakdown": {"packet_cache": score_f},
-                        "source": "packet_cache",
+                        "source": source_label,
                     }
                 )
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -105,3 +105,60 @@ async def test_api_surface_durable_first_stage_timing() -> None:
     assert response["status"] == "ok"
     assert response.get("lifecycle", {}).get("fallbackStatus") == "durable_entity_first"
     manager.recall.assert_not_awaited()
+
+
+class TestDurableFirstIntentGate:
+    """The fast path may only REPLACE the deep pipeline for durable-lookup
+    queries or high-signal hits — never for any query naming a known entity."""
+
+    def _hit(self, entity_type: str, overlap: float) -> dict:
+        return {
+            "result_type": "entity",
+            "entity": {"id": "e1", "name": "X", "type": entity_type},
+            "score_breakdown": {"name_overlap": overlap},
+        }
+
+    def test_intent_terms_allow_short_circuit(self):
+        from engram.retrieval.recall_surface import _durable_first_short_circuit_allowed
+
+        hits = [self._hit("Project", 1.0)]
+        assert _durable_first_short_circuit_allowed("what did we decide about storage", hits)
+
+    def test_broad_durable_types_do_not_short_circuit(self):
+        from engram.retrieval.recall_surface import _durable_first_short_circuit_allowed
+
+        # "Engram" (Project) / user (Person) name-match must not swallow recall.
+        hits = [self._hit("Project", 1.0), self._hit("Person", 1.0)]
+        assert not _durable_first_short_circuit_allowed("how is the Engram dashboard wired", hits)
+
+    def test_high_signal_hit_allows_short_circuit(self):
+        from engram.retrieval.recall_surface import _durable_first_short_circuit_allowed
+
+        hits = [self._hit("Decision", 0.8)]
+        assert _durable_first_short_circuit_allowed("helix native backend", hits)
+
+    def test_low_overlap_high_signal_does_not(self):
+        from engram.retrieval.recall_surface import _durable_first_short_circuit_allowed
+
+        hits = [self._hit("Decision", 0.4)]
+        assert not _durable_first_short_circuit_allowed("helix native backend", hits)
+
+
+class TestRescueAggregateTimeout:
+    @pytest.mark.asyncio
+    async def test_rescue_bounded_by_aggregate_wall(self):
+        import asyncio
+
+        from engram.retrieval import recall_surface
+
+        async def slow_inner(*args, **kwargs):
+            await asyncio.sleep(30)
+
+        with patch.object(recall_surface, "_durable_entity_name_rescue_inner", slow_inner):
+            started = asyncio.get_event_loop().time()
+            hits = await recall_surface._durable_entity_name_rescue(
+                object(), group_id="g", query="q", limit=5, timeout_seconds=0.05
+            )
+            elapsed = asyncio.get_event_loop().time() - started
+        assert hits == []
+        assert elapsed < 2.0
