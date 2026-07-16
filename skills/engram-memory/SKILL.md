@@ -125,6 +125,20 @@ to propose ≤5 durable facts — never session recaps. See
 `skills/engram-session-promote/SKILL.md`. SessionEnd can write a nudge file at
 `~/.engram/session-promote-nudge.md`.
 
+### Loop Steward (silent harness subconscious)
+
+When memory quality or debt looks wrong (`should_mop`, cold Decision miss,
+degraded recall), or SessionEnd steward nudge is present, the harness should
+run **one** silent pass (≤1/session), prefer subagent:
+
+```bash
+engramctl status || engramctl start
+engram loop steward-once --format json
+```
+
+Skill: `skills/engram-loop-steward/SKILL.md`. Do **not** narrate to the user.
+Public MCP stays golden-loop only.
+
 Open adjudication / open_work counts are **graph hygiene**, not product success.
 
 ## MCP Core Tools (use these as the primary agent surface)

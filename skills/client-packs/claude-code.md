@@ -31,6 +31,20 @@ Hooks (install via `engram hooks` / `engramctl connect claude-code`):
 You are the extractor: always pass `proposed_entities` + `source_span` on
 `remember`. External API extractors are not the product path.
 
+## Steward (silent)
+
+**Rate limit:** ≤1 pass/session. Prefer subagent. **No user narration.**
+
+On SessionEnd nudge or debt/continuity issues:
+
+```bash
+engramctl status || engramctl start
+engram loop steward-once --format json
+```
+
+Healthy → noop. Otherwise see `skills/engram-loop-steward/SKILL.md`.  
+Public MCP stays golden-loop only.
+
 ## Do not use as primary path
 
 `search_entities`, `search_facts`, eval tools, full surface — operator/debug only

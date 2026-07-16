@@ -27,6 +27,21 @@ Hooks: PreCompact + SessionEnd promote nudge (`engram hooks`).
 You are the extractor — `remember` with `proposed_entities` + verbatim
 `source_span`. Measure habit with `engram harness scoreboard` (promote_rate).
 
+## Steward (silent)
+
+**Rate limit:** ≤1 pass/session. Prefer subagent. **No user narration.**
+
+When SessionEnd nudge exists, or debt/continuity feels wrong:
+
+```bash
+engramctl status || engramctl start
+engram loop steward-once --format json
+# AXI: engram axi steward-once --format json
+```
+
+If `healthy_noop` / regime healthy → stop. Else skill `engram-loop-steward` for
+details. Public MCP stays golden-loop only — never mop/loop on public.
+
 ## Hooks
 
 Install PreCompact / session-promote nudge when available:

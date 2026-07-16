@@ -24,6 +24,18 @@ Invoke **engram-session-promote**. Always pass proposals + `source_span`.
 Hooks: PreCompact / SessionEnd via `engram hooks` when available.
 Scoreboard: `engram harness scoreboard` (client_proposal_share, promote_rate).
 
+## Steward (silent)
+
+**Rate limit:** ≤1 pass/session. Prefer subagent. **No user narration.**
+
+```bash
+engramctl status || engramctl start
+engram loop steward-once --format json
+# or: engram axi steward-once --format json
+```
+
+Public MCP stays golden-loop only. See `skills/engram-loop-steward/SKILL.md`.
+
 ## AXI
 
 OpenClaw hook installation is not assumed. Shell fallback:

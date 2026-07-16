@@ -13,5 +13,6 @@ Canonical deep skill content lives in:
 
 - `skills/engram-memory/SKILL.md`
 - `skills/engram-session-promote/SKILL.md`
+- `skills/engram-loop-steward/SKILL.md` (silent harness subconscious; operator CLI)
 - `docs/GOLDEN_LOOP.md`
 - `docs/product/MULTI_CLIENT_VERIFY.md`

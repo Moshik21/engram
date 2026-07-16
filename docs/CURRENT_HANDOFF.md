@@ -1,6 +1,6 @@
 # Current Handoff
 
-**Last updated:** 2026-07-09
+**Last updated:** 2026-07-10
 
 **Read the START HERE section first.** Everything below the archive divider is
 historical context from prior milestones — useful for archaeology, not for
@@ -8,7 +8,7 @@ re-deriving current dogfood truth.
 
 ---
 
-## START HERE — Strategy + Golden Loop (2026-07-09)
+## START HERE — Strategy + Golden Loop (2026-07-10)
 
 ### TL;DR
 
@@ -24,17 +24,18 @@ Architecture direction (keep):
 Helix **native PyO3 is custom Engram work**, not official Helix. Treat schema /
 install drift as Engram-owned.
 
-### Shipped this session (code)
+### Shipped this session (code) — experience polish + debt drain
 
 | Area | Change |
 |------|--------|
-| Promotion policy | `extraction/promotion.py` — high-signal types, recap reject, window budget |
-| Compaction window | 0–5 remembers per window; reset on `compaction_id`, compaction source, or **4h idle** (not multi-day session lifetime) |
-| Client proposals | Span auto-fill; high-signal verified floor; commit path for span-verified proposals |
-| Decision names | `validate_entity_name` allows ≤24 words for Decision/Preference/client proposals (was hard 5-word reject) |
-| Auto-capture worker | Auto sources stay cue-only unless triage score ≥ 0.85 |
-| Recall ranking | Prefer durable entity facts over session recap / cue packets |
-| Recall rescue | Preflight timeout no longer aborts deep recall; durable entity name rescue surfaces Decisions when hybrid search times out on loaded brain |
+| Junk classifier | `evidence_drain.py` — slash-pair scrap, broken relationship endpoints, markup spans |
+| Drain ordering | Mop + evidence_adjudication **prioritize junk** (no longer waste budget on first-N keep rows) |
+| Operator mop | `engram hygiene report\|mop`; honest post-mop deferred recount |
+| Live debt | deferred **~18.8k → ~5.9k**; open_work **~19.6k → ~6.7k**; cues demoted heavily |
+| Continuity live | `continuity --against-live` PASS — recall ~2ms, context ~0.5s after warmup |
+
+Prior foundation still in tree: promotion window, identity_core, durable-first recall,
+public 9-tool MCP, hybrid index completeness, hygiene debt scoreboard + pressure.
 
 ### Golden path (verified live 2026-07-09)
 
@@ -80,13 +81,38 @@ continuity no longer requires the agent to call `recall` first for strategy fact
 | `recall_fast_preflight_timeout_ms` | 250 | **400** |
 | `recall_fast_fallback_timeout_ms` | 100 | **250** |
 
+### Memory loop self-regulation (why brains ballooned)
+
+Root cause writeup: `docs/design/memory-loop-self-regulation.md`  
+Loop Steward (harness subconscious): `docs/design/loop-steward-protocol.md`  
+Shipped: `engram loop status|propose|propose-from-report|apply|clear`, Helix sidecar  
++ file dual-store, operator MCP `loop_*`, dashboard LoopStewardCard,  
+`hooks/session-steward-nudge.sh`, `scripts/dogfood_loop_steward.sh`.  
+**Feel-good path:** `engram loop steward-once` / `engram axi steward-once`;  
+LaunchAgent start recovery; silent ritual in client packs; public freeze held.  
+Doc: `docs/design/loop-steward-feel-good-next.md`
+
+**Why it grew:** intake defers pattern hits; dense graphs raise commit thresholds
+(more defer); deferred was stored forever; warm adjudication only aged ~200
+top-confidence rows; junk drain wasted budget on keep-rows; force-commit would
+have materialised sludge. **Cycles ran; debt did not shrink.**
+
+**What prevents re-growth (shipped 2026-07-10):**
+
+1. Hot-path junk **reject** (never enters deferred)
+2. Debt-**scaled** junk drain + already-exists collapse + stale TTL reject
+3. Force-age: high-signal may commit; pattern sludge **rejects** instead
+4. Operator mop mirrors the same drains; pressure still sees hygiene debt
+
 ### Still true / still broken
 
 - Loaded-brain hybrid recall can still be slow; durable entity rescue is a safety
   net, not a full ranking redesign.
-- Open deferred evidence backlog remains huge; do not chase LongMemEval fitting.
+- Remaining deferred is mostly borderline non-junk (common tech names, temporal
+  patterns) — collapses over cycles via already-exists/stale, not more heuristics.
 - Cross-encoder merge can still fail/timeout on full cycles.
 - Prefer markdown/git handoffs until multi-agent dogfood is routine.
+- Server downtime stops all drains — `engramctl status` is part of dogfood ritual.
 
 ### Operator runtime (Konner's machine)
 
