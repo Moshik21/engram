@@ -1731,6 +1731,15 @@ class ActivationConfig(BaseModel):
 
     # --- Background episode worker ---
     worker_enabled: bool = Field(default=False, description="Enable background episode worker")
+    worker_auto_capture_extract_score_floor: float = Field(
+        default=0.85,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum triage score for auto-capture episodes to project immediately; "
+            "below this floor they stay cue-only. Loop Steward may raise this ephemerally."
+        ),
+    )
 
     # --- AutoRecall (piggyback on observe/remember) ---
     auto_recall_enabled: bool = Field(

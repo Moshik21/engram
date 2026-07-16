@@ -152,20 +152,25 @@ class ConsolidationEngine:
         trigger: str = "manual",
         dry_run: bool | None = None,
         phase_names: set[str] | None = None,
+        cfg: ActivationConfig | None = None,
     ) -> ConsolidationCycle:
         """Execute a consolidation cycle.
 
         Args:
             phase_names: If set, only run phases whose name is in this set.
                          If None, run all phases (full cycle).
+            cfg: Optional per-cycle ActivationConfig overlay (Loop Steward).
+                 Does not mutate process-boot config on the engine.
 
         Returns the completed cycle with phase results.
         """
         if self._running:
             raise RuntimeError("A consolidation cycle is already running")
 
+        cycle_cfg = cfg if cfg is not None else self._cfg
+
         if dry_run is None:
-            dry_run = self._cfg.consolidation_dry_run
+            dry_run = cycle_cfg.consolidation_dry_run
 
         cycle = ConsolidationCycle(
             group_id=group_id,
@@ -196,7 +201,7 @@ class ConsolidationEngine:
                 tuple(
                     phase for phase in self._phases if phase.name in cycle_plan.selected_phase_names
                 ),
-                cfg=self._cfg,
+                cfg=cycle_cfg,
             )
 
             for phase in self._phases:
@@ -222,6 +227,7 @@ class ConsolidationEngine:
                         cycle_id=cycle.id,
                         dry_run=dry_run,
                         context=context,
+                        cfg=cycle_cfg,
                     )
                     cycle.phase_results.append(phase_run.result)
 

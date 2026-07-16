@@ -88,6 +88,29 @@ class ConsolidationScheduler:
         """Whether the scheduler loop is currently running."""
         return self._task is not None and not self._task.done()
 
+    def _loop_steward_overlay(
+        self,
+        phase_names: set[str] | None,
+    ) -> tuple[set[str] | None, ActivationConfig]:
+        """Load active LoopAdjustment and produce phase set + effective cfg.
+
+        Does not mutate process-boot ``self._cfg``.
+        """
+        try:
+            from engram.loop_adjustment import (
+                effective_activation_config,
+                effective_phase_names,
+                load_active_adjustment,
+            )
+
+            adj = load_active_adjustment(self._group_id)
+            cfg_eff = effective_activation_config(self._cfg, adj)
+            biased = effective_phase_names(phase_names, adj)
+            return biased, cfg_eff
+        except Exception:
+            logger.debug("Loop steward overlay skipped", exc_info=True)
+            return phase_names, self._cfg
+
     async def _load_tier_times(self) -> None:
         """Hydrate tier timestamps from durable storage once per process."""
         if self._tier_times_loaded:
@@ -225,10 +248,12 @@ class ConsolidationScheduler:
                         else f"tiered:{'+'.join(tier_names)}"
                     )
                     try:
+                        phases, cfg_eff = self._loop_steward_overlay(due_phases)
                         await self._engine.run_cycle(
                             group_id=self._group_id,
                             trigger=trigger,
-                            phase_names=due_phases,
+                            phase_names=phases,
+                            cfg=cfg_eff,
                         )
                         # Update per-tier timestamps
                         for tier in tier_names:
@@ -255,9 +280,12 @@ class ConsolidationScheduler:
                         )
                         if pressure_value >= self._cfg.consolidation_pressure_threshold:
                             try:
+                                phases, cfg_eff = self._loop_steward_overlay(None)
                                 await self._engine.run_cycle(
                                     group_id=self._group_id,
                                     trigger="pressure",
+                                    phase_names=phases,
+                                    cfg=cfg_eff,
                                 )
                                 now2 = time.time()
                                 self._last_cycle_time = now2
@@ -295,9 +323,12 @@ class ConsolidationScheduler:
                 continue
 
             try:
+                phases, cfg_eff = self._loop_steward_overlay(None)
                 await self._engine.run_cycle(
                     group_id=self._group_id,
                     trigger=cycle_trigger,
+                    phase_names=phases,
+                    cfg=cfg_eff,
                 )
                 self._last_cycle_time = time.time()
                 if pressure is not None:

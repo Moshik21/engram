@@ -210,6 +210,16 @@ class HelixConsolidationStore:
                         PRIMARY KEY (group_id, tier)
                     )
                 """)
+                # Loop Steward active set-point (Helix companion; dual-write
+                # with the ~/.engram file)
+                await self._scheduler_sidecar_db.execute("""
+                    CREATE TABLE IF NOT EXISTS loop_adjustments (
+                        group_id TEXT PRIMARY KEY,
+                        payload_json TEXT NOT NULL,
+                        expires_at TEXT,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
                 await self._scheduler_sidecar_db.commit()
                 self._scheduler_sidecar_ready = True
             return self._scheduler_sidecar_db
@@ -246,6 +256,57 @@ class HelixConsolidationStore:
             [(group_id, tier, last_run_at) for tier, last_run_at in tier_times.items()],
         )
         await db.commit()
+
+    async def save_loop_adjustment(self, group_id: str, payload: dict) -> None:
+        """Persist Loop Steward active adjustment (Helix native sidecar)."""
+        import json
+
+        from engram.utils.dates import utc_now_iso
+
+        db = await self._ensure_scheduler_sidecar()
+        await db.execute(
+            "INSERT INTO loop_adjustments (group_id, payload_json, expires_at, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(group_id) DO UPDATE SET "
+            "payload_json = excluded.payload_json, "
+            "expires_at = excluded.expires_at, "
+            "updated_at = excluded.updated_at",
+            (
+                group_id,
+                json.dumps(payload, default=str),
+                str(payload.get("expires_at") or ""),
+                utc_now_iso(),
+            ),
+        )
+        await db.commit()
+
+    async def get_loop_adjustment(self, group_id: str) -> dict | None:
+        """Load Loop Steward active adjustment from Helix native sidecar."""
+        import json
+
+        db = await self._ensure_scheduler_sidecar()
+        cursor = await db.execute(
+            "SELECT payload_json FROM loop_adjustments WHERE group_id = ?",
+            (group_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row["payload_json"] or "{}")
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    async def clear_loop_adjustment(self, group_id: str) -> bool:
+        """Clear Loop Steward active adjustment from Helix native sidecar."""
+        db = await self._ensure_scheduler_sidecar()
+        cursor = await db.execute(
+            "DELETE FROM loop_adjustments WHERE group_id = ?",
+            (group_id,),
+        )
+        await db.commit()
+        return bool(cursor.rowcount)
 
     # ------------------------------------------------------------------
     # Cycle CRUD

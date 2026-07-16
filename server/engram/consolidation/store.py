@@ -1913,6 +1913,71 @@ class SQLiteConsolidationStore:
         )
         await self.db.commit()
 
+    async def _ensure_loop_adjustment_table(self) -> None:
+        await self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS loop_adjustments (
+                group_id TEXT PRIMARY KEY,
+                payload_json TEXT NOT NULL,
+                expires_at TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        await self.db.commit()
+
+    async def save_loop_adjustment(self, group_id: str, payload: dict) -> None:
+        """Persist Loop Steward active adjustment (lite consolidation DB)."""
+        import json
+
+        from engram.utils.dates import utc_now_iso
+
+        await self._ensure_loop_adjustment_table()
+        await self.db.execute(
+            "INSERT INTO loop_adjustments (group_id, payload_json, expires_at, updated_at) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(group_id) DO UPDATE SET "
+            "payload_json = excluded.payload_json, "
+            "expires_at = excluded.expires_at, "
+            "updated_at = excluded.updated_at",
+            (
+                group_id,
+                json.dumps(payload, default=str),
+                str(payload.get("expires_at") or ""),
+                utc_now_iso(),
+            ),
+        )
+        await self.db.commit()
+
+    async def get_loop_adjustment(self, group_id: str) -> dict | None:
+        import json
+
+        await self._ensure_loop_adjustment_table()
+        cursor = await self.db.execute(
+            "SELECT payload_json FROM loop_adjustments WHERE group_id = ?",
+            (group_id,),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row["payload_json"] if not isinstance(row, tuple) else row[0])
+        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+            try:
+                data = json.loads(row[0])
+            except Exception:
+                return None
+        return data if isinstance(data, dict) else None
+
+    async def clear_loop_adjustment(self, group_id: str) -> bool:
+        await self._ensure_loop_adjustment_table()
+        cursor = await self.db.execute(
+            "DELETE FROM loop_adjustments WHERE group_id = ?",
+            (group_id,),
+        )
+        await self.db.commit()
+        return bool(cursor.rowcount)
+
     async def close(self) -> None:
         """Close the database connection."""
         if self._db and self._owns_db:

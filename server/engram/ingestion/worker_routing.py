@@ -15,10 +15,6 @@ from engram.storage.protocols import GraphStore
 
 logger = logging.getLogger(__name__)
 
-# Auto-capture must not flood the graph with empty "projected" shells.
-# Only extract when triage score is clearly high (agent remember bypasses worker).
-_AUTO_CAPTURE_EXTRACT_SCORE_FLOOR = 0.85
-
 
 class EpisodeWorkerProjectionRouter:
     """Apply worker routing decisions to episode and cue projection state."""
@@ -26,6 +22,24 @@ class EpisodeWorkerProjectionRouter:
     def __init__(self, graph: GraphStore, cfg: ActivationConfig) -> None:
         self._graph = graph
         self._cfg = cfg
+
+    def effective_cfg(self, group_id: str) -> ActivationConfig:
+        """Boot cfg overlaid with active LoopAdjustment for this group (if any)."""
+        try:
+            from engram.loop_adjustment import (
+                effective_activation_config,
+                load_active_adjustment,
+            )
+
+            adj = load_active_adjustment(group_id)
+            return effective_activation_config(self._cfg, adj)
+        except Exception:
+            return self._cfg
+
+    def auto_capture_extract_score_floor(self, group_id: str = "default") -> float:
+        """Minimum triage score for auto-capture immediate extraction."""
+        cfg = self.effective_cfg(group_id)
+        return float(getattr(cfg, "worker_auto_capture_extract_score_floor", 0.85) or 0.85)
 
     async def should_skip_projection(
         self,
@@ -65,15 +79,13 @@ class EpisodeWorkerProjectionRouter:
         if decision.action == "extract":
             episode = await self._load_episode(episode_id, group_id)
             source = str(getattr(episode, "source", "") or "") if episode is not None else ""
-            if (
-                is_auto_capture_source(source)
-                and float(decision.score or 0.0) < _AUTO_CAPTURE_EXTRACT_SCORE_FLOOR
-            ):
+            floor = self.auto_capture_extract_score_floor(group_id)
+            if is_auto_capture_source(source) and float(decision.score or 0.0) < floor:
                 logger.debug(
                     "Worker: cue-only auto-capture %s (score=%.3f < %.2f floor)",
                     episode_id,
                     decision.score,
-                    _AUTO_CAPTURE_EXTRACT_SCORE_FLOOR,
+                    floor,
                 )
                 await sync_projection_state(
                     self._graph,

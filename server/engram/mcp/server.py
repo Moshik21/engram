@@ -1544,6 +1544,192 @@ async def get_consolidation_status() -> str:
     return json.dumps(result)
 
 
+# ─── Loop Steward (operator / full surface only) ─────────────────────
+
+
+@mcp.tool()
+async def loop_status() -> str:
+    """Return active Loop Steward adjustment (or none). Operator surface only."""
+    from engram.loop_adjustment import (
+        load_active_adjustment_async,
+        remaining_ttl_seconds,
+        status_payload,
+    )
+
+    store = await _get_consolidation_store()
+    adj = await load_active_adjustment_async(_group_id, graph_store=store, clear_if_expired=True)
+    if adj is None:
+        # dual-read file
+        payload = status_payload(_group_id)
+    else:
+        payload = {
+            "group_id": _group_id,
+            "active": True,
+            "adjustment": adj.to_dict(),
+            "remaining_ttl_seconds": round(remaining_ttl_seconds(adj), 1),
+            "regime": adj.regime,
+            "reason": adj.reason,
+            "expires_at": adj.expires_at,
+            "store": "graph",
+        }
+    return json.dumps(payload, default=str)
+
+
+@mcp.tool()
+async def loop_apply(adjustment_json: str, skip_continuity_check: bool = True) -> str:
+    """Apply a LoopAdjustment JSON (operator). Dual-writes file + Helix sidecar when available."""
+    from engram.config import ActivationConfig
+    from engram.loop_adjustment import (
+        LoopAdjustment,
+        clamp_loop_adjustment,
+        hard_caps_from_config,
+        save_active_adjustment_async,
+        stamp_applied,
+        status_payload,
+    )
+
+    try:
+        raw = json.loads(adjustment_json)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"status": "error", "error": f"invalid_json:{exc}"})
+    if not isinstance(raw, dict):
+        return json.dumps({"status": "error", "error": "adjustment_must_be_object"})
+    adj = LoopAdjustment.from_mapping(raw)
+    adj.group_id = _group_id
+    caps = hard_caps_from_config(ActivationConfig())
+    result = clamp_loop_adjustment(adj, hard_caps=caps)
+    if result.rejected:
+        return json.dumps(
+            {"status": "error", "error": result.reject_reason, "warnings": list(result.warnings)}
+        )
+    stamped = stamp_applied(result.adjustment)
+    store = await _get_consolidation_store()
+    await save_active_adjustment_async(stamped, graph_store=store)
+    return json.dumps(
+        {
+            "status": "ok",
+            "applied": True,
+            "warnings": list(result.warnings),
+            "adjustment": stamped.to_dict(),
+            "status_payload": status_payload(_group_id),
+        },
+        default=str,
+    )
+
+
+@mcp.tool()
+async def loop_clear() -> str:
+    """Clear active LoopAdjustment (operator)."""
+    from engram.loop_adjustment import clear_active_adjustment_async
+
+    store = await _get_consolidation_store()
+    cleared = await clear_active_adjustment_async(
+        _group_id, cleared_by="mcp:loop_clear", graph_store=store
+    )
+    return json.dumps({"status": "ok", "cleared": cleared, "group_id": _group_id})
+
+
+@mcp.tool()
+async def loop_propose_from_report(
+    debt_json: str = "",
+    offline: bool = False,
+    continuity_ok: bool | None = None,
+    latency_degraded: bool = False,
+) -> str:
+    """Deterministic propose-from-report (no write). debt_json is hygiene report or debt dict."""
+    from engram.config import ActivationConfig
+    from engram.loop_adjustment import hard_caps_from_config, propose_from_report
+
+    debt: dict | None = None
+    if debt_json.strip():
+        try:
+            raw = json.loads(debt_json)
+        except json.JSONDecodeError as exc:
+            return json.dumps({"status": "error", "error": f"invalid_json:{exc}"})
+        if isinstance(raw, dict) and isinstance(raw.get("debt"), dict):
+            debt = dict(raw["debt"])
+            if isinstance(raw.get("pressure"), dict):
+                debt["pressure"] = raw["pressure"]
+                debt["should_trigger_mop"] = raw["pressure"].get("should_trigger_mop")
+        elif isinstance(raw, dict):
+            debt = raw
+    result = propose_from_report(
+        debt,
+        group_id=_group_id,
+        created_by="mcp:loop_propose_from_report",
+        server_reachable=False if offline else None,
+        continuity_ok=continuity_ok,
+        latency_degraded=latency_degraded or None,
+        hard_caps=hard_caps_from_config(ActivationConfig()),
+    )
+    if result.rejected:
+        return json.dumps({"status": "error", "error": result.reject_reason})
+    return json.dumps(
+        {
+            "status": "ok",
+            "proposed": True,
+            "wrote_active": False,
+            "regime": result.adjustment.regime,
+            "warnings": list(result.warnings),
+            "adjustment": result.adjustment.to_dict(),
+        },
+        default=str,
+    )
+
+
+@mcp.tool()
+async def loop_steward_once(
+    debt_json: str = "",
+    dry_run: bool = False,
+    offline: bool = False,
+    continuity_ok: bool | None = None,
+    latency_degraded: bool = False,
+) -> str:
+    """One-shot steward: propose-from-report then apply if not healthy (no mop by default).
+
+    Operator surface only. Public MCP must not expose this.
+    """
+    from engram.config import ActivationConfig
+    from engram.loop_adjustment import (
+        hard_caps_from_config,
+        run_steward_once,
+        save_active_adjustment_async,
+    )
+
+    debt: dict | None = None
+    if debt_json.strip():
+        try:
+            raw = json.loads(debt_json)
+        except json.JSONDecodeError as exc:
+            return json.dumps({"status": "error", "error": f"invalid_json:{exc}"})
+        debt = raw if isinstance(raw, dict) else None
+
+    # When dry_run=False and debt triggers apply, run_steward_once uses file save;
+    # dual-write Helix sidecar after if applied.
+    payload = run_steward_once(
+        debt,
+        group_id=_group_id,
+        created_by="mcp:loop_steward_once",
+        dry_run=dry_run,
+        do_mop=False,
+        server_reachable=False if offline else None,
+        continuity_ok=continuity_ok,
+        latency_degraded=latency_degraded or None,
+        hard_caps=hard_caps_from_config(ActivationConfig()),
+    )
+    if payload.get("applied") and not dry_run:
+        try:
+            from engram.loop_adjustment import LoopAdjustment
+
+            store = await _get_consolidation_store()
+            adj = LoopAdjustment.from_mapping(payload.get("adjustment") or {})
+            if adj.reason:
+                await save_active_adjustment_async(adj, graph_store=store)
+        except Exception:
+            pass
+    return json.dumps(payload, default=str)
+
+
 # ─── Prospective Memory (Wave 4) ─────────────────────────────────────
 
 
@@ -1675,9 +1861,7 @@ def _install_structured_tool_errors() -> None:
                 except McpToolError as exc:
                     return exc.to_json()
                 except Exception as exc:
-                    logging.getLogger(__name__).exception(
-                        "MCP tool failed with unstructured error"
-                    )
+                    logging.getLogger(__name__).exception("MCP tool failed with unstructured error")
                     return format_tool_exception(exc)
 
             _async_wrap._engram_structured_errors = True  # type: ignore[attr-defined]
@@ -1690,9 +1874,7 @@ def _install_structured_tool_errors() -> None:
                 except McpToolError as exc:
                     return exc.to_json()
                 except Exception as exc:
-                    logging.getLogger(__name__).exception(
-                        "MCP tool failed with unstructured error"
-                    )
+                    logging.getLogger(__name__).exception("MCP tool failed with unstructured error")
                     return format_tool_exception(exc)
 
             _sync_wrap._engram_structured_errors = True  # type: ignore[attr-defined]

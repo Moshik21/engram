@@ -25,6 +25,7 @@ from engram.api.health import router as health_router
 from engram.api.ingest_ws import router as ingest_ws_router
 from engram.api.knowledge import router as knowledge_router
 from engram.api.lifecycle import router as lifecycle_router
+from engram.api.loop import router as loop_router
 from engram.api.stats import router as stats_router
 from engram.api.storage import router as storage_router
 from engram.api.websocket import router as ws_router
@@ -699,6 +700,7 @@ def create_app(config: EngramConfig | None = None) -> FastAPI:
     app.include_router(activation_router)
     app.include_router(admin_router)
     app.include_router(consolidation_router)
+    app.include_router(loop_router)
     app.include_router(evaluation_router)
     app.include_router(ws_router, tags=["websocket"])
     app.include_router(ingest_ws_router, tags=["websocket"])

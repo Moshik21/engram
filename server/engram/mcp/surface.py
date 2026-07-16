@@ -1,8 +1,9 @@
 """MCP tool surface profiles — golden loop vs operator vs full.
 
-Product freeze (docs/GOLDEN_LOOP.md): agents should live on the public six
-(+ claim_authority for authority routing). The full registry remains available
-for operators and eval via ENGRAM_MCP_SURFACE.
+Product freeze (docs/GOLDEN_LOOP.md): agents should live on the public 9-tool
+golden loop (7 core + bootstrap_project + get_runtime_state). The full
+registry remains available for operators and eval via ENGRAM_MCP_SURFACE.
+Default is public so every install/connect client sees the same tool set.
 """
 
 from __future__ import annotations
@@ -57,6 +58,12 @@ OPERATOR_EXTRA_TOOLS: frozenset[str] = frozenset(
         "search_artifacts",
         "observe_image",
         "observe_file",
+        # Loop Steward (harness subconscious; not public golden loop)
+        "loop_status",
+        "loop_apply",
+        "loop_clear",
+        "loop_propose_from_report",
+        "loop_steward_once",
     }
 )
 

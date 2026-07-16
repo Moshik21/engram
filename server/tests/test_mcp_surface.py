@@ -70,7 +70,7 @@ def test_apply_mcp_surface_full_keeps_all(monkeypatch):
 
 
 def test_public_tools_cover_golden_loop():
-    for name in (
+    expected = {
         "get_context",
         "recall",
         "observe",
@@ -78,8 +78,11 @@ def test_public_tools_cover_golden_loop():
         "intend",
         "forget",
         "claim_authority",
-    ):
-        assert name in PUBLIC_TOOLS
+        "bootstrap_project",
+        "get_runtime_state",
+    }
+    assert PUBLIC_TOOLS == expected
+    assert len(PUBLIC_TOOLS) == 9
 
 
 def test_operator_includes_polish_tools_not_aliases():
@@ -89,8 +92,14 @@ def test_operator_includes_polish_tools_not_aliases():
         "search_artifacts",
         "observe_image",
         "observe_file",
+        "loop_status",
+        "loop_apply",
+        "loop_clear",
+        "loop_propose_from_report",
+        "loop_steward_once",
     ):
         assert name in OPERATOR_TOOLS
+        assert name not in PUBLIC_TOOLS
     for name in FULL_ONLY_TOOLS:
         assert name not in OPERATOR_TOOLS
         assert name not in PUBLIC_TOOLS

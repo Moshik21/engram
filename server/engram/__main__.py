@@ -275,6 +275,15 @@ def main():
 
     configure_index_parser(index_parser)
 
+    # --- loop (Loop Steward control plane; operator / harness only) ---
+    loop_parser = subparsers.add_parser(
+        "loop",
+        help="Loop Steward adjustments: status|apply|clear (operator; not public MCP)",
+    )
+    from engram.loop_cli import configure_loop_parser
+
+    configure_loop_parser(loop_parser)
+
     # --- health ---
     subparsers.add_parser("health", help="Check if Engram server is running")
 
@@ -478,6 +487,12 @@ def main():
         from engram.index_cli import run_index_command
 
         sys.exit(asyncio.run(run_index_command(args)))
+
+    # --- loop (Loop Steward) ---
+    if args.command == "loop":
+        from engram.loop_cli import run_loop_command
+
+        sys.exit(run_loop_command(args))
 
     # --- health ---
     if args.command == "health":

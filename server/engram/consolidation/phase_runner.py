@@ -94,16 +94,18 @@ class ConsolidationPhaseRunner:
         cycle_id: str,
         dry_run: bool,
         context: CycleContext,
+        cfg: ActivationConfig | None = None,
     ) -> ConsolidationPhaseRunOutcome:
         """Execute a phase and persist its direct and context audit records."""
         trace_start = len(context.decision_traces)
         outcome_start = len(context.decision_outcome_labels)
+        cycle_cfg = cfg if cfg is not None else self._cfg
         result, records = await phase.execute(
             group_id=group_id,
             graph_store=self._graph,
             activation_store=self._activation,
             search_index=self._search,
-            cfg=self._cfg,
+            cfg=cycle_cfg,
             cycle_id=cycle_id,
             dry_run=dry_run,
             context=context,

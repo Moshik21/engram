@@ -689,6 +689,7 @@ _HOOK_SCRIPTS = {
     "session-end.sh": "session-end.sh",
     "pre-compact.sh": "pre-compact.sh",
     "session-promote-nudge.sh": "session-promote-nudge.sh",
+    "session-steward-nudge.sh": "session-steward-nudge.sh",
 }
 
 
@@ -1120,6 +1121,17 @@ _HOOKS_CONFIG = {
                 {
                     "type": "command",
                     "command": str(_HOOKS_DIR / "session-promote-nudge.sh"),
+                    "async": True,
+                    "timeout": 5000,
+                }
+            ],
+        },
+        {
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": str(_HOOKS_DIR / "session-steward-nudge.sh"),
                     "async": True,
                     "timeout": 5000,
                 }

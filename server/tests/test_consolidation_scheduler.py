@@ -185,10 +185,13 @@ class TestConsolidationScheduler:
             except asyncio.CancelledError:
                 pass
 
-        engine.run_cycle.assert_called_once_with(
-            group_id="test_group",
-            trigger="scheduled",
-        )
+        engine.run_cycle.assert_called_once()
+        kwargs = engine.run_cycle.call_args.kwargs
+        assert kwargs["group_id"] == "test_group"
+        assert kwargs["trigger"] == "scheduled"
+        # Loop steward overlay always passes phase_names/cfg (may be None/base)
+        assert "phase_names" in kwargs
+        assert "cfg" in kwargs
 
     @pytest.mark.asyncio
     async def test_error_doesnt_stop_loop(self):
@@ -288,10 +291,11 @@ class TestPressureTriggering:
             except asyncio.CancelledError:
                 pass
 
-        engine.run_cycle.assert_called_once_with(
-            group_id="test",
-            trigger="pressure",
-        )
+        engine.run_cycle.assert_called_once()
+        kwargs = engine.run_cycle.call_args.kwargs
+        assert kwargs["group_id"] == "test"
+        assert kwargs["trigger"] == "pressure"
+        assert "cfg" in kwargs
         assert pressure.reset_called
 
     @pytest.mark.asyncio
@@ -328,10 +332,11 @@ class TestPressureTriggering:
             except asyncio.CancelledError:
                 pass
 
-        engine.run_cycle.assert_called_once_with(
-            group_id="test",
-            trigger="scheduled",
-        )
+        engine.run_cycle.assert_called_once()
+        kwargs = engine.run_cycle.call_args.kwargs
+        assert kwargs["group_id"] == "test"
+        assert kwargs["trigger"] == "scheduled"
+        assert "cfg" in kwargs
 
     @pytest.mark.asyncio
     async def test_pressure_disabled_ignores_count(self):
@@ -362,10 +367,11 @@ class TestPressureTriggering:
             except asyncio.CancelledError:
                 pass
 
-        engine.run_cycle.assert_called_once_with(
-            group_id="test",
-            trigger="scheduled",
-        )
+        engine.run_cycle.assert_called_once()
+        kwargs = engine.run_cycle.call_args.kwargs
+        assert kwargs["group_id"] == "test"
+        assert kwargs["trigger"] == "scheduled"
+        assert "cfg" in kwargs
 
 
 class _FakeGraphStore:

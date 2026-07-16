@@ -118,6 +118,34 @@ def configure_axi_parser(parser: argparse.ArgumentParser) -> None:
         help="Clear tenant-local packet-cache entries.",
     )
 
+    steward_parser = subparsers.add_parser(
+        "steward-once",
+        parents=[common],
+        help="Silent Loop Steward one-shot (operator; not public MCP).",
+    )
+    steward_parser.add_argument(
+        "--debt-json",
+        type=Path,
+        default=None,
+        help="Optional hygiene report JSON; omit to collect offline/live debt.",
+    )
+    steward_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Propose only; do not write active adjustment.",
+    )
+    steward_parser.add_argument(
+        "--mop",
+        action="store_true",
+        help="After apply, run bounded hygiene mop (heavier).",
+    )
+    steward_parser.add_argument(
+        "--mop-budget",
+        type=int,
+        default=200,
+        help="Mop budget floor when --mop is set.",
+    )
+
     doctor_parser = subparsers.add_parser(
         "doctor",
         parents=[common],
@@ -355,6 +383,53 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
                 "error": "Unknown packet-cache command",
             },
             exit_code=2,
+        )
+    if command == "steward-once":
+        # Thin alias: shell to loop steward-once so AXI and CLI share one path.
+        import subprocess
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "engram",
+            "loop",
+            "steward-once",
+            "--format",
+            "json",
+            "--created-by",
+            "axi:steward-once",
+        ]
+        debt_json = getattr(args, "debt_json", None)
+        if debt_json is not None:
+            cmd.extend(["--debt-json", str(debt_json)])
+        if getattr(args, "dry_run", False):
+            cmd.append("--dry-run")
+        if getattr(args, "mop", False):
+            cmd.append("--mop")
+            cmd.extend(["--budget", str(int(getattr(args, "mop_budget", 200) or 200))])
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        try:
+            body = (
+                json.loads(proc.stdout)
+                if proc.stdout.strip()
+                else {
+                    "status": "error",
+                    "error": proc.stderr[-500:] if proc.stderr else "no_output",
+                }
+            )
+        except json.JSONDecodeError:
+            body = {
+                "status": "error",
+                "error": "invalid_json",
+                "stdout": proc.stdout[-1000:],
+                "stderr": proc.stderr[-500:],
+            }
+        return AxiResult(
+            payload={
+                "operation": "steward-once",
+                **(body if isinstance(body, dict) else {"result": body}),
+            },
+            exit_code=0 if proc.returncode == 0 else max(1, proc.returncode),
         )
     if command == "doctor":
         result = build_doctor_payload(
