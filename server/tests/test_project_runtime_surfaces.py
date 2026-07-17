@@ -182,7 +182,7 @@ async def test_runtime_state_includes_empty_runtime_adoption_guidance() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_state_cache_invalidates_for_matching_tmp_path() -> None:
+async def test_runtime_state_cache_invalidates_for_matching_tmp_path(tmp_path) -> None:
     calls = 0
 
     async def list_project_artifacts(**_: object) -> list[object]:
@@ -201,16 +201,26 @@ async def test_runtime_state_cache_invalidates_for_matching_tmp_path() -> None:
         get_packet_cache_summary=lambda _: {},
     )
 
-    await service.get_runtime_state(
-        group_id="native_brain",
-        project_path="/tmp/engram",
-        live=True,
-    )
-    service.invalidate_cache(group_id="native_brain", project_path="/private/tmp/engram")
+    # Two spellings of one directory via a symlink (portable stand-in for
+    # macOS's /tmp -> /private/tmp): invalidation must match on the resolved
+    # path, not the literal string.
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    link_dir = tmp_path / "link"
+    link_dir.symlink_to(real_dir)
 
     await service.get_runtime_state(
         group_id="native_brain",
-        project_path="/tmp/engram",
+        project_path=str(link_dir / "engram"),
+        live=True,
+    )
+    service.invalidate_cache(
+        group_id="native_brain", project_path=str(real_dir / "engram")
+    )
+
+    await service.get_runtime_state(
+        group_id="native_brain",
+        project_path=str(link_dir / "engram"),
         live=False,
     )
 
