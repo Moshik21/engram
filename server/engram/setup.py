@@ -1351,6 +1351,134 @@ def install_hooks_interactive(
     print()
 
 
+# ─── LaunchAgent Plists (engramctl delegation) ──────────────────────
+
+# Byte-compatible with the historical bash heredocs in installer/engramctl
+# (including the literal \&\& in the zsh command string), so existing
+# installs see no diff when the plist is rewritten.
+_PLIST_HEADER = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+    '<plist version="1.0">\n'
+)
+
+_LAUNCH_AGENT_COMMAND_PREFIX = (
+    r'set -a; [ -f "$HOME/.engram/.env" ] \&\& '
+    r'source "$HOME/.engram/.env"; set +a; exec '
+)
+
+_LAUNCH_AGENT_PATH = ".local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
+
+_SHELL_LAUNCH_AGENT_BODY = """\
+<dict>
+  <key>Label</key>
+  <string>{label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>{command}</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>{log_file}</string>
+  <key>StandardErrorPath</key>
+  <string>{log_file}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{home}/{path}</string>
+  </dict>
+</dict>
+</plist>
+"""
+
+_BRAIN_LAUNCH_AGENT_BODY = """\
+<dict>
+  <key>Label</key>
+  <string>{label}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>{command}</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>{interval_seconds}</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>{log_file}</string>
+  <key>StandardErrorPath</key>
+  <string>{log_file}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>{home}/{path}</string>
+  </dict>
+</dict>
+</plist>
+"""
+
+
+def write_launch_agent_plist(
+    kind: str,
+    plist_path: Path,
+    label: str,
+    engram_command: str,
+    *,
+    port: int = 8100,
+    log_file: str = "",
+    interval_seconds: int = 7200,
+) -> Path:
+    """Write a macOS LaunchAgent plist for the hot shell or the cold brain.
+
+    Replaces the bash heredocs engramctl previously templated in
+    write_local_launch_agent_plist / write_brain_launch_agent_plist.
+    """
+    if kind == "shell":
+        command = (
+            f"{_LAUNCH_AGENT_COMMAND_PREFIX}{engram_command} serve --host 127.0.0.1 --port {port}"
+        )
+        body = _SHELL_LAUNCH_AGENT_BODY.format(
+            label=label,
+            command=command,
+            log_file=log_file,
+            home=Path.home(),
+            path=_LAUNCH_AGENT_PATH,
+        )
+    elif kind == "brain":
+        command = (
+            f"{_LAUNCH_AGENT_COMMAND_PREFIX}{engram_command} "
+            f"brain run --tier mop --budget 1000 --pause-shell"
+        )
+        body = _BRAIN_LAUNCH_AGENT_BODY.format(
+            label=label,
+            command=command,
+            interval_seconds=interval_seconds,
+            log_file=log_file,
+            home=Path.home(),
+            path=_LAUNCH_AGENT_PATH,
+        )
+    else:
+        raise ValueError(f"Unknown launch agent kind: {kind}")
+
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(_PLIST_HEADER + body)
+    return plist_path
+
+
 def setup(env_path: Path | None = None, mode: str | None = None) -> None:
     """Interactive setup wizard entry point.
 

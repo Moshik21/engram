@@ -69,6 +69,33 @@ def main():
         default=None,
         help="Pre-select engine mode (skips mode prompt)",
     )
+    setup_sub = setup_parser.add_subparsers(dest="setup_command")
+    launch_agent_parser = setup_sub.add_parser(
+        "write-launch-agent",
+        help="Write a macOS LaunchAgent plist (used by engramctl)",
+    )
+    launch_agent_parser.add_argument(
+        "kind",
+        choices=["shell", "brain"],
+        help="shell = always-on serve agent, brain = 2h cold-brain mop",
+    )
+    launch_agent_parser.add_argument("--plist", type=Path, required=True, help="Plist output path")
+    launch_agent_parser.add_argument("--label", required=True, help="LaunchAgent label")
+    launch_agent_parser.add_argument(
+        "--engram-command",
+        required=True,
+        help="Absolute path to the engram CLI the agent should exec",
+    )
+    launch_agent_parser.add_argument(
+        "--port", type=int, default=8100, help="API port (shell kind; default: 8100)"
+    )
+    launch_agent_parser.add_argument("--log-file", required=True, help="Agent stdout/stderr log")
+    launch_agent_parser.add_argument(
+        "--interval-seconds",
+        type=int,
+        default=7200,
+        help="StartInterval (brain kind; default: 7200)",
+    )
 
     # --- serve (REST API) ---
     serve_parser = subparsers.add_parser("serve", help="Start REST API server")
@@ -374,6 +401,21 @@ def main():
 
     # --- setup ---
     if args.command == "setup":
+        if getattr(args, "setup_command", None) == "write-launch-agent":
+            from engram.setup import write_launch_agent_plist
+
+            path = write_launch_agent_plist(
+                args.kind,
+                args.plist,
+                args.label,
+                args.engram_command,
+                port=args.port,
+                log_file=args.log_file,
+                interval_seconds=args.interval_seconds,
+            )
+            print(path)
+            return
+
         from engram.setup import setup
 
         env_path = Path(args.env_path) if args.env_path else None

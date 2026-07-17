@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -301,6 +302,81 @@ def test_engramctl_start_honors_configured_api_port() -> None:
     assert "ENGRAM_DOCTOR_NO_LIFECYCLE" in engramctl
     assert "return 1" in engramctl
     assert "Quickstart could not confirm Engram is ready." in engramctl
+
+
+def test_engramctl_delegates_launch_agent_plists_to_engram_cli() -> None:
+    engramctl = (ROOT / "installer/engramctl").read_text()
+
+    assert "setup write-launch-agent shell" in engramctl
+    assert "setup write-launch-agent brain" in engramctl
+    assert '--label "$LITE_LAUNCH_AGENT_LABEL"' in engramctl
+    assert '--label "$BRAIN_LAUNCH_AGENT_LABEL"' in engramctl
+    assert '--interval-seconds "$BRAIN_INTERVAL_SECONDS"' in engramctl
+    # Plist templating moved into engram.setup — no bash heredocs remain.
+    assert "<key>ProgramArguments</key>" not in engramctl
+
+
+def _run_engram_write_launch_agent(env: dict[str, str], *args: str) -> None:
+    subprocess.run(
+        [sys.executable, "-m", "engram", "setup", "write-launch-agent", *args],
+        cwd=ROOT / "server",
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_engram_setup_write_launch_agent_matches_installer_contract(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["HOME"] = str(tmp_path)
+
+    shell_plist = tmp_path / "dev.engram.local.plist"
+    _run_engram_write_launch_agent(
+        env,
+        "shell",
+        "--plist",
+        str(shell_plist),
+        "--label",
+        "dev.engram.local",
+        "--engram-command",
+        "/opt/bin/engram",
+        "--port",
+        "18100",
+        "--log-file",
+        str(tmp_path / "engram.log"),
+    )
+    content = shell_plist.read_text()
+    assert "<string>dev.engram.local</string>" in content
+    assert "exec /opt/bin/engram serve --host 127.0.0.1 --port 18100" in content
+    # Byte-compatible with the historical engramctl heredoc, including the
+    # literal \&\& in the zsh command string.
+    assert '[ -f "$HOME/.engram/.env" ] \\&\\& source "$HOME/.engram/.env"' in content
+    assert f"<string>{tmp_path}/.local/bin:/usr/local/bin:/opt/homebrew/bin" in content
+    assert "<key>KeepAlive</key>" in content
+    assert f"<string>{tmp_path}/engram.log</string>" in content
+
+    brain_plist = tmp_path / "dev.engram.brain.plist"
+    _run_engram_write_launch_agent(
+        env,
+        "brain",
+        "--plist",
+        str(brain_plist),
+        "--label",
+        "dev.engram.brain",
+        "--engram-command",
+        "/opt/bin/engram",
+        "--interval-seconds",
+        "7200",
+        "--log-file",
+        str(tmp_path / "engram-brain.log"),
+    )
+    content = brain_plist.read_text()
+    assert "<string>dev.engram.brain</string>" in content
+    assert "exec /opt/bin/engram brain run --tier mop --budget 1000 --pause-shell" in content
+    assert "<key>StartInterval</key>" in content
+    assert "<integer>7200</integer>" in content
+    assert "<string>Background</string>" in content
 
 
 def test_engramctl_stop_cleans_engram_owned_orphan_listener_only() -> None:

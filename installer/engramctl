@@ -958,6 +958,7 @@ launch_agent_stop() {
 write_local_launch_agent_plist() {
   # Idempotent unless force: templates the always-on shell LaunchAgent so a
   # fresh install survives logout/login instead of a nohup PID that dies.
+  # Plist templating lives in the engram CLI (engram setup write-launch-agent).
   local force="${1:-0}"
   if [ -f "$LITE_LAUNCH_AGENT_PLIST" ] && [ "$force" != "1" ]; then
     return 0
@@ -967,44 +968,19 @@ write_local_launch_agent_plist() {
   load_existing_env "$LITE_ENV_FILE"
   port="${ENGRAM_API_PORT:-8100}"
   mkdir -p "$(dirname "$LITE_LAUNCH_AGENT_PLIST")" "$LITE_LOG_DIR"
-  cat > "$LITE_LAUNCH_AGENT_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${LITE_LAUNCH_AGENT_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/zsh</string>
-    <string>-c</string>
-    <string>set -a; [ -f "\$HOME/.engram/.env" ] \&\& source "\$HOME/.engram/.env"; set +a; exec ${engram_cmd} serve --host 127.0.0.1 --port ${port}</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-  <key>StandardOutPath</key>
-  <string>${LITE_LOG_FILE}</string>
-  <key>StandardErrorPath</key>
-  <string>${LITE_LOG_FILE}</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-  </dict>
-</dict>
-</plist>
-PLIST
+  "$engram_cmd" setup write-launch-agent shell \
+    --plist "$LITE_LAUNCH_AGENT_PLIST" \
+    --label "$LITE_LAUNCH_AGENT_LABEL" \
+    --engram-command "$engram_cmd" \
+    --port "$port" \
+    --log-file "$LITE_LOG_FILE" >/dev/null || return 1
   info "Wrote shell LaunchAgent: $LITE_LAUNCH_AGENT_PLIST"
 }
 
 write_brain_launch_agent_plist() {
   # Cold-brain mop every BRAIN_INTERVAL_SECONDS. tier=mop only — never the
   # full 16-phase cycle (that class of window caused multi-minute outages).
+  # Plist templating lives in the engram CLI (engram setup write-launch-agent).
   local force="${1:-0}"
   if [ -f "$BRAIN_LAUNCH_AGENT_PLIST" ] && [ "$force" != "1" ]; then
     return 0
@@ -1012,39 +988,12 @@ write_brain_launch_agent_plist() {
   local engram_cmd
   engram_cmd="$(find_engram_command)" || return 1
   mkdir -p "$(dirname "$BRAIN_LAUNCH_AGENT_PLIST")" "$LITE_LOG_DIR"
-  cat > "$BRAIN_LAUNCH_AGENT_PLIST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${BRAIN_LAUNCH_AGENT_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/zsh</string>
-    <string>-c</string>
-    <string>set -a; [ -f "\$HOME/.engram/.env" ] \&\& source "\$HOME/.engram/.env"; set +a; exec ${engram_cmd} brain run --tier mop --budget 1000 --pause-shell</string>
-  </array>
-  <key>StartInterval</key>
-  <integer>${BRAIN_INTERVAL_SECONDS}</integer>
-  <key>RunAtLoad</key>
-  <false/>
-  <key>Nice</key>
-  <integer>10</integer>
-  <key>ProcessType</key>
-  <string>Background</string>
-  <key>StandardOutPath</key>
-  <string>${LITE_LOG_DIR}/engram-brain.log</string>
-  <key>StandardErrorPath</key>
-  <string>${LITE_LOG_DIR}/engram-brain.log</string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key>
-    <string>$HOME/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
-  </dict>
-</dict>
-</plist>
-PLIST
+  "$engram_cmd" setup write-launch-agent brain \
+    --plist "$BRAIN_LAUNCH_AGENT_PLIST" \
+    --label "$BRAIN_LAUNCH_AGENT_LABEL" \
+    --engram-command "$engram_cmd" \
+    --interval-seconds "$BRAIN_INTERVAL_SECONDS" \
+    --log-file "$LITE_LOG_DIR/engram-brain.log" >/dev/null || return 1
   info "Wrote brain LaunchAgent: $BRAIN_LAUNCH_AGENT_PLIST"
 }
 
