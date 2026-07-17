@@ -405,12 +405,25 @@ class HelixGraphStore:
         cached = self._entity_group_id_cache.get((group_id, entity_id))
         if cached is not None:
             return cached
-        # Scan by group and filter
-        results = await self._query(
-            "find_entities_exact_name",
-            {"name_exact": "__LOOKUP__", "gid": group_id},
-        )
-        # That won't find it. Instead, search all entities in group.
+        # Targeted lookup: native-side scan returning at most one row.
+        try:
+            results = await self._query(
+                "find_entity_by_entity_id",
+                {"eid": entity_id, "gid": group_id},
+            )
+        except Exception:  # silent-ok: explicit fallback path follows (group scan)
+            logger.debug(
+                "find_entity_by_entity_id route unavailable; falling back to group scan",
+                exc_info=True,
+            )
+            results = []
+        for item in results:
+            hid = self._extract_helix_id(item)
+            if hid is not None:
+                self._cache_entity(hid, entity_id, item.get("group_id") or group_id)
+                return hid
+        # Fallback: scan by group and filter. Also covers engines whose
+        # missing-route failure is swallowed as an empty result.
         results = await self._query("find_entities_by_group", {"gid": group_id})
         for item in results:
             eid = item.get("entity_id", "")

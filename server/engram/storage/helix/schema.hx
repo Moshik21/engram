@@ -258,6 +258,10 @@ QUERY find_entities_exact_name(name_exact: String, gid: String) =>
     entities <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{name}::EQ(name_exact), _::{is_deleted}::EQ(false)))
     RETURN entities
 
+QUERY find_entity_by_entity_id(eid: String, gid: String) =>
+    entities <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{entity_id}::EQ(eid), _::{is_deleted}::EQ(false)))
+    RETURN entities
+
 QUERY find_entities_by_canonical(canon: String, gid: String) =>
     entities <- N<Entity>::WHERE(AND(_::{group_id}::EQ(gid), _::{canonical_identifier}::EQ(canon), _::{is_deleted}::EQ(false)))
     RETURN entities
