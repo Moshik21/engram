@@ -503,11 +503,18 @@ def select_stale_low_value_evidence(
         entity_type = str(payload.get("entity_type") or "")
         if is_high_signal_entity_type(entity_type):
             continue
+        signals = row.get("corroborating_signals") or []
+        corroboration_gated = (
+            isinstance(signals, list)
+            and "proper_name" in signals
+            and "identity_pattern" not in signals
+        )
         try:
             cycles = int(row.get("deferred_cycles") or 0)
         except (TypeError, ValueError):
             cycles = 0
         age_ok = False
+        age_days = None
         created = row.get("created_at")
         if created is not None:
             try:
@@ -524,7 +531,16 @@ def select_stale_low_value_evidence(
                     age_ok = age_days >= float(max_age_days)
             except Exception:
                 age_ok = False
-        if cycles < int(min_deferred_cycles) and not age_ok:
+        if corroboration_gated:
+            # Corroboration-gated rows (bare proper names) are WAITING for a
+            # second cross-episode mention; the adjudication hold advances
+            # deferred_cycles, so the cycles shortcut and the recovery floor
+            # would drain them in hours instead of the intended 21-day window
+            # (I2, docs/product/investigations/). Age is the only honest
+            # staleness signal for them.
+            if age_days is None or age_days < 21.0:
+                continue
+        elif cycles < int(min_deferred_cycles) and not age_ok:
             continue
         selected.append(row)
         if limit is not None and len(selected) >= max(0, int(limit)):

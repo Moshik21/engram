@@ -305,7 +305,16 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                     group_count = len(groups.get(ev_key, []))
                     if group_count < 2:
                         if not dry_run:
-                            await self._defer_evidence(graph_store, ev, group_id=group_id)
+                            # Waiting-for-corroboration is not a failed
+                            # adjudication: the proper-name hold must not
+                            # consume the cycles>=5 forced-reject window (I2).
+                            await self._defer_evidence(
+                                graph_store,
+                                ev,
+                                group_id=group_id,
+                                count_cycle=needs_corroboration_reason
+                                != "proper_name_needs_corroboration",
+                            )
                             records.append(
                                 EvidenceAdjudicationRecord(
                                     cycle_id=cycle_id,
@@ -535,8 +544,9 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
         ev: dict,
         *,
         group_id: str,
+        count_cycle: bool = True,
     ) -> None:
-        new_cycles = ev.get("deferred_cycles", 0) + 1
+        new_cycles = ev.get("deferred_cycles", 0) + (1 if count_cycle else 0)
         await graph_store.update_evidence_status(
             ev["evidence_id"],
             "deferred",

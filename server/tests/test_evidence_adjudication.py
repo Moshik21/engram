@@ -492,3 +492,23 @@ class TestEvidenceAdjudicationPhase:
         assert "get_pending_evidence" in methods
         assert "update_evidence_status" in methods
         assert "get_entity_count" in methods
+
+
+class TestDeferCycleCounting:
+    @pytest.mark.asyncio
+    async def test_corroboration_hold_does_not_consume_cycle_window(self):
+        """I2: waiting-for-corroboration must not advance the cycles>=5
+        forced-reject clock; a normal defer still does."""
+        phase = EvidenceAdjudicationPhase()
+        calls = []
+
+        class FakeStore:
+            async def update_evidence_status(self, evidence_id, status, *, updates, group_id):
+                calls.append(updates)
+
+        ev = {"evidence_id": "e1", "deferred_cycles": 3, "confidence": 0.55}
+        await phase._defer_evidence(FakeStore(), ev, group_id="g", count_cycle=False)
+        await phase._defer_evidence(FakeStore(), ev, group_id="g")
+
+        assert calls[0]["deferred_cycles"] == 3
+        assert calls[1]["deferred_cycles"] == 4

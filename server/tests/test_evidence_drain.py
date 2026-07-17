@@ -257,3 +257,62 @@ def test_hot_path_candidate_junk_classification():
     )
     result = classify_extraction_candidate(cand)
     assert result.disposition == "reject_junk"
+
+
+def test_corroboration_gated_rows_survive_cycle_and_recovery_drains():
+    """I2 fix: bare proper-name evidence waits the FULL 21-day window.
+
+    The adjudication hold advances deferred_cycles while waiting for a second
+    cross-episode mention, so the cycles shortcut (and the recovery-mode
+    min_deferred_cycles=0 floor) would otherwise drain these rows in hours.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    gated = _row(evidence_id="gated", name="Melanie", confidence=0.55)
+    gated["deferred_cycles"] = 10
+    gated["corroborating_signals"] = ["proper_name"]
+    gated["created_at"] = (now - timedelta(days=2)).isoformat()
+
+    # Recovery floor (min_deferred_cycles=0) must not select a 2-day-old row.
+    assert (
+        select_stale_low_value_evidence([gated], min_deferred_cycles=0, max_age_days=3.0, limit=10)
+        == []
+    )
+    # Normal cycles shortcut must not select it either.
+    assert (
+        select_stale_low_value_evidence([gated], min_deferred_cycles=5, max_age_days=21.0, limit=10)
+        == []
+    )
+
+    # Past the un-lowered 21-day window it drains normally.
+    old = dict(gated, created_at=(now - timedelta(days=22)).isoformat())
+    assert (
+        len(
+            select_stale_low_value_evidence(
+                [old], min_deferred_cycles=5, max_age_days=21.0, limit=10
+            )
+        )
+        == 1
+    )
+
+    # identity_pattern rows are NOT corroboration-gated: cycles shortcut still applies.
+    identity = dict(gated, corroborating_signals=["proper_name", "identity_pattern"])
+    assert (
+        len(
+            select_stale_low_value_evidence(
+                [identity], min_deferred_cycles=5, max_age_days=21.0, limit=10
+            )
+        )
+        == 1
+    )
+
+    # Missing created_at on a gated row: age unknown -> never stale-drained.
+    unknown = dict(gated)
+    unknown.pop("created_at")
+    assert (
+        select_stale_low_value_evidence(
+            [unknown], min_deferred_cycles=0, max_age_days=3.0, limit=10
+        )
+        == []
+    )
