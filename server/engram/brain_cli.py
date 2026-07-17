@@ -319,7 +319,15 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
     activation_cfg = effective_activation_config(config.activation, loop_adj)
     dry_run = bool(args.dry_run) if args.dry_run is not None else False
 
-    async with open_local_stores(config, local_runtime=True) as stores:
+    # load_activation_snapshot: the shell saved the snapshot at shutdown and
+    # was paused before these stores opened, so prune protections see real
+    # usage. The brain must NOT save the snapshot back — the shell owns
+    # writes; a stale brain save could clobber a newer shell save.
+    async with open_local_stores(
+        config,
+        local_runtime=True,
+        load_activation_snapshot=True,
+    ) as stores:
         extractor = create_extractor(config)
         graph_manager = GraphManager(
             graph_store=stores.graph_store,
@@ -405,11 +413,14 @@ async def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         consolidation_sqlite_path = Path.home() / ".engram" / "consolidation.db"
         consolidation_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # load_activation_snapshot: warm ACT-R usage so prune protections apply.
+    # Load-only — the shell owns snapshot writes (see _run_mop).
     async with open_local_stores(
         config,
         mode=mode,
         with_consolidation=True,
         consolidation_sqlite_path=consolidation_sqlite_path,
+        load_activation_snapshot=True,
     ) as stores:
         graph_store = stores.graph_store
         activation_store = stores.activation_store

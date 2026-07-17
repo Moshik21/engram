@@ -269,12 +269,19 @@ async def open_local_stores(
     with_consolidation: bool = False,
     consolidation_sqlite_path: str | Path | None = None,
     local_runtime: bool = False,
+    load_activation_snapshot: bool = False,
 ) -> AsyncIterator[LocalStores]:
     """Open graph/activation/search (+ optional consolidation) stores for a one-shot run.
 
     Resolves the engine mode when not supplied, initializes the graph store and
     search index, and guarantees reverse-order close on exit — including when
     setup or the body fails partway.
+
+    ``load_activation_snapshot`` warms the freshly-built activation store from
+    the shell's shutdown snapshot (same path + max-age rules as the shell) so
+    offline passes — prune protections in particular — see real usage.
+    Load-only: the shell owns snapshot writes; a save from a one-shot run
+    could clobber a newer shell save.
     """
     if mode is None:
         mode = await resolve_mode(config.mode)
@@ -291,6 +298,12 @@ async def open_local_stores(
 
             graph_store, activation_store, search_index = create_stores(mode, config)
         opened = [graph_store, activation_store, search_index]
+        if load_activation_snapshot and hasattr(activation_store, "load_from_file"):
+            from engram.storage.memory.activation import activation_snapshot_path
+
+            loaded = activation_store.load_from_file(activation_snapshot_path())
+            if loaded:
+                logger.info("Restored activation snapshot: %d entities", loaded)
         await graph_store.initialize()
         await initialize_search_index_for_graph(
             search_index,

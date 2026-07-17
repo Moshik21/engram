@@ -461,10 +461,9 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
 
 def _activation_snapshot_path():
-    from pathlib import Path
+    from engram.storage.memory.activation import activation_snapshot_path
 
-    home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
-    return home / "activation-snapshot.json"
+    return activation_snapshot_path()
 
 
 async def _shutdown() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -14,6 +15,17 @@ from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
 
 logger = logging.getLogger(__name__)
+
+
+def activation_snapshot_path() -> Path:
+    """Where the shell persists the ACT-R activation snapshot at shutdown.
+
+    The shell (engram serve) owns writes to this file; other runtimes
+    (brain, one-shot CLI) load it read-only so a stale save can never
+    clobber a newer shell save.
+    """
+    home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
+    return home / "activation-snapshot.json"
 
 
 class MemoryActivationStore:

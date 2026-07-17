@@ -100,6 +100,7 @@ from engram.storage.bootstrap import (
     stop_task_if_running,
 )
 from engram.storage.factory import create_stores
+from engram.storage.memory.activation import activation_snapshot_path
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.utils.dates import utc_now
 
@@ -197,6 +198,12 @@ _consolidation_store: Any | None = None
 _runtime_config: EngramConfig | None = None
 _runtime_mode: EngineMode | None = None
 _runtime_graph_store: Any | None = None
+_runtime_activation_store: Any | None = None
+_activation_snapshot_loaded = False
+# Snapshot file mtime observed at init (None = file absent). An exit-save is
+# allowed only if the file is in the same state — any change means another
+# process (the shell, or another MCP session) wrote a newer snapshot.
+_activation_snapshot_mtime_at_init: float | None = None
 _episode_worker: Any | None = None
 _redis_publisher: Any | None = None
 _cue_index_outbox_task: asyncio.Task[int] | None = None
@@ -295,6 +302,8 @@ async def _init() -> None:
     """Initialize storage and services."""
     global _manager, _group_id, _session, _recall_cooldown
     global _activation_cfg, _runtime_config, _runtime_mode, _runtime_graph_store
+    global _runtime_activation_store, _activation_snapshot_loaded
+    global _activation_snapshot_mtime_at_init
     global _episode_worker, _redis_publisher, _cue_index_outbox_task, _mcp_init_timings
 
     started = time.perf_counter()
@@ -306,7 +315,25 @@ async def _init() -> None:
     _runtime_config = config
     _runtime_mode = mode
     _runtime_graph_store = graph_store
+    _runtime_activation_store = activation_store
     timings["mcp_config"] = _elapsed_ms(stage)
+
+    # ACT-R access history: warm the fresh in-memory store from the shell's
+    # shutdown snapshot so recall scoring and prune protections see real
+    # usage. Save-back happens only on clean exit and only when this process
+    # can own the file (see _save_activation_snapshot_if_owner).
+    _activation_snapshot_loaded = False
+    _activation_snapshot_mtime_at_init = None
+    if hasattr(activation_store, "load_from_file"):
+        snapshot_path = activation_snapshot_path()
+        try:
+            _activation_snapshot_mtime_at_init = snapshot_path.stat().st_mtime
+        except OSError:
+            _activation_snapshot_mtime_at_init = None
+        loaded = activation_store.load_from_file(snapshot_path)
+        _activation_snapshot_loaded = True
+        if loaded:
+            logger.info("Restored activation snapshot: %d entities", loaded)
 
     stage = time.perf_counter()
     await graph_store.initialize()
@@ -392,12 +419,48 @@ async def _init() -> None:
     )
 
 
+def _save_activation_snapshot_if_owner() -> None:
+    """Persist activation state on clean MCP exit — only when safe to own the file.
+
+    The shell (engram serve) is the primary owner of the snapshot; MCP saves
+    only when no shell is running AND the snapshot file is byte-for-byte in
+    the state this process observed at init (same mtime, or still absent) —
+    any change means a newer save exists and must not be clobbered.
+    """
+    global _activation_snapshot_loaded
+
+    store = _runtime_activation_store
+    if not _activation_snapshot_loaded or store is None or not hasattr(store, "save_to_file"):
+        return
+    from engram.brain_runtime import serve_process_alive, shell_is_healthy
+
+    if serve_process_alive() or shell_is_healthy():
+        logger.info("Shell is running; leaving activation snapshot writes to the shell")
+        return
+    snapshot_path = activation_snapshot_path()
+    try:
+        current_mtime: float | None = snapshot_path.stat().st_mtime
+    except OSError:
+        current_mtime = None
+    if current_mtime != _activation_snapshot_mtime_at_init:
+        logger.info("Activation snapshot changed since load; skipping MCP save")
+        return
+    _activation_snapshot_loaded = False
+    saved = store.save_to_file(snapshot_path)
+    if saved:
+        logger.info("Saved activation snapshot: %d entities", saved)
+
+
 async def _shutdown() -> None:
     """Close MCP-owned runtime resources."""
     global _manager, _session, _recall_cooldown, _activation_cfg
     global _runtime_config, _runtime_mode, _runtime_graph_store
+    global _runtime_activation_store, _activation_snapshot_loaded
+    global _activation_snapshot_mtime_at_init
     global _evaluation_store, _consolidation_store, _episode_worker, _redis_publisher
     global _cue_index_outbox_task
+
+    _save_activation_snapshot_if_owner()
 
     await stop_task_if_running(_cue_index_outbox_task)
     _cue_index_outbox_task = None
@@ -425,6 +488,8 @@ async def _shutdown() -> None:
     _runtime_config = None
     _runtime_mode = None
     _runtime_graph_store = None
+    _runtime_activation_store = None
+    _activation_snapshot_loaded = False
 
 
 def _get_manager() -> GraphManager:
@@ -1994,6 +2059,11 @@ def main(
         )
 
     mcp.run(transport=transport_literal)
+
+    # Clean exit (stdio client disconnected / server stopped): persist usage
+    # recorded this session. No-op if _shutdown() already saved, if this
+    # process never loaded the snapshot, or if a shell owns the file.
+    _save_activation_snapshot_if_owner()
 
 
 if __name__ == "__main__":
