@@ -106,9 +106,7 @@ class TestQueryFailureContract:
                 return ['[{"ok": 1}]', '{"error": "bad item"}']
 
         transport = _transport_with_engine(_Engine())
-        before = (
-            nt.get_query_failure_stats().get("q_b2", {}).get("batch_item_errors", 0)
-        )
+        before = nt.get_query_failure_stats().get("q_b2", {}).get("batch_item_errors", 0)
         results = await transport.batch([("q_b1", {}), ("q_b2", {})])
         assert results[0] and results[0][0]["ok"] == 1
         assert results[1] == []
