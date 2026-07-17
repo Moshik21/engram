@@ -17,6 +17,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: server
@@ -43,6 +44,7 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: lint
     defaults:
       run:
@@ -69,6 +71,7 @@ jobs:
   continuity:
     name: Continuity golden path
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: lint
     defaults:
       run:
@@ -99,6 +102,7 @@ jobs:
   native-continuity:
     name: Native Helix continuity
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: lint
     # Job always reports honest outcome: skip (exit 0 with reason) when native
     # is unavailable; hard-fail when native is available and continuity fails.
@@ -159,6 +163,7 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: dashboard
@@ -191,6 +196,7 @@ jobs:
   full-mode:
     name: Full Mode Docker
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [test, frontend]
     steps:
       - uses: actions/checkout@v4
@@ -235,6 +241,7 @@ jobs:
   lite-linux:
     name: Lite Smoke Linux
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [test]
     steps:
       - uses: actions/checkout@v4
@@ -253,6 +260,7 @@ jobs:
   lite-macos:
     name: Lite Smoke macOS
     runs-on: macos-latest
+    timeout-minutes: 30
     needs: [test]
     steps:
       - uses: actions/checkout@v4
@@ -271,6 +279,7 @@ jobs:
   installer-linux:
     name: Installer Smoke Linux
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [test, frontend]
     steps:
       - uses: actions/checkout@v4
@@ -281,6 +290,7 @@ jobs:
   installer-macos:
     name: Installer Smoke macOS
     runs-on: macos-latest
+    timeout-minutes: 30
     needs: [test, frontend]
     steps:
       - uses: actions/checkout@v4
