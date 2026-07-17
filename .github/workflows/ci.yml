@@ -247,6 +247,13 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:8100/api/knowledge/recall             -H 'Content-Type: application/json'             -d '{"query": "Docker compat lane", "limit": 3}' > /tmp/recall.json
           grep -q 'results' /tmp/recall.json
 
+      - name: Dump route table on failure
+        if: failure()
+        run: |
+          curl -s http://127.0.0.1:8100/openapi.json | head -c 2000 || true
+          docker compose exec -T server python -c "import engram, engram.main; print(engram.__file__)" || true
+          docker compose exec -T server ls /app/engram/api/ || true
+
       - name: Print compose logs on failure
         if: failure()
         run: docker compose logs
