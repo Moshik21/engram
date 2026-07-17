@@ -1,8 +1,10 @@
 # Silent-Inert Hardening — retire the bug class
 
-**Status:** DRAFT — pending founder review
+**Status:** EXECUTED 2026-07-17 (founder approved early execution over the
+interlock; changes surface failures, they do not alter success-path behavior)
 **Created:** 2026-07-16 (follow-up from NEXT_LEVEL_OBJECTIVE execution)
 **Owner:** founder + coding agents
+**Landed:** commits bba5228, 4e48798, 897472f (+ 6d3799f PyPI-fallback defusal)
 
 ---
 
@@ -39,23 +41,52 @@ species.
 
 **Definition of done:**
 
-- [ ] `NativeTransport._query` distinguishes empty-result from
+- [x] `NativeTransport._query` distinguishes empty-result from
       failed/timed-out queries: failures raise (or return a typed
       `QueryFailure`), never bare `[]`. Callers updated to handle it.
-- [ ] Every `except Exception: return []` / `return None` / `pass` in
+      — `NativeQueryError` (endpoint, cause, elapsed, timeout flag); engine
+      error-JSON strings raise instead of parsing as empty (instance #6);
+      NoValue/NotFound/missing-hnsw stay `[]`; dim-mismatch tolerated but
+      counted. New `helix.query_timeout_seconds` (20s) bounds every call.
+      9 new tests in `test_native_transport_hardening.py`.
+- [x] Every `except Exception: return []` / `return None` / `pass` in
       `server/engram/storage/` is either removed, converted to
       raise/degrade-with-marker, or tagged `# silent-ok: <reason>` with a
       one-line justification.
-- [ ] A static contract test (like the group-scope one) fails CI on any NEW
+      — 108 sites across 20 files: 6 upgraded to raise (conversation delete,
+      cue indexing, entity-tag resolution, HTTP connect, legacy query path),
+      the rest individually justified (probe ladders, stored-field parse
+      tolerance, best-effort cascade cleanup, batch item tolerance).
+- [x] A static contract test (like the group-scope one) fails CI on any NEW
       untagged silent-swallow pattern in `storage/`.
-- [ ] Query timeouts are observable: per-query timeout counters exposed on
+      — `test_storage_silent_swallow_contract.py` (AST walk; marker on the
+      except line, the line above, or in the body).
+- [x] Query timeouts are observable: per-query timeout counters exposed on
       `/api/storage` diagnostics (`queryTimeouts` by query name), so the next
       "returns nothing on the big brain" is visible in the dashboard instead
       of discovered by a failing product feature.
-- [ ] `find_entities_by_type` works on the live brain (either via native
+      — Shipped as `diagnostics.queryFailures` {endpoint: {errors, timeouts,
+      dim_mismatch, batch_item_errors}} + StatsPanel tile (renders only when
+      non-zero). Verified live on the restarted shell 2026-07-17.
+- [~] `find_entities_by_type` works on the live brain (either via native
       query timeout raise + caller fallback, or a typed secondary index) —
       the organic gate's probe fallback becomes a fallback, not the path.
-- [ ] Full lite suite green; one mop window on the live brain green.
+      — First variant landed: the timeout now raises and the API listing
+      returns explicit `status: timeout` instead of an empty-200; the organic
+      gate's indexed name-probe remains the working path on the 17GB brain.
+      The typed secondary index (label pushdown / entity_type index) is the
+      remaining half — tracked in the refactor list, native-lane effort.
+- [x] Full lite suite green; one mop window on the live brain green.
+      — 4480 passed; remaining 61 fails/errors are all the pre-existing
+      Docker-HTTP-lane (:6969 hardcoded fixtures) + native_surface_parity
+      environment set, individually verified untouched by this change.
+      Live mop 2026-07-17 (budget 100, 600s deadline, --force over the
+      battery gate): all drains green, errors 0, evidence adjudication 138
+      processed / edge 19/19 / replay 50 / prune 100; shell paused and
+      resumed healthy in 55s. Bonus catch: the loud failure path exposed
+      that the local FastEmbed model had been a broken partial download
+      since Jul 13 (110-byte LFS pointer instead of weights) — repaired by
+      cache reset + re-download the same day.
 
 ## Approach (suggested, 2–4 focused sessions)
 
