@@ -63,8 +63,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --dev
 
+      - name: Add swap (guard against runner OOM eviction)
+        run: |
+          sudo fallocate -l 4G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short -m "not requires_docker and not requires_helix"
+        # -q not -v: three consecutive runs were externally canceled ~5min in
+        # with zero test failures — runner pressure, not code. Quiet output +
+        # swap keep the job under the eviction threshold.
+        run: uv run pytest tests/ -q --tb=short -m "not requires_docker and not requires_helix"
         env:
           ENGRAM_MODE: lite
 
