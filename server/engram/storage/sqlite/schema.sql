@@ -241,16 +241,6 @@ CREATE TABLE IF NOT EXISTS graph_embeddings (
 CREATE INDEX IF NOT EXISTS idx_graph_emb_group ON graph_embeddings(group_id);
 CREATE INDEX IF NOT EXISTS idx_graph_emb_method ON graph_embeddings(method);
 
--- Schema formation (Brain Architecture Phase 3)
-CREATE TABLE IF NOT EXISTS schema_members (
-    schema_entity_id TEXT NOT NULL REFERENCES entities(id),
-    role_label       TEXT NOT NULL,
-    member_type      TEXT NOT NULL,
-    member_predicate TEXT NOT NULL,
-    group_id         TEXT NOT NULL DEFAULT 'default',
-    PRIMARY KEY (schema_entity_id, role_label, group_id)
-);
-
 -- Evidence-based extraction (v2)
 CREATE TABLE IF NOT EXISTS episode_evidence (
     evidence_id     TEXT PRIMARY KEY,

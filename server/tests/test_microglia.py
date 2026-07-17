@@ -754,8 +754,8 @@ class TestSemanticTierProtection:
         cfg = _cfg()
         graph, activation, search = _make_stores()
 
-        # Entity carries mat_tier in the attributes blob (written by maturation),
-        # NOT as a model attribute.
+        # Entity carries mat_tier in the attributes blob (written by
+        # identity_core promotion), NOT as a model attribute.
         semantic_entity = _entity("e2", "Person", "Bob")
         object.__setattr__(semantic_entity, "attributes", {"mat_tier": "semantic"})
         plain_entity = _entity("e1", "Person", "Alice")

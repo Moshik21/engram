@@ -406,8 +406,6 @@ class TestNotificationCollector:
     def _make_cfg(self, **overrides):
         cfg = MagicMock()
         cfg.notification_dream_enabled = True
-        cfg.notification_schema_enabled = True
-        cfg.notification_maturation_enabled = True
         cfg.notification_merge_enabled = True
         for k, v in overrides.items():
             setattr(cfg, k, v)
@@ -483,66 +481,6 @@ class TestNotificationCollector:
         assert len(pending) == 1
         assert pending[0].notification_type == "dream_association"
         assert "Python" in pending[0].body
-
-    @pytest.mark.asyncio
-    async def test_schema_creates_notification(self):
-        from engram.notifications.collector import NotificationCollector
-
-        store = NotificationStore()
-        cs = AsyncMock()
-
-        @dataclass
-        class FakeSchema:
-            schema_entity_id: str = "s1"
-            schema_name: str = "Person-WORKS_AT-Organization"
-            instance_count: int = 7
-            predicate_count: int = 2
-            action: str = "created"
-
-        cs.get_schema_records = AsyncMock(return_value=[FakeSchema()])
-        collector = NotificationCollector(store, self._make_cfg(), cs)
-
-        with patch("engram.events.bus.get_event_bus"):
-            await collector.on_event(
-                "default",
-                "consolidation.phase.schema.completed",
-                {"cycle_id": "c2", "phase": "schema", "items_affected": 1},
-                {},
-            )
-
-        pending = store.get_pending("default")
-        assert len(pending) == 1
-        assert pending[0].notification_type == "schema_discovery"
-
-    @pytest.mark.asyncio
-    async def test_maturation_creates_notification(self):
-        from engram.notifications.collector import NotificationCollector
-
-        store = NotificationStore()
-        cs = AsyncMock()
-
-        @dataclass
-        class FakeMat:
-            entity_id: str = "e1"
-            entity_name: str = "Konnor"
-            old_tier: str = "episodic"
-            new_tier: str = "transitional"
-
-        cs.get_maturation_records = AsyncMock(return_value=[FakeMat()])
-        collector = NotificationCollector(store, self._make_cfg(), cs)
-
-        with patch("engram.events.bus.get_event_bus"):
-            await collector.on_event(
-                "default",
-                "consolidation.phase.mature.completed",
-                {"cycle_id": "c3", "phase": "mature", "items_affected": 1},
-                {},
-            )
-
-        pending = store.get_pending("default")
-        assert len(pending) == 1
-        assert pending[0].notification_type == "entity_maturation"
-        assert "Konnor" in pending[0].body
 
     @pytest.mark.asyncio
     async def test_merge_creates_notification(self):

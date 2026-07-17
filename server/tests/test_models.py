@@ -139,7 +139,6 @@ class TestActivationState:
     def test_create_default(self):
         state = ActivationState(node_id="ent_1")
         assert state.access_history == []
-        assert state.spreading_bonus == 0.0
         assert state.access_count == 0
 
     def test_activation_state_no_stored_activation(self):

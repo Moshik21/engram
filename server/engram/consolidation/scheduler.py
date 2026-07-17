@@ -33,9 +33,9 @@ class ConsolidationScheduler:
 
     Tiered scheduling (when enabled) runs phases at different frequencies:
     - Hot (triage): every 15 min
-    - Warm (merge, calibrate, infer, adjudication, compact, mature, semanticize,
-      reindex, microglia): every 2 hours
-    - Cold (replay, prune, schema, graph_embed, dream): every 6 hours
+    - Warm (merge, calibrate, infer, adjudication, compact, reindex,
+      microglia): every 2 hours
+    - Cold (replay, prune, reflect, graph_embed, dream, immunity): every 6 hours
     """
 
     def __init__(

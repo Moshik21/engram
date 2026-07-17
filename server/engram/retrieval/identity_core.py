@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 
@@ -39,9 +40,17 @@ class IdentityCoreService:
             return {"status": "error", "message": f"Entity '{entity_name}' not found."}
 
         entity = entities[0]
+        updates: dict = {"identity_core": 1 if identity_core else 0}
+        if identity_core:
+            # Identity-core entities auto-promote to the semantic memory tier
+            # (differential decay + prune resistance) in the same write.
+            attrs = dict(getattr(entity, "attributes", None) or {})
+            if attrs.get("mat_tier") != "semantic":
+                attrs["mat_tier"] = "semantic"
+                updates["attributes"] = json.dumps(attrs)
         await self._graph.update_entity(
             entity.id,
-            {"identity_core": 1 if identity_core else 0},
+            updates,
             group_id=group_id,
         )
 

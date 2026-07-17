@@ -137,9 +137,3 @@ class TestActivationConfig:
         assert cfg.cue_recall_weight == 0.65
         assert cfg.cue_recall_max == 2
         assert cfg.cue_recall_hit_threshold == 2
-
-    def test_streaming_ingestion_legacy_flag_enables_streaming_evidence(self):
-        cfg = ActivationConfig(streaming_ingestion_enabled=True)
-
-        assert cfg.streaming_ingestion_enabled is True
-        assert cfg.streaming_evidence_enabled is True

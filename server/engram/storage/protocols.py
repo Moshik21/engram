@@ -19,14 +19,11 @@ from engram.models.consolidation import (
     GraphEmbedRecord,
     IdentifierReviewRecord,
     InferredEdge,
-    MaturationRecord,
     MergeRecord,
     MicrogliaRecord,
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
-    SchemaRecord,
-    SemanticTransitionRecord,
     TriageRecord,
 )
 from engram.models.entity import Entity
@@ -323,32 +320,6 @@ class GraphStore(Protocol):
         group_id: str,
     ) -> int: ...
 
-    async def get_entity_temporal_span(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> tuple[str | None, str | None]: ...
-
-    async def get_entity_relationship_types(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> list[str]: ...
-
-    # --- Schema Formation (Brain Architecture Phase 3) ---
-    async def get_schema_members(
-        self,
-        schema_entity_id: str,
-        group_id: str,
-    ) -> list[dict]: ...
-
-    async def save_schema_members(
-        self,
-        schema_entity_id: str,
-        members: list[dict],
-        group_id: str,
-    ) -> None: ...
-
     async def find_entities_by_type(
         self,
         entity_type: str,
@@ -609,24 +580,6 @@ class ConsolidationStore(Protocol):
         cycle_id: str,
         group_id: str,
     ) -> list[GraphEmbedRecord]: ...
-    async def save_maturation_record(self, record: MaturationRecord) -> None: ...
-    async def get_maturation_records(
-        self,
-        cycle_id: str,
-        group_id: str,
-    ) -> list[MaturationRecord]: ...
-    async def save_semantic_transition_record(self, record: SemanticTransitionRecord) -> None: ...
-    async def get_semantic_transition_records(
-        self,
-        cycle_id: str,
-        group_id: str,
-    ) -> list[SemanticTransitionRecord]: ...
-    async def save_schema_record(self, record: SchemaRecord) -> None: ...
-    async def get_schema_records(
-        self,
-        cycle_id: str,
-        group_id: str,
-    ) -> list[SchemaRecord]: ...
     async def save_evidence_adjudication_record(
         self,
         record: EvidenceAdjudicationRecord,

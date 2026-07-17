@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -182,29 +181,3 @@ class TestWorkerFloorZero:
         # Bypass the steward overlay path for a pure unit check.
         router.effective_cfg = lambda group_id="default": cfg
         assert router.auto_capture_extract_score_floor() == 0.0
-
-
-class TestExecutorClarificationWiring:
-    @pytest.mark.asyncio
-    async def test_injected_callable_is_used(self):
-        from engram.config import ActivationConfig
-        from engram.ingestion.projection_execution import EvidenceProjectionExecutor
-
-        called = []
-
-        async def fake_intents(requests):
-            called.append(requests)
-
-        executor = EvidenceProjectionExecutor(
-            graph_store=AsyncMock(),
-            cfg=ActivationConfig(),
-            build_evidence_bundle=AsyncMock(),
-            build_adjudication_requests=AsyncMock(),
-            serialize_candidate_records=lambda *a, **k: [],
-            serialize_evidence_records=lambda *a, **k: [],
-            materialize_evidence=AsyncMock(),
-            apply_committed_ids=AsyncMock(),
-            update_episode_status=AsyncMock(),
-            create_clarification_intents=fake_intents,
-        )
-        assert executor._create_clarification_intents is fake_intents

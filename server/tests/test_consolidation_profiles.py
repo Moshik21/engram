@@ -133,7 +133,6 @@ class TestIntegrationProfiles:
         assert cfg.answer_contract_enabled is True
         assert cfg.claim_state_modeling_enabled is True
         assert cfg.memory_maturation_enabled is True
-        assert cfg.episode_transition_enabled is True
 
     def test_recall_profile_all_is_still_partial_rollout(self):
         # Isolate recall waves from the new standard consolidation default.
@@ -159,7 +158,6 @@ class TestIntegrationProfiles:
         assert cfg.epistemic_routing_enabled is False
         assert cfg.artifact_bootstrap_enabled is False
         assert cfg.memory_maturation_enabled is False
-        assert cfg.episode_transition_enabled is False
 
     @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_rework_profile_normalizes_partial_overrides(self):

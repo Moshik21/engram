@@ -252,6 +252,56 @@ def test_compact_auto_recall_surface_returns_none_without_surfaceable_results() 
     )
 
 
+def test_compact_auto_recall_surface_gates_cues_with_cue_floor() -> None:
+    # Cue score ceiling is weight_semantic * cue_recall_weight = 0.26 with
+    # defaults, so a strong cue (sem_sim 0.8 -> 0.208) must pass via the cue
+    # floor while entity gating stays at min_score.
+    results = [
+        {
+            "result_type": "cue_episode",
+            "cue": {"episode_id": "ep_strong", "cue_text": "strong cue"},
+            "score": 0.208,
+        },
+        {
+            "result_type": "cue_episode",
+            "cue": {"episode_id": "ep_weak", "cue_text": "weak cue"},
+            "score": 0.08,
+        },
+        {
+            "result_type": "entity",
+            "entity": {"name": "Low", "type": "Concept", "summary": "low"},
+            "score": 0.208,
+        },
+    ]
+
+    surface = compact_auto_recall_surface(
+        results,
+        query="Engram native",
+        min_score=0.3,
+        min_cue_score=0.15,
+    )
+
+    assert surface is not None
+    assert [cue["episode_id"] for cue in surface["cue_episodes"]] == ["ep_strong"]
+    assert surface["entities"] == []
+
+
+def test_compact_auto_recall_surface_cue_floor_defaults_to_min_score() -> None:
+    surface = compact_auto_recall_surface(
+        [
+            {
+                "result_type": "cue_episode",
+                "cue": {"episode_id": "ep_cue", "cue_text": "cue"},
+                "score": 0.208,
+            }
+        ],
+        query="Engram native",
+        min_score=0.3,
+    )
+
+    assert surface is None
+
+
 def test_compact_lite_auto_recall_surface_shapes_entity_probe_results() -> None:
     assert compact_lite_auto_recall_surface(
         [{"name": "Engram", "type": "Project"}],
@@ -559,6 +609,42 @@ async def test_build_full_auto_recall_surface_dispatches_recall() -> None:
     manager.recall.assert_awaited_once()
     assert manager.recall.call_args.kwargs["group_id"] == "native_brain"
     assert manager.recall.call_args.kwargs["interaction_source"] == "auto_recall"
+
+
+@pytest.mark.asyncio
+async def test_build_full_auto_recall_surface_surfaces_strong_cue() -> None:
+    """A strong cue at its realistic score ceiling passes the cue floor."""
+    manager = AsyncMock()
+    manager.recall.return_value = [
+        {
+            "result_type": "cue_episode",
+            "cue": {"episode_id": "ep_strong", "cue_text": "native Helix cue"},
+            "score": 0.208,
+        },
+        {
+            "result_type": "cue_episode",
+            "cue": {"episode_id": "ep_weak", "cue_text": "weak cue"},
+            "score": 0.08,
+        },
+    ]
+    cfg = _policy_cfg(
+        auto_recall_enabled=True,
+        recall_need_analyzer_enabled=False,
+    )
+
+    result = await build_full_auto_recall_surface(
+        manager,
+        content="Working on Engram native Helix recall surfaces",
+        group_id="native_brain",
+        cfg=cfg,
+        session_last_recall_time=0.0,
+        cooldown=None,
+        now=100.0,
+    )
+
+    assert result is not None
+    assert [cue["episode_id"] for cue in result["cue_episodes"]] == ["ep_strong"]
+    assert result["entities"] == []
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,6 @@ from engram.models.consolidation import (
     IdentifierReviewRecord,
     ImmunityRecord,
     InferredEdge,
-    MaturationRecord,
     MergeRecord,
     MicrogliaRecord,
     ObservationRecord,
@@ -28,8 +27,6 @@ from engram.models.consolidation import (
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
-    SchemaRecord,
-    SemanticTransitionRecord,
     TriageRecord,
 )
 from engram.storage.protocols import ConsolidationStore
@@ -48,9 +45,6 @@ _AUDIT_PERSISTORS: tuple[tuple[type[Any], str], ...] = (
     (ImmunityRecord, "save_immunity_record"),
     (TriageRecord, "save_triage_record"),
     (GraphEmbedRecord, "save_graph_embed_record"),
-    (MaturationRecord, "save_maturation_record"),
-    (SemanticTransitionRecord, "save_semantic_transition_record"),
-    (SchemaRecord, "save_schema_record"),
     (ObservationRecord, "save_observation_record"),
     (MicrogliaRecord, "save_microglia_record"),
     (EvidenceAdjudicationRecord, "save_evidence_adjudication_record"),

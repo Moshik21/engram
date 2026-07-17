@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -15,6 +15,24 @@ DEFAULT_ENV_FILES = (
     str(_REPO_ROOT / ".env"),  # repo-root local config
     ".env",  # cwd override
 )
+
+# Default DecisionMaterializer vocabulary (Engram dogfood project). 'predicates'
+# and 'predicate_prefixes' select which evidence claims count as decisions;
+# 'subject_terms:<Subject>' keys map content keywords to a decision subject
+# (checked in declaration order).
+DEFAULT_DECISION_VOCABULARY: dict[str, list[str]] = {
+    "predicates": [
+        "public_launch_path",
+        "full_mode_default_behavior",
+        "integration_profile",
+        "recall_profile",
+        "consolidation_profile",
+        "decision_statement",
+    ],
+    "predicate_prefixes": ["config:engram_activation__"],
+    "subject_terms:Engram": ["engram", "openclaw", "full mode"],
+    "subject_terms:Project": ["project", "repo"],
+}
 
 
 class ServerConfig(BaseModel):
@@ -412,10 +430,6 @@ class ActivationConfig(BaseModel):
             "0 disables the substage timeout."
         ),
     )
-    graph_query_expansion_skip_after_stats_timeout: bool = Field(
-        default=True,
-        description=("Skip graph query expansion when recall corpus stats already timed out."),
-    )
     template_reformulation_enabled: bool = Field(
         default=True,
         description="Convert questions to statement form for better embedding match",
@@ -460,7 +474,6 @@ class ActivationConfig(BaseModel):
 
     # --- Implicit feedback ---
     feedback_enabled: bool = Field(default=True)
-    feedback_ttl_days: int = Field(default=90, ge=1, le=365)
 
     # --- Context-gated spreading ---
     context_gating_enabled: bool = Field(default=True)
@@ -840,10 +853,7 @@ class ActivationConfig(BaseModel):
         default=7200.0,
         ge=300.0,
         le=86400.0,
-        description=(
-            "Warm tier interval (merge, infer, compact, mature, semanticize, "
-            "reindex): 2 hours default"
-        ),
+        description=("Warm tier interval (merge, infer, compact, reindex): 2 hours default"),
     )
     consolidation_tier_cold_seconds: float = Field(
         default=21600.0,
@@ -912,18 +922,6 @@ class ActivationConfig(BaseModel):
     consolidation_merge_multi_signal_enabled: bool = Field(
         default=True,
         description="Use multi-signal deterministic scorer instead of LLM for merge decisions",
-    )
-    consolidation_merge_auto_threshold: float = Field(
-        default=0.82,
-        ge=0.5,
-        le=1.0,
-        description="Confidence threshold for auto-merge in multi-signal scorer",
-    )
-    consolidation_merge_reject_threshold: float = Field(
-        default=0.55,
-        ge=0.0,
-        le=1.0,
-        description="Confidence below this = auto-reject in multi-signal scorer",
     )
     consolidation_merge_structural_min_neighbors: int = Field(
         default=3,
@@ -1054,11 +1052,8 @@ class ActivationConfig(BaseModel):
     notification_temporal_enabled: bool = Field(default=True)
     notification_immunity_enabled: bool = Field(default=True)
     notification_temporal_horizon_seconds: float = Field(default=3600.0, ge=60.0, le=86400.0)
-    notification_activation_spike_threshold: float = Field(default=0.3, ge=0.1, le=1.0)
     notification_dream_enabled: bool = Field(default=True)
     notification_merge_enabled: bool = Field(default=True)
-    notification_schema_enabled: bool = Field(default=True)
-    notification_maturation_enabled: bool = Field(default=True)
 
     # --- Reindex after consolidation ---
     consolidation_reindex_max_per_cycle: int = Field(default=200, ge=1, le=5000)
@@ -1424,25 +1419,11 @@ class ActivationConfig(BaseModel):
     # --- Project Synapse: Bayesian Recall ---
     belief_map_enabled: bool = Field(default=False)
 
-    # --- Project Synapse: Self-Tuning Activation ---
-    neuroplasticity_enabled: bool = Field(default=False)
-
-    # --- Project Synapse: Active Adjudication ---
-    active_adjudication_enabled: bool = Field(default=False)
-
     # --- Project Synapse: Streaming Evidence ---
     streaming_evidence_enabled: bool = Field(
         default=False,
         description="Broadcast evidence projection progress during episode projection",
     )
-    streaming_ingestion_enabled: bool = Field(default=False)
-
-    @model_validator(mode="after")
-    def _sync_streaming_evidence_alias(self) -> ActivationConfig:
-        if self.streaming_ingestion_enabled and not self.streaming_evidence_enabled:
-            self.streaming_evidence_enabled = True
-        return self
-
     projection_planner_enabled: bool = Field(
         default=True,
         description="Use deterministic span planning before extractor calls",
@@ -1693,27 +1674,6 @@ class ActivationConfig(BaseModel):
         le=0.3,
         description="Weight for arousal level matching",
     )
-    state_arousal_ema_alpha: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="EMA decay for session arousal tracking",
-    )
-
-    # --- Context tiers ---
-    context_identity_budget: int = Field(
-        default=200,
-        description="Token budget for identity core tier in get_context",
-    )
-    context_project_budget: int = Field(
-        default=400,
-        description="Token budget for project context tier in get_context",
-    )
-    context_recency_budget: int = Field(
-        default=400,
-        description="Token budget for recent activity tier in get_context",
-    )
-
     # --- Extraction provider ---
     extraction_provider: str = Field(
         default="narrow",
@@ -1738,17 +1698,9 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Enable LLM briefing format for get_context",
     )
-    briefing_model: str = Field(
-        default="claude-haiku-4-5-20251001",
-        description="Model for briefing synthesis",
-    )
     briefing_cache_ttl_seconds: float = Field(
         default=300.0,
         description="TTL for briefing cache entries",
-    )
-    briefing_max_tokens: int = Field(
-        default=300,
-        description="Max tokens for briefing response",
     )
 
     # --- Recall profile (enables Wave 1-4 features) ---
@@ -1785,6 +1737,17 @@ class ActivationConfig(BaseModel):
         ge=0.0,
         le=1.0,
         description="Min composite score",
+    )
+    auto_recall_min_cue_score: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Min score for cue_episode results on the auto-recall surface. "
+            "Cue scores are capped at weight_semantic * cue_recall_weight "
+            "(0.26 with defaults), so gating cues at auto_recall_min_score "
+            "would filter every cue off the auto surface."
+        ),
     )
     auto_recall_cooldown_seconds: float = Field(
         default=60.0,
@@ -1943,12 +1906,6 @@ class ActivationConfig(BaseModel):
         le=30000,
         description="Wall-clock budget for chat recall before response generation",
     )
-    recall_budget_cache_ttl_seconds: float = Field(
-        default=300.0,
-        ge=30.0,
-        le=7200.0,
-        description="Default TTL for future recall packet/cache budgets",
-    )
     recall_budget_timeout_degrades: bool = Field(
         default=True,
         description="Treat budget overrun as degraded telemetry instead of hard failure",
@@ -2042,6 +1999,18 @@ class ActivationConfig(BaseModel):
     decision_graph_enabled: bool = Field(
         default=False,
         description="Materialize decision and artifact externalization semantics in the graph",
+    )
+    decision_vocabulary: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            key: list(values) for key, values in DEFAULT_DECISION_VOCABULARY.items()
+        },
+        description=(
+            "DecisionMaterializer vocabulary: 'predicates' and 'predicate_prefixes' "
+            "select which evidence claims count as decisions; 'subject_terms:<Subject>' "
+            "keys map content keywords to a decision subject (checked in declaration "
+            "order). Defaults cover the Engram dogfood project; other projects supply "
+            "their own."
+        ),
     )
     epistemic_reconcile_enabled: bool = Field(
         default=False,
@@ -2192,19 +2161,6 @@ class ActivationConfig(BaseModel):
             "semantic similarity already provides bounded relevance for recall hits."
         ),
     )
-    relevance_confidence_threshold: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
-        description="Min relevance to include in results (0 = return all)",
-    )
-    relevance_abstention_threshold: float = Field(
-        default=0.25,
-        ge=0.0,
-        le=1.0,
-        description="Below this relevance → 'I don't remember'",
-    )
-
     # --- Conversation Awareness (Wave 2) ---
     conv_context_enabled: bool = Field(
         default=False,
@@ -2242,10 +2198,6 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Decompose complex temporal/multi-hop queries into atomic sub-queries",
     )
-    query_decomposition_model: str = Field(
-        default="claude-haiku-4-5-20251001",
-        description="Model used for LLM-based query decomposition",
-    )
 
     conv_session_entity_seeds_enabled: bool = Field(
         default=False,
@@ -2278,12 +2230,6 @@ class ActivationConfig(BaseModel):
     conv_topic_shift_enabled: bool = Field(
         default=False,
         description="Enable topic shift detection in conversation",
-    )
-    conv_topic_shift_threshold: float = Field(
-        default=0.60,
-        ge=0.0,
-        le=1.0,
-        description="Cosine similarity threshold below which a topic shift is detected",
     )
     conv_topic_shift_recall_boost: int = Field(
         default=5,
@@ -2461,27 +2407,14 @@ class ActivationConfig(BaseModel):
     graph_embedding_gnn_epochs: int = Field(default=50, ge=5, le=500)
     graph_embedding_gnn_min_entities: int = Field(default=200, ge=50)
 
-    # --- Memory maturation (Brain Architecture Phase 2A) ---
+    # --- Memory tiers (mat_tier) ---
+    # Gates tier-aware scoring decay and prune resistance. Tiers are set by
+    # identity_core promotion (mat_tier="semantic"); the maturation/semanticize
+    # phases were deleted (structurally unreachable — nothing else graduated).
     memory_maturation_enabled: bool = False
-    maturation_transitional_threshold: float = 0.42
-    maturation_semantic_threshold: float = 0.70
-    maturation_min_age_days: int = 7
-    maturation_min_cycles: int = 5
-    maturation_max_per_cycle: int = 50
-    maturation_source_weight: float = 0.30
-    maturation_temporal_weight: float = 0.25
-    maturation_richness_weight: float = 0.25
-    maturation_regularity_weight: float = 0.20
     # Differential decay
     decay_exponent_episodic: float = 0.5
     decay_exponent_semantic: float = 0.3
-    # Episode transition
-    episode_transition_enabled: bool = False
-    episode_transitional_coverage: float = 0.50
-    episode_semantic_coverage: float = 0.85
-    episode_transitional_min_cycles: int = 2
-    episode_semantic_min_cycles: int = 5
-    episode_transition_max_per_cycle: int = 20
     # Prune interaction
     episodic_prune_age_days: int = 14
     semantic_prune_age_days: int = 180
@@ -2493,19 +2426,12 @@ class ActivationConfig(BaseModel):
     reconsolidation_max_entries: int = 50
     reconsolidation_overlap_threshold: float = 0.10
 
-    # --- Schema Formation (Brain Architecture Phase 3) ---
-    schema_formation_enabled: bool = False
-    schema_min_instances: int = 5
-    schema_min_edges: int = 2
-    schema_max_per_cycle: int = 5
-    schema_max_entities_scan: int = 500
-
     # --- Observer/Reflector synthesis (write-side, ships dark) ---
     # Offline, importance-gated phase that clusters related raw episodes by
     # shared graph entities and synthesizes ONE durable "observation" episode per
     # cluster (memory_tier="observation"). Rides the existing episode retrieval
     # path; introduces NO new retrieval surface. Both flags default False and NO
-    # profile turns them on (mirror of schema_formation_enabled). The LLM
+    # profile turns them on. The LLM
     # synthesizer is gated by observer_reflect_llm_enabled and is ignored when the
     # master flag is off.
     observer_reflect_enabled: bool = False
@@ -2720,7 +2646,6 @@ class ActivationConfig(BaseModel):
             _set("consolidation_infer_llm_enabled", False)
             _set("graph_embedding_node2vec_enabled", False)
             _set("memory_maturation_enabled", True)
-            _set("episode_transition_enabled", True)
             _set("microglia_enabled", True)
             _set("notification_surfacing_enabled", False)
             # No local cross-encoder/reranker ONNX in quiet shell (footprint +
@@ -2748,7 +2673,6 @@ class ActivationConfig(BaseModel):
             _set("goal_priming_enabled", True)
             _set("state_dependent_retrieval_enabled", True)
             _set("memory_maturation_enabled", True)
-            _set("episode_transition_enabled", True)
             _set("notification_surfacing_enabled", True)
             _set("notification_temporal_enabled", True)
             _set("notification_immunity_enabled", True)
@@ -2783,12 +2707,7 @@ class ActivationConfig(BaseModel):
             _set("graph_embedding_node2vec_enabled", True)
             _set("weight_graph_structural", 0.1)
             _set("memory_maturation_enabled", True)
-            _set("episode_transition_enabled", True)
             _set("reconsolidation_enabled", True)
-            # schema_formation disabled in standard: it writes Schema/INSTANCE_OF/
-            # schema_members rows that NO retrieval/scoring/context path reads yet
-            # (B11). Re-enable once a consumer exists; phase code stays for opt-in.
-            _set("schema_formation_enabled", False)
             # observer/reflect ships dark until a retrieval-measured win exists.
             # The phase is registered (so order validation passes) but its
             # execute() returns ('skipped', []) before any read/write while OFF,
@@ -2902,7 +2821,6 @@ class ActivationConfig(BaseModel):
             _set("claim_state_modeling_enabled", True)
             _set("auto_recall_on_tool_call", True)
             _set("memory_maturation_enabled", True)
-            _set("episode_transition_enabled", True)
             # rework is the full graph/depth profile: opt back into the depth
             # tier so entities can surface in the top-k (the default core tier
             # keeps them out). Respect an explicit caller override.

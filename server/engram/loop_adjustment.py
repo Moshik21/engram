@@ -834,7 +834,7 @@ def propose_from_report(
                 "adjudication_limit": 300,
             },
             phase_boost=["evidence_adjudication"],
-            phase_defer=["graph_embed", "dream", "schema"],
+            phase_defer=["graph_embed", "dream"],
             intake={"pattern_junk_reject": True, "auto_extract_min_score": 0.88},
             expected={"continuity_must_pass": True},
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -36,6 +37,44 @@ async def test_identity_core_service_marks_entity() -> None:
         "identity_core": True,
         "message": "Entity 'Alex' marked as identity core.",
     }
+    assert graph.updates == [
+        (
+            "ent_1",
+            {"identity_core": 1, "attributes": json.dumps({"mat_tier": "semantic"})},
+            "brain",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_identity_core_mark_promotes_mat_tier_in_same_write() -> None:
+    """Flagging identity_core auto-promotes the entity to the semantic tier."""
+    entity = SimpleNamespace(
+        id="ent_1", name="Alex", entity_type="Person", attributes={"hobby": "pottery"}
+    )
+    graph = FakeGraphStore([entity])
+    service = IdentityCoreService(graph_store=graph)
+
+    await service.mark_identity_core("Alex", identity_core=True, group_id="brain")
+
+    assert len(graph.updates) == 1
+    _, updates, _ = graph.updates[0]
+    assert updates["identity_core"] == 1
+    attrs = json.loads(updates["attributes"])
+    assert attrs["mat_tier"] == "semantic"
+    assert attrs["hobby"] == "pottery"  # existing attributes preserved
+
+
+@pytest.mark.asyncio
+async def test_identity_core_mark_skips_tier_write_when_already_semantic() -> None:
+    entity = SimpleNamespace(
+        id="ent_1", name="Alex", entity_type="Person", attributes={"mat_tier": "semantic"}
+    )
+    graph = FakeGraphStore([entity])
+    service = IdentityCoreService(graph_store=graph)
+
+    await service.mark_identity_core("Alex", identity_core=True, group_id="brain")
+
     assert graph.updates == [("ent_1", {"identity_core": 1}, "brain")]
 
 

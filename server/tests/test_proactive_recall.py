@@ -708,7 +708,6 @@ class TestIntegration:
     async def test_config_values_match_plan(self):
         """Config default values match the plan specification."""
         cfg = ActivationConfig()
-        assert cfg.conv_topic_shift_threshold == 0.60
         assert cfg.conv_topic_shift_recall_boost == 5
         assert cfg.surprise_activation_floor == 0.2
         assert cfg.surprise_dormancy_days == 7

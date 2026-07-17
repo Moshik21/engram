@@ -16,6 +16,18 @@ from engram.utils.dates import utc_now
 
 ProjectBootstrapper = Callable[..., Awaitable[dict]]
 
+# artifact_class values the project bootstrapper stamps on real files
+# (retrieval/epistemic.py:artifact_class_for_path). Other classes (e.g.
+# decision_materializer's "conversation_record") are provenance records, not
+# files, and are excluded from the file-search surface. Artifacts without a
+# class predate class stamping and are treated as files for backward compat.
+_FILE_ARTIFACT_CLASSES = frozenset({"readme", "skill", "config", "design_doc", "code_file"})
+
+
+def _is_file_artifact(attrs: dict) -> bool:
+    artifact_class = attrs.get("artifact_class")
+    return artifact_class is None or str(artifact_class) in _FILE_ARTIFACT_CLASSES
+
 
 async def build_api_artifact_search_surface(
     manager: Any,
@@ -191,6 +203,8 @@ class ArtifactSearchService:
             if entity is None:
                 continue
             attrs = entity.attributes or {}
+            if not _is_file_artifact(attrs):
+                continue
             if project_path and _normalize_project_path(
                 attrs.get("project_path")
             ) != _normalize_project_path(project_path):

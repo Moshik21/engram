@@ -140,7 +140,6 @@ class MemoryActivationStore:
                 state = ActivationState(
                     node_id=entry.get("node_id") or eid,
                     access_history=[float(t) for t in entry.get("access_history") or []],
-                    spreading_bonus=float(entry.get("spreading_bonus") or 0.0),
                     last_accessed=float(entry.get("last_accessed") or 0.0),
                     access_count=int(entry.get("access_count") or 0),
                     consolidated_strength=float(entry.get("consolidated_strength") or 0.0),

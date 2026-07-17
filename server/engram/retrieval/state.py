@@ -160,15 +160,6 @@ def compute_domain_weights(
     return {d: c / total for d, c in counts.items()}
 
 
-def update_arousal_ema(
-    current_arousal: float,
-    new_composite: float,
-    alpha: float = 0.3,
-) -> float:
-    """EMA update for arousal level."""
-    return alpha * new_composite + (1.0 - alpha) * current_arousal
-
-
 def entity_type_to_domain(
     entity_type: str,
     domain_groups: dict[str, list[str]],

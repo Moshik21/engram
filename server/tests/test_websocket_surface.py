@@ -79,7 +79,7 @@ def test_dismiss_dashboard_notification_command_scopes_to_connected_group() -> N
     service = NotificationSurfaceService(store)
     active = MemoryNotification(
         group_id="brain",
-        notification_type="schema_discovery",
+        notification_type="entity_merge",
         priority="normal",
         title="Active",
         body="Dismiss me.",
@@ -89,7 +89,7 @@ def test_dismiss_dashboard_notification_command_scopes_to_connected_group() -> N
     )
     other = MemoryNotification(
         group_id="other",
-        notification_type="schema_discovery",
+        notification_type="entity_merge",
         priority="normal",
         title="Other",
         body="Do not dismiss me.",

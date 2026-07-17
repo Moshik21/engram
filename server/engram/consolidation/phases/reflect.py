@@ -8,8 +8,8 @@ store, so it rides the EXISTING episode retrieval path and introduces NO new
 retrieval surface.
 
 SHIP-DARK GUARD: ``execute()`` returns ``(PhaseResult(status="skipped"), [])`` as
-its first statement when ``observer_reflect_enabled`` is False — byte-for-byte
-mirroring ``SchemaFormationPhase``. With the flag OFF the phase makes zero reads,
+its first statement when ``observer_reflect_enabled`` is False. With the flag
+OFF the phase makes zero reads,
 zero writes, zero ``index_episode`` calls, and emits zero records, so the system
 is byte-identical to today. The synthesizer modules are imported lazily inside
 the enabled branch, so an OFF runtime never constructs an LLM client.
@@ -90,7 +90,7 @@ class ObserverReflectPhase(ConsolidationPhase):
     ) -> tuple[PhaseResult, list[Any]]:
         t0 = time.perf_counter()
 
-        # --- SHIP-DARK GUARD (mirror of SchemaFormationPhase) --------------- #
+        # --- SHIP-DARK GUARD ------------------------------------------------ #
         if not cfg.observer_reflect_enabled:
             return PhaseResult(
                 phase=self.name,

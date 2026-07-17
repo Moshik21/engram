@@ -71,20 +71,17 @@ class ConsolidationFinalizationService:
         entity_ids.update(context.dream_seed_ids)
         entity_ids.update(context.dream_association_ids)
         entity_ids.update(context.triage_promoted_ids)
-        entity_ids.update(context.matured_entity_ids)
-        entity_ids.update(context.schema_entity_ids)
         entity_ids.update(context.microglia_repaired_entity_ids)
 
         relationship_ids = set(context.microglia_demoted_edge_ids)
-        episode_ids = set(context.transitioned_episode_ids)
-        if not entity_ids and not relationship_ids and not episode_ids:
+        if not entity_ids and not relationship_ids:
             return 0
 
         return int(
             invalidate(
                 group_id,
                 entity_ids=sorted(entity_ids) or None,
-                episode_ids=sorted(episode_ids) or None,
+                episode_ids=None,
                 relationship_ids=sorted(relationship_ids) or None,
             )
             or 0
@@ -104,7 +101,6 @@ class ConsolidationFinalizationService:
             return
 
         new_entity_ids = set(context.replay_new_entity_ids)
-        new_entity_ids.update(context.schema_entity_ids)
         entities = len(new_entity_ids) - len(context.pruned_entity_ids)
         relationships = -len(context.microglia_demoted_edge_ids)
         if entities == 0 and relationships == 0:

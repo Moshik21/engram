@@ -253,10 +253,10 @@ class TestEnginePhaseOrder:
         )
 
     @pytest.mark.asyncio
-    async def test_engine_runs_18_phases(self, engine):
-        """Engine should now run 18 phases in correct order."""
+    async def test_engine_runs_15_phases(self, engine):
+        """Engine should now run 15 phases in correct order."""
         cycle = await engine.run_cycle(group_id="test", dry_run=True)
-        assert len(cycle.phase_results) == 18
+        assert len(cycle.phase_results) == 15
         names = [pr.phase for pr in cycle.phase_results]
         assert names == [
             "triage",
@@ -268,10 +268,7 @@ class TestEnginePhaseOrder:
             "replay",
             "prune",
             "compact",
-            "mature",
-            "semanticize",
             "reflect",
-            "schema",
             "reindex",
             "graph_embed",
             "microglia",

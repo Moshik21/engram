@@ -10,7 +10,6 @@ import pytest
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.replay import EpisodeReplayPhase
-from engram.consolidation.phases.semantic_transition import SemanticTransitionPhase
 from engram.events.bus import EventBus
 from engram.extraction.extractor import ExtractionResult
 from engram.graph_manager import GraphManager
@@ -272,70 +271,6 @@ async def _episode_projected(
         episode.status == EpisodeStatus.COMPLETED
         and episode.projection_state == EpisodeProjectionState.PROJECTED
     )
-
-
-@pytest.mark.asyncio
-async def test_semantic_transition_sees_projected_episode_state(tmp_path: Path):
-    """A projected episode can be semanticized once its linked entities are mature."""
-    cfg = ActivationConfig(
-        cue_layer_enabled=True,
-        projector_v2_enabled=True,
-        projection_planner_enabled=True,
-        targeted_projection_enabled=True,
-        episode_transition_enabled=True,
-        episode_transitional_coverage=0.5,
-        episode_transitional_min_cycles=1,
-        working_memory_enabled=False,
-    )
-    extraction_result = ExtractionResult(
-        entities=[
-            {"name": "Alice", "entity_type": "Person", "summary": "Developer"},
-            {"name": "Acme", "entity_type": "Organization", "summary": "Company"},
-        ],
-        relationships=[
-            {"source": "Alice", "target": "Acme", "predicate": "WORKS_AT"},
-        ],
-    )
-    manager, graph_store, activation_store, search_index = await _build_lite_manager(
-        tmp_path,
-        cfg,
-        extraction_result,
-    )
-
-    try:
-        episode_id = await manager.store_episode(
-            "Alice works at Acme on the dashboard migration.",
-            group_id="default",
-            source="remember",
-        )
-        await manager.project_episode(episode_id, "default")
-
-        linked_entity_ids = await graph_store.get_episode_entities(episode_id)
-        assert linked_entity_ids
-
-        phase = SemanticTransitionPhase()
-        context = CycleContext()
-        context.matured_entity_ids.update(linked_entity_ids)
-        result, records = await phase.execute(
-            "default",
-            graph_store,
-            activation_store,
-            search_index,
-            cfg,
-            "cyc_semanticize",
-            dry_run=False,
-            context=context,
-        )
-
-        updated_episode = await graph_store.get_episode_by_id(episode_id, "default")
-        assert updated_episode is not None
-        assert result.items_processed >= 1
-        assert any(record.episode_id == episode_id for record in records)
-        assert updated_episode.memory_tier in {"transitional", "semantic"}
-        assert updated_episode.consolidation_cycles >= 1
-        assert updated_episode.entity_coverage >= 0.5
-    finally:
-        await graph_store.close()
 
 
 @pytest.mark.asyncio

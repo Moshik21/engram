@@ -855,8 +855,8 @@ class HelixGraphStore:
                 "is_deleted": False,
                 "deleted_at": "",
                 "identity_core": entity.identity_core,
-                "mat_tier": entity.mat_tier if hasattr(entity, "mat_tier") else "episodic",
-                "recon_count": entity.recon_count if hasattr(entity, "recon_count") else 0,
+                "mat_tier": entity.mat_tier,
+                "recon_count": entity.recon_count,
                 "lexical_regime": entity.lexical_regime or "",
                 "canonical_identifier": entity.canonical_identifier or "",
                 "identifier_label": "true" if entity.identifier_label else "",
@@ -3240,85 +3240,6 @@ class HelixGraphStore:
     async def get_entity_episode_count(self, entity_id: str, group_id: str) -> int:
         eps = await self.get_episodes_for_entity(entity_id, group_id, limit=100000)
         return len(eps)
-
-    async def get_entity_temporal_span(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> tuple[str | None, str | None]:
-        ep_ids = await self.get_episodes_for_entity(entity_id, group_id, limit=100000)
-        if not ep_ids:
-            return (None, None)
-        timestamps: list[str] = []
-        for ep_id in ep_ids:
-            ep = await self.get_episode_by_id(ep_id, group_id)
-            if ep and ep.created_at:
-                timestamps.append(ep.created_at.isoformat())
-        if not timestamps:
-            return (None, None)
-        return (min(timestamps), max(timestamps))
-
-    async def get_entity_relationship_types(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> list[str]:
-        rels = await self.get_relationships(
-            entity_id, direction="both", active_only=True, group_id=group_id
-        )
-        return list({r.predicate for r in rels})
-
-    # ------------------------------------------------------------------
-    # Schema Formation
-    # ------------------------------------------------------------------
-
-    async def get_schema_members(
-        self,
-        schema_entity_id: str,
-        group_id: str,
-    ) -> list[dict]:
-        results = await self._query(
-            "find_schema_members",
-            {"schema_id": schema_entity_id, "gid": group_id},
-        )
-        return [
-            {
-                "role_label": d.get("role_label", ""),
-                "member_type": "",
-                "member_predicate": "",
-                "member_entity_id": d.get("member_entity_id", ""),
-            }
-            for d in results
-        ]
-
-    async def save_schema_members(
-        self,
-        schema_entity_id: str,
-        members: list[dict],
-        group_id: str,
-    ) -> None:
-        schema_hid = await self._resolve_entity_helix_id(schema_entity_id, group_id)
-        for m in members:
-            results = await self._query(
-                "create_schema_member",
-                {
-                    "schema_entity_id": schema_entity_id,
-                    "group_id": group_id,
-                    "role_label": m.get("role_label", ""),
-                    "member_entity_id": m.get("member_entity_id", ""),
-                },
-            )
-            if results and schema_hid is not None:
-                member_hid = self._extract_helix_id(results[0])
-                if member_hid is not None:
-                    try:
-                        await self._query(
-                            "link_schema_member",
-                            {"entity_id": schema_hid, "member_id": member_hid},
-                        )
-                    # silent-ok: best-effort schema-member link; counted at transport
-                    except Exception:
-                        pass
 
     async def find_entities_by_type(
         self,

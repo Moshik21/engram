@@ -23,7 +23,6 @@ from engram.config import ActivationConfig
 from engram.consolidation.engine import ConsolidationEngine
 from engram.consolidation.phases.graph_embed import GraphEmbedPhase
 from engram.consolidation.phases.microglia import MicrogliaPhase
-from engram.models.consolidation import CycleContext
 from engram.models.entity import Entity
 from engram.models.relationship import Relationship
 from engram.utils.dates import utc_now
@@ -240,76 +239,3 @@ class TestGraphEmbedBelowThreshold:
         assert result.items_affected == 0
         # No GraphEmbedRecord because nothing trained.
         assert records == []
-
-
-# ---------------------------------------------------------------------------
-# B11: schema formation must not flag schema entities as recall-affecting
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaFormationAnalyticsOnly:
-    @pytest.mark.asyncio
-    async def test_created_schema_not_added_to_affected_entity_ids(self):
-        """Schema entities are analytics-only (no retrieval consumer). They must
-        be tracked in schema_entity_ids (for cache/storage accounting) but NOT
-        in affected_entity_ids, which would trigger reindex re-embedding and
-        falsely present this as recall-affecting work."""
-        from engram.consolidation.phases.schema_formation import SchemaFormationPhase
-
-        cfg = ActivationConfig(
-            schema_formation_enabled=True,
-            schema_min_instances=2,
-            schema_min_edges=1,
-            schema_max_per_cycle=5,
-            schema_max_entities_scan=100,
-        )
-        phase = SchemaFormationPhase()
-
-        # Two instances that share the same structural fingerprint:
-        # (Person)-WORKS_ON->(Software)
-        p1 = _entity("p1", "Person", "Alice")
-        p2 = _entity("p2", "Person", "Bob")
-        s1 = _entity("s1", "Software", "AppA")
-        s2 = _entity("s2", "Software", "AppB")
-        rels = {
-            "p1": [_rel("p1", "s1", "WORKS_ON", 1.0)],
-            "p2": [_rel("p2", "s2", "WORKS_ON", 1.0)],
-            "s1": [_rel("p1", "s1", "WORKS_ON", 1.0)],
-            "s2": [_rel("p2", "s2", "WORKS_ON", 1.0)],
-        }
-
-        graph = AsyncMock()
-        graph.find_entities = AsyncMock(return_value=[p1, p2, s1, s2])
-        graph.get_relationships = AsyncMock(
-            side_effect=lambda eid, direction, group_id: rels.get(eid, [])
-        )
-        graph.find_entities_by_type = AsyncMock(return_value=[])
-        graph.get_schema_members = AsyncMock(return_value=[])
-        graph.save_schema_members = AsyncMock()
-        graph.create_entity = AsyncMock()
-        graph.create_relationship = AsyncMock()
-        graph.update_entity = AsyncMock()
-        activation = AsyncMock()
-
-        context = CycleContext(trigger="manual")
-
-        result, records = await phase.execute(
-            group_id="default",
-            graph_store=graph,
-            activation_store=activation,
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_schema",
-            dry_run=False,
-            context=context,
-        )
-
-        created = [r for r in records if r.action == "created"]
-        # Only assert the invariant if a schema was actually created; otherwise
-        # the support gating declined it and there is nothing to check.
-        if created:
-            assert context.schema_entity_ids, "schema entity should be tracked"
-            # The core invariant: analytics-only output must NOT be flagged as
-            # recall-affecting (no schema id leaks into affected_entity_ids).
-            assert not (context.schema_entity_ids & context.affected_entity_ids)
-        assert result.phase == "schema"

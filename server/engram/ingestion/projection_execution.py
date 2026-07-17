@@ -167,7 +167,6 @@ class EvidenceProjectionExecutor:
         update_episode_status: Any,
         ambiguity_analyzer: Any = None,
         commit_policy: Any = None,
-        create_clarification_intents: Any = None,
     ) -> None:
         self._graph = graph_store
         self._cfg = cfg
@@ -180,7 +179,6 @@ class EvidenceProjectionExecutor:
         self._update_episode_status = update_episode_status
         self._ambiguity_analyzer = ambiguity_analyzer
         self._commit_policy = commit_policy
-        self._create_clarification_intents = create_clarification_intents
 
     async def execute(
         self,
@@ -484,17 +482,6 @@ class EvidenceProjectionExecutor:
             [request.to_dict() for request in requests],
             group_id=group_id,
         )
-        if self._cfg.active_adjudication_enabled:
-            # Injected callable — this class never had an
-            # _evidence_adjudication_service attribute; referencing it here
-            # was a guaranteed AttributeError the moment the flag flipped on.
-            if self._create_clarification_intents is not None:
-                await self._create_clarification_intents(requests)
-            else:
-                logger.warning(
-                    "active_adjudication_enabled but no clarification-intent "
-                    "creator wired; skipping"
-                )
         ambiguous_candidates = [
             candidate
             for group in ambiguous_groups

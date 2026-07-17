@@ -209,7 +209,6 @@ class TestStateConfig:
         assert cfg.state_dependent_retrieval_enabled is False
         assert cfg.state_domain_weight == 0.06
         assert cfg.state_arousal_match_weight == 0.04
-        assert cfg.state_arousal_ema_alpha == 0.3
 
     def test_conservative_enables(self):
         cfg = ActivationConfig(consolidation_profile="conservative")

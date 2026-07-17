@@ -1606,38 +1606,6 @@ class FalkorDBGraphStore:
             return 0
         return result.result_set[0][0] or 0
 
-    async def get_entity_temporal_span(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> tuple[str | None, str | None]:
-        """Return the first and last episode timestamps mentioning this entity."""
-        result = await self._query(
-            """MATCH (ep:Episode)-[:HAS_ENTITY]->(e:Entity {id: $id})
-               WHERE ep.group_id = $gid
-               RETURN MIN(ep.created_at), MAX(ep.created_at)""",
-            {"id": entity_id, "gid": group_id},
-        )
-        if not result.result_set:
-            return (None, None)
-        row = result.result_set[0]
-        return (row[0], row[1])
-
-    async def get_entity_relationship_types(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> list[str]:
-        """Return distinct active predicates connected to this entity."""
-        result = await self._query(
-            """MATCH (e:Entity {id: $id})-[r:RELATES_TO]-()
-               WHERE r.group_id = $gid
-                 AND (r.valid_to IS NULL OR r.valid_to > $now)
-               RETURN DISTINCT r.predicate""",
-            {"id": entity_id, "gid": group_id, "now": utc_now_iso()},
-        )
-        return [row[0] for row in result.result_set]
-
     async def merge_entities(
         self,
         keep_id: str,
@@ -2090,24 +2058,6 @@ class FalkorDBGraphStore:
             updated_at=_parse_dt(props.get("updated_at")) or utc_now(),
             expires_at=_parse_dt(props.get("expires_at")),
         )
-
-    # --- Schema Formation (Brain Architecture Phase 3) stubs ---
-
-    async def get_schema_members(
-        self,
-        schema_entity_id: str,
-        group_id: str,
-    ) -> list[dict]:
-        """Stub — FalkorDB schema members not yet implemented."""
-        return []
-
-    async def save_schema_members(
-        self,
-        schema_entity_id: str,
-        members: list[dict],
-        group_id: str,
-    ) -> None:
-        """Stub — FalkorDB schema members not yet implemented."""
 
     async def find_entities_by_type(
         self,

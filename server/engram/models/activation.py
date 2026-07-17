@@ -11,7 +11,6 @@ class ActivationState:
 
     node_id: str
     access_history: list[float] = field(default_factory=list)
-    spreading_bonus: float = 0.0
     last_accessed: float = 0.0
     access_count: int = 0
     consolidated_strength: float = 0.0  # Absorbed ACT-R contribution from compacted timestamps

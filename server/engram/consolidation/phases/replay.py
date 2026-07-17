@@ -313,7 +313,12 @@ class EpisodeReplayPhase(ConsolidationPhase):
 
         for ent_data in result.entities:
             name = ent_data["name"]
-            entity_type = ent_data.get("entity_type", "Other")
+            # Same commit-time normalization as the live apply path.
+            from engram.entity_dedup_policy import normalize_extracted_entity_type
+
+            entity_type, _form = normalize_extracted_entity_type(
+                name, ent_data.get("entity_type", "Other")
+            )
             summary = ent_data.get("summary")
 
             existing_entity = await resolve_entity(

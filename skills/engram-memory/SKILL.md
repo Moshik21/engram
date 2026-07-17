@@ -249,7 +249,7 @@ down.
 
 - **Activation-aware retrieval**: Memories accessed more frequently and recently rank higher
 - **Knowledge graph**: Entities and relationships are extracted and connected
-- **Offline consolidation**: cold-brain cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, mature entities, reflect, form schemas, reindex, embed the graph, run microglia cleanup and immunity, and discover dream associations (18 phases; consumers run the bounded 2h mop, not the full pipeline)
+- **Offline consolidation**: cold-brain cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, reflect, reindex, embed the graph, run microglia cleanup and immunity, and discover dream associations (15 phases; consumers run the bounded 2h mop, not the full pipeline)
 - **Memory maturation**: Entities graduate from episodic (recent) to semantic (durable) over time
 - **Prospective memory**: Set intentions that fire when related topics come up
 - **Dream associations**: Cross-domain creative connections discovered during consolidation
@@ -285,8 +285,8 @@ When an intention fires during recall, act on it naturally without announcing it
 
 Engram runs offline consolidation in a separate cold-brain process:
 triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication,
-replay, prune, compact, mature, semanticize, reflect, schema, reindex,
-graph_embed, microglia, immunity, dream (18 phases). Consumer installs run a
+replay, prune, compact, reflect, reindex,
+graph_embed, microglia, immunity, dream (15 phases). Consumer installs run a
 bounded 2h "mop" (hygiene drains + adjudication + replay + prune) via the
 `dev.engram.brain` LaunchAgent — consolidation never runs inside the hot
 server process, and the REST trigger returns an error on shell-role installs.

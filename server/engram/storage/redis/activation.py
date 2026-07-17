@@ -36,7 +36,6 @@ class RedisActivationStore:
             "node_id": state.node_id,
             "group_id": group_id,
             "access_history": json.dumps(state.access_history),
-            "spreading_bonus": str(state.spreading_bonus),
             "last_accessed": str(state.last_accessed),
             "access_count": str(state.access_count),
             "consolidated_strength": str(state.consolidated_strength),
@@ -68,7 +67,6 @@ class RedisActivationStore:
         return ActivationState(
             node_id=data.get("node_id", ""),
             access_history=json.loads(data.get("access_history", "[]")),
-            spreading_bonus=float(data.get("spreading_bonus", "0.0")),
             last_accessed=float(data.get("last_accessed", "0.0")),
             access_count=int(data.get("access_count", "0")),
             consolidated_strength=float(data.get("consolidated_strength", "0.0")),

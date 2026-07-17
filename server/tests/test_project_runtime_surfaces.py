@@ -214,9 +214,7 @@ async def test_runtime_state_cache_invalidates_for_matching_tmp_path(tmp_path) -
         project_path=str(link_dir / "engram"),
         live=True,
     )
-    service.invalidate_cache(
-        group_id="native_brain", project_path=str(real_dir / "engram")
-    )
+    service.invalidate_cache(group_id="native_brain", project_path=str(real_dir / "engram"))
 
     await service.get_runtime_state(
         group_id="native_brain",

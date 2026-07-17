@@ -496,7 +496,7 @@ async def _assert_native_rest_notification_surfaces(client: httpx.AsyncClient) -
     created_at = time.time()
     native_notification = MemoryNotification(
         group_id=NATIVE_GROUP_ID,
-        notification_type="schema_discovery",
+        notification_type="dream_association",
         priority="high",
         title="Native notification parity",
         body="Surface this PyO3 native notification only for native_brain.",
@@ -507,7 +507,7 @@ async def _assert_native_rest_notification_surfaces(client: httpx.AsyncClient) -
     )
     wrong_group_notification = MemoryNotification(
         group_id="wrong_native_brain",
-        notification_type="schema_discovery",
+        notification_type="dream_association",
         priority="high",
         title="Wrong notification",
         body="This notification must not appear in native_brain.",
@@ -524,7 +524,7 @@ async def _assert_native_rest_notification_surfaces(client: httpx.AsyncClient) -
     assert any(
         item["id"] == native_notification.id
         and item["group_id"] == NATIVE_GROUP_ID
-        and item["notification_type"] == "schema_discovery"
+        and item["notification_type"] == "dream_association"
         and item["priority"] == "high"
         and item["source_cycle_id"] == "cycle_native_notification"
         for item in pending
@@ -1418,7 +1418,7 @@ async def _assert_native_mcp_notification_surface(mcp_server) -> None:
     notification_store = _app_state["notification_store"]
     native_notification = MemoryNotification(
         group_id=NATIVE_GROUP_ID,
-        notification_type="schema_discovery",
+        notification_type="dream_association",
         priority="high",
         title="Native MCP notification parity",
         body="MCP should surface this PyO3 notification for native_brain.",
@@ -1428,7 +1428,7 @@ async def _assert_native_mcp_notification_surface(mcp_server) -> None:
     )
     wrong_group_notification = MemoryNotification(
         group_id="wrong_native_brain",
-        notification_type="schema_discovery",
+        notification_type="dream_association",
         priority="high",
         title="Wrong MCP notification",
         body="MCP must not surface this notification for native_brain.",
@@ -1452,7 +1452,7 @@ async def _assert_native_mcp_notification_surface(mcp_server) -> None:
     notifications = payload["memory_notifications"]
     assert any(
         item["title"] == "Native MCP notification parity"
-        and item["type"] == "schema_discovery"
+        and item["type"] == "dream_association"
         and item["priority"] == "high"
         for item in notifications
     )

@@ -84,11 +84,11 @@ class TestBrainLock:
 
 class TestBrainMopPath:
     def test_mop_tier_routes_to_hygiene_not_phases(self):
+        # mop dispatches to _run_mop (hygiene_ops path) before phase selection,
+        # so it has no _TIER_PHASES entry at all — only a CLI tier choice.
         from engram.brain_cli import _TIER_PHASES
 
-        assert "mop" in _TIER_PHASES
-        # mop no longer uses phase set for execution (hygiene_ops path)
-        assert _TIER_PHASES["mop"] is not None
+        assert "mop" not in _TIER_PHASES
 
 
 class TestShellLifespanGates:

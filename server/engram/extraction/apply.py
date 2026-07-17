@@ -494,9 +494,17 @@ async def apply_relationship_fact(
     if cfg.identity_core_enabled and predicate in cfg.identity_predicates:
         for eid_to_mark in (source_id, target_id):
             try:
+                mark_updates: dict = {"identity_core": 1}
+                # Identity-core auto-promotes to the semantic tier in the same write.
+                marked = await graph_store.get_entity(eid_to_mark, group_id)
+                if marked is not None:
+                    mark_attrs = dict(marked.attributes or {})
+                    if mark_attrs.get("mat_tier") != "semantic":
+                        mark_attrs["mat_tier"] = "semantic"
+                        mark_updates["attributes"] = json.dumps(mark_attrs)
                 await graph_store.update_entity(
                     eid_to_mark,
-                    {"identity_core": 1},
+                    mark_updates,
                     group_id=group_id,
                 )
             except Exception:
@@ -562,13 +570,19 @@ class ApplyEngine:
 
         for candidate in candidates:
             name = candidate.name
+            # Normalize first so lowercase extractor output ("decision") gets
+            # the same typed semantics as canonical TitleCase downstream.
+            entity_type, _identifier_form = normalize_extracted_entity_type(
+                name,
+                candidate.entity_type,
+            )
             signals = []
             if isinstance(candidate.raw_payload, dict):
                 signals = list(candidate.raw_payload.get("signals") or [])
             is_client_proposal = (
                 "client_proposal" in signals
                 or "high_signal_type" in signals
-                or str(candidate.entity_type or "")
+                or entity_type
                 in {
                     "Decision",
                     "Preference",
@@ -579,15 +593,11 @@ class ApplyEngine:
             )
             if not validate_entity_name(
                 name,
-                entity_type=candidate.entity_type,
+                entity_type=entity_type,
                 client_proposal=is_client_proposal,
             ):
                 logger.debug("Skipping invalid entity name %r", name)
                 continue
-            entity_type, _identifier_form = normalize_extracted_entity_type(
-                name,
-                candidate.entity_type,
-            )
             summary = candidate.summary
             attributes = _canonicalize_attribute_keys(candidate.attributes)
             pii_detected = candidate.pii_detected
@@ -645,6 +655,16 @@ class ApplyEngine:
 
                 if protect_identity and not getattr(existing_entity, "identity_core", False):
                     updates["identity_core"] = 1
+                    # Identity-core auto-promotes to the semantic tier in the
+                    # same update-entity write.
+                    promo_attrs = (
+                        json.loads(updates["attributes"])
+                        if "attributes" in updates
+                        else dict(existing_entity.attributes or {})
+                    )
+                    if promo_attrs.get("mat_tier") != "semantic":
+                        promo_attrs["mat_tier"] = "semantic"
+                        updates["attributes"] = json.dumps(promo_attrs)
                 # Trust path: do not silently overwrite/append identity_core summaries.
                 # Compare EXISTING vs PROPOSED (candidate summary) — never the merged
                 # "old; new" string from merge_entity_attributes (substring false-negative).
@@ -723,6 +743,10 @@ class ApplyEngine:
                                 )
             else:
                 entity_id = f"ent_{uuid.uuid4().hex[:12]}"
+                if protect_identity:
+                    # Identity-core auto-promotes to the semantic tier at creation
+                    # (attributes carry the tier so the lite backend round-trips it).
+                    attributes = {**(attributes or {}), "mat_tier": "semantic"}
                 entity = Entity(
                     id=entity_id,
                     name=name,
@@ -733,6 +757,7 @@ class ApplyEngine:
                     pii_detected=pii_detected,
                     pii_categories=pii_categories,
                     identity_core=protect_identity,
+                    mat_tier="semantic" if protect_identity else "episodic",
                     source_episode_ids=[episode.id],
                     evidence_count=1,
                     evidence_span_start=episode.created_at,

@@ -173,13 +173,9 @@ class CycleContext:
     dream_seed_ids: set[str] = field(default_factory=set)
     dream_association_ids: set[str] = field(default_factory=set)
     triage_promoted_ids: set[str] = field(default_factory=set)
-    matured_entity_ids: set[str] = field(default_factory=set)
-    transitioned_episode_ids: set[str] = field(default_factory=set)
-    schema_entity_ids: set[str] = field(default_factory=set)
     observation_episode_ids: set[str] = field(default_factory=set)
     microglia_demoted_edge_ids: set[str] = field(default_factory=set)
     microglia_repaired_entity_ids: set[str] = field(default_factory=set)
-    maturity_feature_cache: dict[str, dict] = field(default_factory=dict)
     decision_traces: list[DecisionTrace] = field(default_factory=list)
     decision_outcome_labels: list[DecisionOutcomeLabel] = field(default_factory=list)
 
@@ -268,40 +264,6 @@ class DreamAssociationRecord:
 
 
 @dataclass
-class MaturationRecord:
-    """Audit entry for a matured entity."""
-
-    cycle_id: str
-    group_id: str
-    entity_id: str
-    entity_name: str
-    old_tier: str
-    new_tier: str
-    maturity_score: float
-    source_diversity: int
-    temporal_span_days: float
-    relationship_richness: int
-    access_regularity: float
-    id: str = field(default_factory=lambda: f"mat_{uuid.uuid4().hex[:12]}")
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
-class SchemaRecord:
-    """Audit entry for a discovered or reinforced schema."""
-
-    cycle_id: str
-    group_id: str
-    schema_entity_id: str
-    schema_name: str
-    instance_count: int
-    predicate_count: int
-    action: str  # "created" | "reinforced"
-    id: str = field(default_factory=lambda: f"sch_{uuid.uuid4().hex[:12]}")
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
 class ObservationRecord:
     """Audit entry for a write-side observer/reflect synthesis decision."""
 
@@ -314,21 +276,6 @@ class ObservationRecord:
     synthesizer: str  # "template" | "llm"
     action: str  # "created" | "skipped_low_importance" | "skipped_dark"
     id: str = field(default_factory=lambda: f"obs_{uuid.uuid4().hex[:12]}")
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
-class SemanticTransitionRecord:
-    """Audit entry for an episode tier transition."""
-
-    cycle_id: str
-    group_id: str
-    episode_id: str
-    old_tier: str
-    new_tier: str
-    entity_coverage: float
-    consolidation_cycles: int
-    id: str = field(default_factory=lambda: f"sem_{uuid.uuid4().hex[:12]}")
     timestamp: float = field(default_factory=time.time)
 
 

@@ -191,7 +191,7 @@ class TestNotifications:
         store = NotificationStore()
         active = MemoryNotification(
             group_id="tenant_brain",
-            notification_type="schema_discovery",
+            notification_type="entity_merge",
             priority="normal",
             title="Active brain notification",
             body="Dismiss this one.",
@@ -201,7 +201,7 @@ class TestNotifications:
         )
         other = MemoryNotification(
             group_id="other_brain",
-            notification_type="schema_discovery",
+            notification_type="entity_merge",
             priority="normal",
             title="Other brain notification",
             body="Leave this one alone.",

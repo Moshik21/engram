@@ -30,7 +30,6 @@ async def test_finalization_service_invalidates_packet_cache_from_cycle_context(
     context.affected_entity_ids.update({"ent_changed"})
     context.merge_survivor_ids.update({"ent_survivor"})
     context.pruned_entity_ids.update({"ent_pruned"})
-    context.transitioned_episode_ids.update({"ep_transitioned"})
     context.microglia_demoted_edge_ids.update({"rel_demoted"})
     graph_manager = SimpleNamespace(
         invalidate_memory_packet_cache=MagicMock(return_value=3),
@@ -46,7 +45,7 @@ async def test_finalization_service_invalidates_packet_cache_from_cycle_context(
     graph_manager.invalidate_memory_packet_cache.assert_called_once_with(
         "test",
         entity_ids=["ent_changed", "ent_pruned", "ent_survivor"],
-        episode_ids=["ep_transitioned"],
+        episode_ids=None,
         relationship_ids=["rel_demoted"],
     )
 
@@ -55,7 +54,6 @@ async def test_finalization_service_invalidates_packet_cache_from_cycle_context(
 async def test_finalization_service_records_storage_count_deltas_from_cycle_context():
     context = CycleContext(trigger="manual")
     context.replay_new_entity_ids.update({"ent_replay"})
-    context.schema_entity_ids.update({"ent_schema"})
     context.pruned_entity_ids.update({"ent_pruned"})
     context.microglia_demoted_edge_ids.update({"rel_demoted"})
     graph_manager = SimpleNamespace(
@@ -71,7 +69,7 @@ async def test_finalization_service_records_storage_count_deltas_from_cycle_cont
 
     graph_manager.record_storage_count_delta.assert_called_once_with(
         "test",
-        entities=1,
+        entities=0,
         relationships=-1,
     )
 

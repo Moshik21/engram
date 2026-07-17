@@ -43,6 +43,63 @@ class DedupPolicyDecision:
 IDENTIFIER_ENTITY_TYPE = "Identifier"
 _COERCIBLE_IDENTIFIER_TYPES = frozenset({"Other", "Thing", "Technology", "Software", "Concept"})
 
+# Canonical entity-type vocabulary. entity_type is an open case-sensitive
+# string and every typed behavior (durable boost, packets, merge same-type
+# gate, prune identity checks) compares exactly — lowercase writes are
+# invisible to all of them. Case is normalized once at commit time; stored
+# rows are never rewritten and comparisons stay exact.
+_CANONICAL_ENTITY_TYPES = frozenset(
+    {
+        "Person",
+        "Organization",
+        "Location",
+        "Technology",
+        "Product",
+        "Concept",
+        "Decision",
+        "Preference",
+        "Goal",
+        "Commitment",
+        "Correction",
+        "Schema",
+        "Artifact",
+        "Task",
+        "Issue",
+        "PreferenceProfile",
+        "Intention",
+        "ClarificationIntent",
+        "Identifier",
+        "Other",
+        "Thing",
+        "Project",
+        "Event",
+        "Date",
+        "CreativeWork",
+        "Article",
+        "Software",
+        "HealthCondition",
+        "BodyPart",
+        "Emotion",
+        "Habit",
+    }
+)
+_CANONICAL_ENTITY_TYPE_BY_LOWER = {t.lower(): t for t in _CANONICAL_ENTITY_TYPES}
+
+
+def canonicalize_entity_type_case(entity_type: str | None) -> str:
+    """Map an entity type onto the canonical TitleCase vocabulary.
+
+    Known types match case-insensitively ("person" -> "Person",
+    "preferenceprofile" -> "PreferenceProfile"). Unknown types keep their
+    spelling with only the first letter upper-cased.
+    """
+    normalized = (entity_type or "Other").strip() or "Other"
+    canonical = _CANONICAL_ENTITY_TYPE_BY_LOWER.get(normalized.lower())
+    if canonical is not None:
+        return canonical
+    return normalized[:1].upper() + normalized[1:]
+
+
 _NUMERONYM_RE = re.compile(r"^[a-z]\d+[a-z]$", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
 _ALNUM_RE = re.compile(r"[a-z]+|\d+")
@@ -285,7 +342,7 @@ def normalize_extracted_entity_type(
     entity_type: str | None,
 ) -> tuple[str, IdentifierForm]:
     """Normalize extracted entity types so strict code-shaped names become Identifier."""
-    normalized_type = (entity_type or "Other").strip() or "Other"
+    normalized_type = canonicalize_entity_type_case(entity_type)
     form = analyze_name(name)
 
     if normalized_type == IDENTIFIER_ENTITY_TYPE:

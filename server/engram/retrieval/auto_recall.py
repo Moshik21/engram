@@ -194,14 +194,23 @@ def compact_auto_recall_surface(
     packets: Sequence[Mapping[str, Any]] | None = None,
     gate: Mapping[str, Any] | None = None,
     min_score: float,
+    min_cue_score: float | None = None,
 ) -> dict[str, Any] | None:
-    """Compact raw recall results into the additive MCP auto-recall surface."""
+    """Compact raw recall results into the additive MCP auto-recall surface.
+
+    Cue scores are capped at ``weight_semantic * cue_recall_weight`` (0.26 with
+    defaults), below the default ``min_score`` gate, so cue_episode results use
+    the separate ``min_cue_score`` floor (falls back to ``min_score`` when
+    unset). Entity/episode gating is unchanged.
+    """
     entities: list[dict[str, Any]] = []
     cue_episodes: list[dict[str, Any]] = []
+    cue_floor = min_score if min_cue_score is None else min_cue_score
 
     for result in results:
         score = _score(result.get("score"))
-        if score < min_score:
+        is_cue = result.get("result_type") == "cue_episode"
+        if score < (cue_floor if is_cue else min_score):
             continue
 
         if result.get("result_type") == "entity" and "entity" in result:
@@ -220,7 +229,7 @@ def compact_auto_recall_surface(
             entities.append(entry)
             continue
 
-        if result.get("result_type") == "cue_episode":
+        if is_cue:
             cue = _mapping(result.get("cue"))
             cue_episodes.append(
                 {
@@ -1079,6 +1088,7 @@ async def build_full_auto_recall_surface(
         packets=packets,
         gate=(_memory_need_gate_payload(need, decision="triggered") if need is not None else None),
         min_score=cfg.auto_recall_min_score,
+        min_cue_score=cfg.auto_recall_min_cue_score,
     )
     if response is None:
         if need is not None:

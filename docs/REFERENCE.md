@@ -413,9 +413,6 @@ Seventeen phases execute sequentially:
 | **Replay** | Run deferred extraction on triage-skipped episodes (CUE_ONLY/QUEUED), then link known entity names found in episode text via exact substring matching. Skips already-extracted (PROJECTED) episodes — deterministic re-extraction is waste. Zero LLM calls. Selective: only runs when upstream phases changed the graph during tiered scheduling. |
 | **Prune** | Soft-delete dead entities (no relationships, low access, old enough). Activation safety net prevents pruning warm entities. |
 | **Compact** | Logarithmic bucketing of access history + consolidated strength preservation |
-| **Mature** | Promote entities through three memory tiers (episodic → transitional → semantic) based on source diversity, temporal span, relationship richness, and access regularity. Each tier has differential ACT-R decay (0.5 exponent for episodic, 0.3 for semantic) and different pruning resistance (14 days episodic, 180 days semantic). Identity-core entities auto-promote. **Reconsolidation**: recently recalled entities enter a 5-minute labile window where new information can update their summary (max 3 modifications; window does not extend on re-recall). Reconsolidation count feeds maturation bonus. |
-| **Semanticize** | Promote episodes from episodic → transitional → semantic tiers based on mature-entity coverage and consolidation cycle count. Same-cycle maturations are visible immediately, so `semanticize` does not need to wait for a later consolidation pass to see newly mature entities. |
-| **Schema** | Detect recurring structural motifs, create `Schema` entities for them, and connect matching instances with `INSTANCE_OF` edges. Fingerprints are canonicalized, candidate motifs are biased toward mature/stable support, and promoted schemas record support summaries and reasons. |
 | **Reindex** | Re-embed entities affected by earlier phases |
 | **Graph Embed** | Train structural graph embeddings (Node2Vec, TransE, GNN) for topology-aware retrieval. Node2Vec supports a true dirty-subgraph incremental path with warm-started vectors. TransE and GNN are staggered, but currently retrain the full graph when they run. |
 | **Microglia** | Run graph hygiene checks and complement tagging so cleanup and low-confidence relation decisions can be carried forward without destructive churn. |
@@ -429,7 +426,7 @@ Phases run at different frequencies based on urgency:
 | Tier | Phases | Default Interval |
 |------|--------|-----------------|
 | **Hot** | triage | 15 minutes |
-| **Warm** | merge, calibrate, infer, evidence_adjudication, edge_adjudication, compact, mature, semanticize, reindex, microglia | 2 hours |
+| **Warm** | merge, calibrate, infer, evidence_adjudication, edge_adjudication, compact, reindex, microglia | 2 hours |
 | **Cold** | replay, prune, schema, graph_embed, immunity, dream | 6 hours |
 
 Tiered cycles only run the phases that are due. Optimizations (incremental graph_embed, selective replay) only apply during tiered scheduling — manual triggers, pressure triggers, and scheduled flat cycles always run all phases fully.
@@ -452,10 +449,8 @@ Set via env var: `ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard`
 The consolidation rework ([`docs/design/consolidation-rework.md`](docs/design/consolidation-rework.md)) identified issues being addressed:
 
 - **Incremental graph embedding** is implemented for Node2Vec only; TransE and GNN currently retrain the full graph when they run
-- **FalkorDB parity** — late-phase methods (mature, semanticize) have incomplete FalkorDB implementations; episode tier fields may not fully round-trip in full mode
 - **Merge negative cache** (`keep_separate`) is in-memory without TTL — stale decisions can persist until restart
 - **Replay vocab linking** — uses exact substring matching only; fuzzy/partial entity name matches are not detected
-- **Schema formation** does not yet prefer mature entities over episodic ones when selecting candidate motifs
 
 ### Multi-Signal Scoring Architecture
 

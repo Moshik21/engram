@@ -34,18 +34,14 @@ from engram.consolidation.phase_registry import CONSOLIDATION_PHASE_TIERS
 logger = logging.getLogger(__name__)
 
 # Map tier → phase names for one-shot cycles (mirrors scheduler tiers).
+# "mop" is absent on purpose: _run_cycle dispatches tier=mop to _run_mop
+# before phase selection, so a phase set here would never be consulted.
 _TIER_PHASES: dict[str, set[str] | None] = {
     "full": None,  # all phases
     "auto": None,  # same as full for one-shot; LaunchAgent may pick
     "hot": {name for name, tier in CONSOLIDATION_PHASE_TIERS.items() if tier == "hot"},
     "warm": {name for name, tier in CONSOLIDATION_PHASE_TIERS.items() if tier == "warm"},
     "cold": {name for name, tier in CONSOLIDATION_PHASE_TIERS.items() if tier == "cold"},
-    "mop": {
-        "evidence_adjudication",
-        "edge_adjudication",
-        "prune",
-        "triage",
-    },
 }
 
 
@@ -55,7 +51,7 @@ def configure_brain_parser(parser: argparse.ArgumentParser) -> None:
     run_p = sub.add_parser("run", help="Run one cold-brain consolidation cycle")
     run_p.add_argument(
         "--tier",
-        choices=sorted(_TIER_PHASES.keys()),
+        choices=sorted({*_TIER_PHASES, "mop"}),
         default="auto",
         help="Phase tier (default: auto = full cycle)",
     )

@@ -168,7 +168,7 @@ class TestWebSocket:
             store = _app_state["notification_store"]
             active = MemoryNotification(
                 group_id="default",
-                notification_type="schema_discovery",
+                notification_type="entity_merge",
                 priority="normal",
                 title="Default notification",
                 body="Dismiss through websocket.",
@@ -178,7 +178,7 @@ class TestWebSocket:
             )
             other = MemoryNotification(
                 group_id="other_brain",
-                notification_type="schema_discovery",
+                notification_type="entity_merge",
                 priority="normal",
                 title="Other notification",
                 body="Must not be dismissed through default websocket.",

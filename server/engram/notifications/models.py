@@ -10,8 +10,6 @@ NOTIFICATION_TYPES = frozenset(
     {
         "temporal_intention",
         "dream_association",
-        "schema_discovery",
-        "entity_maturation",
         "entity_merge",
         "activation_anomaly",
         "immunity_sweep",

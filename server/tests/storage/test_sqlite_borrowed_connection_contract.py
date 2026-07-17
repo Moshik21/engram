@@ -9,7 +9,6 @@ from engram.consolidation.store import SQLiteConsolidationStore
 from engram.evaluation.store import SQLiteEvaluationStore
 from engram.storage.sqlite.atlas import SQLiteAtlasStore
 from engram.storage.sqlite.conversations import SQLiteConversationStore
-from engram.storage.sqlite.feedback import SQLiteFeedbackStore
 from engram.storage.sqlite.search import FTS5SearchIndex
 from engram.storage.sqlite.vectors import SQLiteVectorStore
 
@@ -24,7 +23,6 @@ BorrowedDbStoreFactory = Callable[[str], object]
         ("consolidation", SQLiteConsolidationStore),
         ("conversations", SQLiteConversationStore),
         ("evaluation", SQLiteEvaluationStore),
-        ("feedback", SQLiteFeedbackStore),
         ("fts5_search", FTS5SearchIndex),
         ("vectors", SQLiteVectorStore),
     ],

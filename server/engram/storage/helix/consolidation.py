@@ -24,15 +24,12 @@ from engram.models.consolidation import (
     GraphEmbedRecord,
     IdentifierReviewRecord,
     InferredEdge,
-    MaturationRecord,
     MergeRecord,
     MicrogliaRecord,
     PhaseResult,
     PruneRecord,
     ReindexRecord,
     ReplayRecord,
-    SchemaRecord,
-    SemanticTransitionRecord,
     TriageRecord,
 )
 
@@ -930,154 +927,6 @@ class HelixConsolidationStore:
         ]
 
     # ------------------------------------------------------------------
-    # Maturation records
-    # ------------------------------------------------------------------
-
-    async def save_maturation_record(self, record: MaturationRecord) -> None:
-        """Insert a maturation audit record."""
-        await self._query(
-            "create_consol_maturation",
-            {
-                "mat_id": record.id,
-                "cycle_id": record.cycle_id,
-                "group_id": record.group_id,
-                "entity_id": record.entity_id,
-                "entity_name": record.entity_name,
-                "old_tier": record.old_tier,
-                "new_tier": record.new_tier,
-                "maturity_score": record.maturity_score,
-                "source_diversity": record.source_diversity,
-                "temporal_span_days": record.temporal_span_days,
-                "relationship_richness": record.relationship_richness,
-                "access_regularity": record.access_regularity,
-                "timestamp": record.timestamp,
-            },
-        )
-
-    async def get_maturation_records(
-        self,
-        cycle_id: str,
-        group_id: str,
-    ) -> list[MaturationRecord]:
-        """Fetch maturation records for a cycle, ordered by maturity_score DESC."""
-        results = await self._query(
-            "find_consol_maturations_by_cycle",
-            {"cycle_id": cycle_id, "gid": group_id},
-        )
-        records = [
-            MaturationRecord(
-                id=_safe_get(r, "mat_id", ""),
-                cycle_id=_safe_get(r, "cycle_id", ""),
-                group_id=_safe_get(r, "group_id", ""),
-                entity_id=_safe_get(r, "entity_id", ""),
-                entity_name=_safe_get(r, "entity_name", ""),
-                old_tier=_safe_get(r, "old_tier", ""),
-                new_tier=_safe_get(r, "new_tier", ""),
-                maturity_score=_safe_get(r, "maturity_score", 0.0),
-                source_diversity=_safe_get(r, "source_diversity", 0),
-                temporal_span_days=_safe_get(r, "temporal_span_days", 0.0),
-                relationship_richness=_safe_get(r, "relationship_richness", 0),
-                access_regularity=_safe_get(r, "access_regularity", 0.0),
-                timestamp=_safe_get(r, "timestamp", 0.0),
-            )
-            for r in results
-        ]
-        records.sort(key=lambda rec: rec.maturity_score, reverse=True)
-        return records
-
-    # ------------------------------------------------------------------
-    # Semantic transition records
-    # ------------------------------------------------------------------
-
-    async def save_semantic_transition_record(self, record: SemanticTransitionRecord) -> None:
-        """Insert a semantic transition audit record."""
-        await self._query(
-            "create_consol_semantic_transition",
-            {
-                "trans_id": record.id,
-                "cycle_id": record.cycle_id,
-                "group_id": record.group_id,
-                "episode_id": record.episode_id,
-                "old_tier": record.old_tier,
-                "new_tier": record.new_tier,
-                "entity_coverage": record.entity_coverage,
-                "consolidation_cycles": record.consolidation_cycles,
-                "timestamp": record.timestamp,
-            },
-        )
-
-    async def get_semantic_transition_records(
-        self,
-        cycle_id: str,
-        group_id: str,
-    ) -> list[SemanticTransitionRecord]:
-        """Fetch semantic transition records for a cycle."""
-        results = await self._query(
-            "find_consol_semantic_transitions_by_cycle",
-            {"cycle_id": cycle_id, "gid": group_id},
-        )
-        return [
-            SemanticTransitionRecord(
-                id=_safe_get(r, "trans_id", ""),
-                cycle_id=_safe_get(r, "cycle_id", ""),
-                group_id=_safe_get(r, "group_id", ""),
-                episode_id=_safe_get(r, "episode_id", ""),
-                old_tier=_safe_get(r, "old_tier", ""),
-                new_tier=_safe_get(r, "new_tier", ""),
-                entity_coverage=_safe_get(r, "entity_coverage", 0.0),
-                consolidation_cycles=_safe_get(r, "consolidation_cycles", 0),
-                timestamp=_safe_get(r, "timestamp", 0.0),
-            )
-            for r in results
-        ]
-
-    # ------------------------------------------------------------------
-    # Schema records
-    # ------------------------------------------------------------------
-
-    async def save_schema_record(self, record: SchemaRecord) -> None:
-        """Insert a schema formation audit record."""
-        await self._query(
-            "create_consol_schema",
-            {
-                "schema_id": record.id,
-                "cycle_id": record.cycle_id,
-                "group_id": record.group_id,
-                "schema_entity_id": record.schema_entity_id,
-                "schema_name": record.schema_name,
-                "instance_count": record.instance_count,
-                "predicate_count": record.predicate_count,
-                "action": record.action,
-                "timestamp": record.timestamp,
-            },
-        )
-
-    async def get_schema_records(
-        self,
-        cycle_id: str,
-        group_id: str,
-    ) -> list[SchemaRecord]:
-        """Fetch schema records for a cycle."""
-        results = await self._query(
-            "find_consol_schemas_by_cycle",
-            {"cycle_id": cycle_id, "gid": group_id},
-        )
-        return [
-            SchemaRecord(
-                id=_safe_get(r, "schema_id", ""),
-                cycle_id=_safe_get(r, "cycle_id", ""),
-                group_id=_safe_get(r, "group_id", ""),
-                schema_entity_id=_safe_get(r, "schema_entity_id", ""),
-                schema_name=_safe_get(r, "schema_name", ""),
-                instance_count=_safe_get(r, "instance_count", 0),
-                predicate_count=_safe_get(r, "predicate_count", 0),
-                action=_safe_get(r, "action", ""),
-                timestamp=_safe_get(r, "timestamp", 0.0),
-            )
-            for r in results
-        ]
-
-    # ------------------------------------------------------------------
     # Evidence adjudication records
     # ------------------------------------------------------------------
 
@@ -1606,6 +1455,8 @@ class HelixConsolidationStore:
             "find_consol_triages_by_cycle",
             "find_consol_dream_associations_by_cycle",
             "find_consol_graph_embeds_by_cycle",
+            # mature/semanticize/schema phases are deleted; entries stay so
+            # retention drains their legacy audit rows from existing brains.
             "find_consol_maturations_by_cycle",
             "find_consol_semantic_transitions_by_cycle",
             "find_consol_schemas_by_cycle",

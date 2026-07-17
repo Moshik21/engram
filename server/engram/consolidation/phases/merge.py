@@ -43,6 +43,11 @@ _MERGE_JUDGE_PROMPT = (
 
 _MERGE_BATCH_SIZE = 5
 
+# Entity types whose rows are structured records keyed by name (Artifact =
+# file rel_path, Schema = motif fingerprint). Same-named rows from different
+# projects are distinct records — exempt from every merge candidate path.
+_MERGE_EXEMPT_ENTITY_TYPES = frozenset({"Artifact", "Schema"})
+
 _MERGE_JUDGE_SYSTEM_CACHED = [
     {
         "type": "text",
@@ -389,8 +394,11 @@ class EntityMergePhase(ConsolidationPhase):
         require_same_type = cfg.consolidation_merge_require_same_type
         block_size_limit = cfg.consolidation_merge_block_size
 
-        # Load all active entities
+        # Load all active entities. Every candidate path (identifier alias,
+        # ANN, fuzzy blocks, soft-zone, structural) draws from this list, so
+        # filtering exempt types here removes them from all of them.
         entities = await graph_store.find_entities(group_id=group_id, limit=100000)
+        entities = [e for e in entities if e.entity_type not in _MERGE_EXEMPT_ENTITY_TYPES]
         if not entities:
             return PhaseResult(
                 phase=self.name, items_processed=0, items_affected=0, duration_ms=_elapsed_ms(t0)

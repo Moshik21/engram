@@ -292,6 +292,10 @@ class SQLiteGraphStore:
     # --- Entities ---
 
     async def create_entity(self, entity: Entity) -> str:
+        # Parity note: the lite schema has no mat_tier/recon_count columns —
+        # attributes JSON remains their store here (the Entity model validator
+        # resolves the fields from attributes on read). Native Helix persists
+        # them as first-class columns.
         now = utc_now_iso()
         summary = self._encrypt(entity.group_id, entity.summary)
         await self.db.execute(
@@ -402,9 +406,16 @@ class SQLiteGraphStore:
 
         Deletion order respects foreign-key constraints:
         episode_entities → episode_cues → episodes → relationships →
-        schema_members → graph_embeddings → episode_evidence →
+        graph_embeddings → episode_evidence →
         episode_adjudications → intentions → entities.
         """
+        # Legacy DBs may still hold schema_members rows (the schema-formation
+        # feature was removed); with foreign_keys=ON they block entity deletes.
+        try:
+            await self.db.execute("DELETE FROM schema_members WHERE group_id = ?", (group_id,))
+        except Exception:
+            # silent-ok: fresh DBs have no schema_members table; nothing to clean.
+            pass
         # Junction tables first (reference episodes / entities)
         await self.db.execute(
             """DELETE FROM episode_entities
@@ -414,7 +425,6 @@ class SQLiteGraphStore:
         await self.db.execute("DELETE FROM episode_cues WHERE group_id = ?", (group_id,))
         await self.db.execute("DELETE FROM episodes WHERE group_id = ?", (group_id,))
         await self.db.execute("DELETE FROM relationships WHERE group_id = ?", (group_id,))
-        await self.db.execute("DELETE FROM schema_members WHERE group_id = ?", (group_id,))
         await self.db.execute("DELETE FROM graph_embeddings WHERE group_id = ?", (group_id,))
         await self.db.execute("DELETE FROM episode_evidence WHERE group_id = ?", (group_id,))
         await self.db.execute("DELETE FROM episode_adjudications WHERE group_id = ?", (group_id,))
@@ -1572,39 +1582,6 @@ class SQLiteGraphStore:
         row = await cursor.fetchone()
         return row[0] if row else 0
 
-    async def get_entity_temporal_span(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> tuple[str | None, str | None]:
-        """Return (min_created_at, max_created_at) for episodes mentioning this entity."""
-        cursor = await self.db.execute(
-            """SELECT MIN(e.created_at), MAX(e.created_at)
-               FROM episode_entities ee
-               JOIN episodes e ON e.id = ee.episode_id
-               WHERE ee.entity_id = ? AND e.group_id = ?""",
-            (entity_id, group_id),
-        )
-        row = await cursor.fetchone()
-        if row:
-            return (row[0], row[1])
-        return (None, None)
-
-    async def get_entity_relationship_types(
-        self,
-        entity_id: str,
-        group_id: str,
-    ) -> list[str]:
-        """Return distinct predicates connected to this entity."""
-        cursor = await self.db.execute(
-            """SELECT DISTINCT predicate FROM relationships
-               WHERE (source_id = ? OR target_id = ?) AND group_id = ?
-                 AND (valid_to IS NULL OR datetime(valid_to) > datetime('now'))""",
-            (entity_id, entity_id, group_id),
-        )
-        rows = await cursor.fetchall()
-        return [r[0] for r in rows]
-
     async def merge_entities(
         self,
         keep_id: str,
@@ -2179,52 +2156,6 @@ class SQLiteGraphStore:
             source_episode=row["source_episode"],
             group_id=row["group_id"],
         )
-
-    # --- Schema Formation (Brain Architecture Phase 3) ---
-
-    async def get_schema_members(
-        self,
-        schema_entity_id: str,
-        group_id: str,
-    ) -> list[dict]:
-        """Fetch schema member definitions for a schema entity."""
-        cursor = await self.db.execute(
-            """SELECT role_label, member_type, member_predicate
-               FROM schema_members
-               WHERE schema_entity_id = ? AND group_id = ?""",
-            (schema_entity_id, group_id),
-        )
-        rows = await cursor.fetchall()
-        return [
-            {
-                "role_label": r["role_label"],
-                "member_type": r["member_type"],
-                "member_predicate": r["member_predicate"],
-            }
-            for r in rows
-        ]
-
-    async def save_schema_members(
-        self,
-        schema_entity_id: str,
-        members: list[dict],
-        group_id: str,
-    ) -> None:
-        """Insert or replace schema member rows."""
-        for m in members:
-            await self.db.execute(
-                """INSERT OR REPLACE INTO schema_members
-                   (schema_entity_id, role_label, member_type, member_predicate, group_id)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (
-                    schema_entity_id,
-                    m["role_label"],
-                    m["member_type"],
-                    m["member_predicate"],
-                    group_id,
-                ),
-            )
-        await self.db.commit()
 
     async def find_entities_by_type(
         self,

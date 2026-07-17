@@ -163,7 +163,11 @@ class AdaptiveCommitPolicy:
         ):
             entity_type = ""
             if candidate.fact_class == "entity":
-                entity_type = str((candidate.payload or {}).get("entity_type") or "")
+                from engram.entity_dedup_policy import canonicalize_entity_type_case
+
+                entity_type = canonicalize_entity_type_case(
+                    str((candidate.payload or {}).get("entity_type") or "")
+                )
             high_signal = (
                 "high_signal_type" in signals
                 or is_high_signal_entity_type(entity_type)

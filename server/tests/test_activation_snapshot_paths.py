@@ -29,6 +29,8 @@ def _write_snapshot(home: Path, saved_at: float, entity_id: str = "ent-1") -> Pa
             entity_id: {
                 "node_id": entity_id,
                 "access_history": [saved_at - 60.0, saved_at - 30.0],
+                # legacy key from before spreading_bonus was removed from
+                # ActivationState; the loader must tolerate old snapshots.
                 "spreading_bonus": 0.0,
                 "last_accessed": saved_at - 30.0,
                 "access_count": 5,

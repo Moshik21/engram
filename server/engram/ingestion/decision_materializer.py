@@ -7,7 +7,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable
 
-from engram.config import ActivationConfig
+from engram.config import DEFAULT_DECISION_VOCABULARY, ActivationConfig
 from engram.models.entity import Entity
 from engram.models.epistemic import EvidenceClaim
 from engram.models.relationship import Relationship
@@ -20,6 +20,9 @@ from engram.storage.protocols import GraphStore
 from engram.utils.dates import utc_now_iso
 
 EntityIndexer = Callable[[Entity, str], Awaitable[None]]
+
+_SUBJECT_TERMS_PREFIX = "subject_terms:"
+_DECISION_NAME_MAX_CHARS = 96
 
 
 class DecisionMaterializer:
@@ -51,7 +54,7 @@ class DecisionMaterializer:
         elif artifact_class in {"readme", "skill"}:
             link_predicate = "ANNOUNCED_AS"
         for claim in claims:
-            if not self.is_decision_claim(claim):
+            if not self.is_decision_claim(claim, self._vocabulary()):
                 continue
             decision = await self.upsert_decision_entity(claim, group_id=group_id)
             await self.ensure_relationship(
@@ -68,7 +71,7 @@ class DecisionMaterializer:
         episode_id: str,
         group_id: str,
     ) -> None:
-        subject = self.infer_decision_subject(content)
+        subject = self.infer_decision_subject(content, self._vocabulary())
         if subject is None:
             return
         claims: list[EvidenceClaim] = []
@@ -87,7 +90,7 @@ class DecisionMaterializer:
             )
         filtered_claims: list[EvidenceClaim] = []
         for claim in claims:
-            if not self.is_decision_claim(claim):
+            if not self.is_decision_claim(claim, self._vocabulary()):
                 continue
             claim.claim_state = infer_claim_state(claim)
             if claim.claim_state != "decided":
@@ -146,20 +149,22 @@ class DecisionMaterializer:
         *,
         group_id: str,
     ) -> Entity:
-        prefix = f"{claim.subject}:{claim.predicate}"
-        existing = await self._graph.find_entities(
-            name=prefix,
-            entity_type="Decision",
-            group_id=group_id,
-            limit=20,
-        )
+        # Dedup key is the (subject, predicate, object) attribute triple, not the
+        # name: names are human-readable display strings, and legacy rows still
+        # carry the old '{subject}:{predicate}:{object}' shape.
+        existing = [
+            candidate
+            for candidate in await self._graph.find_entities(
+                entity_type="Decision",
+                group_id=group_id,
+                limit=200,
+            )
+            if (candidate.attributes or {}).get("subject") == claim.subject
+            and (candidate.attributes or {}).get("canonical_predicate") == claim.predicate
+        ]
         for candidate in existing:
             attrs = candidate.attributes or {}
-            if (
-                attrs.get("canonical_predicate") == claim.predicate
-                and attrs.get("subject") == claim.subject
-                and attrs.get("decision_object") == claim.object
-            ):
+            if attrs.get("decision_object") == claim.object:
                 merged_attrs = self.merge_attributes(
                     attrs,
                     {
@@ -177,11 +182,12 @@ class DecisionMaterializer:
                 candidate.attributes = merged_attrs
                 return candidate
 
+        readable = self.compose_decision_text(claim)
         decision = Entity(
             id=f"dec_{uuid.uuid4().hex[:12]}",
-            name=f"{claim.subject}:{claim.predicate}:{claim.object[:80]}",
+            name=self._truncate_decision_name(readable),
             entity_type="Decision",
-            summary=f"{claim.subject} -> {claim.predicate} -> {claim.object}"[:500],
+            summary=readable[:500],
             attributes={
                 "subject": claim.subject,
                 "canonical_predicate": claim.predicate,
@@ -197,11 +203,7 @@ class DecisionMaterializer:
         await self._index_entity(decision, group_id)
         for candidate in existing:
             attrs = candidate.attributes or {}
-            if (
-                attrs.get("canonical_predicate") == claim.predicate
-                and attrs.get("subject") == claim.subject
-                and attrs.get("decision_object") != claim.object
-            ):
+            if attrs.get("decision_object") != claim.object:
                 await self.ensure_relationship(
                     candidate.id,
                     decision.id,
@@ -238,24 +240,51 @@ class DecisionMaterializer:
             )
         )
 
-    @staticmethod
-    def is_decision_claim(claim: EvidenceClaim) -> bool:
-        return claim.predicate in {
-            "public_launch_path",
-            "full_mode_default_behavior",
-            "integration_profile",
-            "recall_profile",
-            "consolidation_profile",
-            "decision_statement",
-        } or claim.predicate.startswith("config:engram_activation__")
+    def _vocabulary(self) -> dict[str, list[str]]:
+        return getattr(self._cfg, "decision_vocabulary", None) or DEFAULT_DECISION_VOCABULARY
 
     @staticmethod
-    def infer_decision_subject(content: str) -> str | None:
+    def compose_decision_text(claim: EvidenceClaim) -> str:
+        """Human-readable decision text — never '{subject}:{predicate}:{object}'."""
+        subject = " ".join(claim.subject.split())
+        detail = " ".join(str(claim.object).split())
+        if claim.predicate != "decision_statement":
+            predicate = claim.predicate
+            if predicate.startswith("config:"):
+                predicate = predicate.split(":", 1)[1]
+            readable_predicate = predicate.replace("__", " ").replace("_", " ").strip()
+            detail = f"{readable_predicate} = {detail}" if detail else readable_predicate
+        return f"{subject}: {detail}" if detail else subject
+
+    @staticmethod
+    def _truncate_decision_name(text: str) -> str:
+        if len(text) <= _DECISION_NAME_MAX_CHARS:
+            return text
+        cut = text[:_DECISION_NAME_MAX_CHARS].rsplit(" ", 1)[0].rstrip(" ,;:-")
+        return f"{cut or text[:_DECISION_NAME_MAX_CHARS]}…"
+
+    @staticmethod
+    def is_decision_claim(
+        claim: EvidenceClaim,
+        vocabulary: dict[str, list[str]] | None = None,
+    ) -> bool:
+        vocab = DEFAULT_DECISION_VOCABULARY if vocabulary is None else vocabulary
+        if claim.predicate in set(vocab.get("predicates", [])):
+            return True
+        return claim.predicate.startswith(tuple(vocab.get("predicate_prefixes", [])))
+
+    @staticmethod
+    def infer_decision_subject(
+        content: str,
+        vocabulary: dict[str, list[str]] | None = None,
+    ) -> str | None:
+        vocab = DEFAULT_DECISION_VOCABULARY if vocabulary is None else vocabulary
         lowered = content.lower()
-        if "engram" in lowered or "openclaw" in lowered or "full mode" in lowered:
-            return "Engram"
-        if "project" in lowered or "repo" in lowered:
-            return "Project"
+        for key, terms in vocab.items():
+            if not key.startswith(_SUBJECT_TERMS_PREFIX):
+                continue
+            if any(term in lowered for term in terms):
+                return key.split(":", 1)[1]
         return None
 
     @staticmethod

@@ -157,7 +157,6 @@ _ABLATABLE: dict[str, tuple[str, ...]] = {
     "replay": ("consolidation_replay_enabled",),
     "dream": ("consolidation_dream_enabled", "consolidation_dream_associations_enabled"),
     "triage": ("triage_enabled",),
-    "schema": ("schema_formation_enabled",),
     "reflect": ("observer_reflect_enabled",),
     "calibrate": ("consolidation_calibration_enabled",),
     "evidence_adjudication": ("evidence_extraction_enabled",),

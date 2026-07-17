@@ -17,7 +17,6 @@ from engram.retrieval.state import (
     infer_cognitive_state,
     infer_mode,
     infer_time_bucket,
-    update_arousal_ema,
 )
 
 # --- Time bucket tests ---
@@ -89,24 +88,6 @@ class TestComputeDomainWeights:
         groups = {"personal": ["Person"]}
         weights = compute_domain_weights(types, groups)
         assert "knowledge" in weights
-
-
-# --- Arousal EMA tests ---
-
-
-class TestUpdateArousalEMA:
-    def test_ema_update(self):
-        result = update_arousal_ema(0.3, 0.8, alpha=0.3)
-        # 0.3 * 0.8 + 0.7 * 0.3 = 0.24 + 0.21 = 0.45
-        assert result == pytest.approx(0.45)
-
-    def test_ema_with_zero_alpha(self):
-        result = update_arousal_ema(0.5, 0.9, alpha=0.0)
-        assert result == pytest.approx(0.5)
-
-    def test_ema_with_full_alpha(self):
-        result = update_arousal_ema(0.5, 0.9, alpha=1.0)
-        assert result == pytest.approx(0.9)
 
 
 # --- State boost tests ---
@@ -240,7 +221,6 @@ class TestStateConfig:
         assert cfg.state_dependent_retrieval_enabled is False  # default off
         assert cfg.state_domain_weight == 0.06
         assert cfg.state_arousal_match_weight == 0.04
-        assert cfg.state_arousal_ema_alpha == 0.3
 
     def test_config_enabled_in_standard_profile(self):
         cfg = ActivationConfig(consolidation_profile="standard")

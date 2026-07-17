@@ -40,7 +40,6 @@ class TestRoadmapConfigDefaults:
     def test_feedback_defaults(self):
         cfg = ActivationConfig()
         assert cfg.feedback_enabled is True
-        assert cfg.feedback_ttl_days == 90
 
     def test_structure_aware_embeddings_default(self):
         cfg = ActivationConfig()
@@ -107,14 +106,6 @@ class TestRoadmapConfigConstraints:
         with pytest.raises(ValidationError):
             ActivationConfig(mmr_lambda=1.1)
 
-    def test_feedback_ttl_days_min_1(self):
-        with pytest.raises(ValidationError):
-            ActivationConfig(feedback_ttl_days=0)
-
-    def test_feedback_ttl_days_max_365(self):
-        with pytest.raises(ValidationError):
-            ActivationConfig(feedback_ttl_days=366)
-
     def test_multi_pool_search_limit_min(self):
         with pytest.raises(ValidationError):
             ActivationConfig(pool_search_limit=1)
@@ -165,7 +156,6 @@ class TestRoadmapConfigConstraints:
             mmr_enabled=True,
             mmr_lambda=0.5,
             feedback_enabled=True,
-            feedback_ttl_days=180,
             structure_aware_embeddings=True,
         )
         assert cfg.fan_s_max == 2.5
@@ -176,5 +166,4 @@ class TestRoadmapConfigConstraints:
         assert cfg.mmr_enabled is True
         assert cfg.mmr_lambda == 0.5
         assert cfg.feedback_enabled is True
-        assert cfg.feedback_ttl_days == 180
         assert cfg.structure_aware_embeddings is True

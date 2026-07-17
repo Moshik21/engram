@@ -69,10 +69,6 @@ class NotificationCollector:
         try:
             if phase == "dream" and self._cfg.notification_dream_enabled:
                 await self._handle_dream(group_id, cycle_id)
-            elif phase == "schema" and self._cfg.notification_schema_enabled:
-                await self._handle_schema(group_id, cycle_id)
-            elif phase == "mature" and self._cfg.notification_maturation_enabled:
-                await self._handle_maturation(group_id, cycle_id)
             elif phase == "merge" and self._cfg.notification_merge_enabled:
                 await self._handle_merge(group_id, cycle_id)
             elif phase == "immunity" and self._cfg.notification_immunity_enabled:
@@ -124,73 +120,6 @@ class NotificationCollector:
                 notification_type="dream_association",
                 priority="normal",
                 title=f"{len(records)} cross-domain connection(s) discovered",
-                body="\n".join(lines),
-                entity_ids=entity_ids,
-                metadata={"record_count": len(records)},
-                source_cycle_id=cycle_id,
-                created_at=time.time(),
-            )
-        )
-
-    async def _handle_schema(self, group_id: str, cycle_id: str) -> None:
-        cs = self._consolidation_store
-        if cs is None:
-            return
-        records = await cs.get_schema_records(cycle_id, group_id)
-        if not records:
-            return
-
-        entity_ids = [r.schema_entity_id for r in records]
-        lines: list[str] = []
-        for r in records[:5]:
-            lines.append(
-                f"{r.schema_name}: {r.instance_count} instances, "
-                f"{r.predicate_count} predicates ({r.action})"
-            )
-
-        key = self._dedup_key("schema_discovery", cycle_id, entity_ids)
-        if self._is_duplicate(key):
-            return
-
-        self._publish(
-            MemoryNotification(
-                group_id=group_id,
-                notification_type="schema_discovery",
-                priority="normal",
-                title=f"{len(records)} structural pattern(s) detected",
-                body="\n".join(lines),
-                entity_ids=entity_ids,
-                metadata={"record_count": len(records)},
-                source_cycle_id=cycle_id,
-                created_at=time.time(),
-            )
-        )
-
-    async def _handle_maturation(self, group_id: str, cycle_id: str) -> None:
-        cs = self._consolidation_store
-        if cs is None:
-            return
-        records = await cs.get_maturation_records(cycle_id, group_id)
-        if not records:
-            return
-
-        entity_ids = [r.entity_id for r in records]
-        lines: list[str] = []
-        for r in records[:5]:
-            lines.append(f"{r.entity_name}: {r.old_tier} -> {r.new_tier}")
-        if len(records) > 5:
-            lines.append(f"...and {len(records) - 5} more")
-
-        key = self._dedup_key("entity_maturation", cycle_id, entity_ids)
-        if self._is_duplicate(key):
-            return
-
-        self._publish(
-            MemoryNotification(
-                group_id=group_id,
-                notification_type="entity_maturation",
-                priority="normal",
-                title=f"{len(records)} entity(ies) graduated memory tier",
                 body="\n".join(lines),
                 entity_ids=entity_ids,
                 metadata={"record_count": len(records)},

@@ -40,7 +40,7 @@ Session-start injection, auto-observe hooks, offline queue replay. Routine turns
 <td width="33%" valign="top">
 
 ### Brain consolidates
-Triage, projection, 16-phase consolidation, dream associations. Runs as a separate cold-brain process on a schedule — not while you work.
+Triage, projection, 15-phase consolidation, dream associations. Runs as a separate cold-brain process on a schedule — not while you work.
 
 </td>
 </tr>
@@ -60,7 +60,7 @@ Triage, projection, 16-phase consolidation, dream associations. Runs as a separa
 | **Cue** | Deterministic latent memory; recall before full LLM extraction |
 | **Project** | Entity resolution, embedding, graph write (background or immediate) |
 | **Recall** | Activation-aware packets instead of raw chat history |
-| **Consolidate** | Merge, infer, mature, prune, dream (offline) |
+| **Consolidate** | Merge, infer, prune, dream (offline) |
 
 <br>
 
@@ -85,7 +85,7 @@ The harness handles capture and session injection. The agent spends tokens on re
   <img src="docs/assets/readme/memory-tiers.svg" alt="Episodic to Transitional to Semantic memory tiers" width="760">
 </p>
 
-Entities move from episodic to transitional to semantic as they mature. Semantic memories and identity-core entities are pruned on longer horizons than fresh episodic entries.
+Identity-core entities are promoted to the semantic tier, which decays more slowly in scoring. Semantic memories and identity-core entities are pruned on longer horizons than fresh episodic entries.
 
 <br>
 
@@ -210,13 +210,12 @@ Design doc: [docs/harness-memory-adoption-plan.md](docs/harness-memory-adoption-
 | **Temporal graph** | People, orgs, concepts, relationships with valid-from / valid-to |
 | **ACT-R activation** | Recency and frequency scoring; lazy recompute from access history |
 | **Spreading activation** | Recalling one entity boosts related nodes via graph proximity |
-| **16-phase consolidation** | Triage, merge, infer, dream, prune (offline cycle) |
+| **15-phase consolidation** | Triage, merge, infer, dream, prune (offline cycle) |
 | **Memory packets** | Compact recall output with provenance for the current turn |
 | **Prospective memory** | `intend`: graph-embedded intentions triggered by related topics |
 | **Atlas** | Multi-scale graph exploration from region clusters to neighborhoods |
 | **3D dashboard** | Graph visualization, consolidation monitor, evaluation gates |
 | **Topological immunity** | Prunes low-connectivity noise and weak edges |
-| **Auto-neuroplasticity** | Tunes activation parameters from retrieval feedback |
 
 <br>
 
@@ -296,7 +295,7 @@ With the full stack, the dashboard updates over WebSocket when episodes are stor
 ```
 server/engram/
   activation/       ACT-R engine, BFS, PPR
-  consolidation/    16-phase engine + scheduler
+  consolidation/    15-phase engine + scheduler
   ingestion/        CQRS: store_episode / project_episode
   mcp/              9-tool golden loop + operator surface
   retrieval/        Hybrid search, packets, auto_recall

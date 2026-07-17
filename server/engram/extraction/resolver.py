@@ -116,7 +116,9 @@ async def resolve_entity(
             continue
 
         # Boost same-type matches
-        if entity.entity_type == entity_type and not decision.exact_identifier_match:
+        if (entity.entity_type or "").lower() == (
+            entity_type or ""
+        ).lower() and not decision.exact_identifier_match:
             score = min(score + 0.05, 1.0)
 
         if score > best_score:
@@ -149,7 +151,9 @@ async def resolve_entity_fast(
             decision, score = policy_aware_similarity(name, entity.name, compute_similarity)
             if not decision.allowed:
                 continue
-            if entity.entity_type == entity_type and not decision.exact_identifier_match:
+            if (entity.entity_type or "").lower() == (
+                entity_type or ""
+            ).lower() and not decision.exact_identifier_match:
                 score = min(score + 0.05, 1.0)
             if score >= FUZZY_MATCH_THRESHOLD / 100.0:
                 return entity
