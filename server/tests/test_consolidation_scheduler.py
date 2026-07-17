@@ -14,6 +14,26 @@ _SLEEP_PATH = "engram.consolidation.scheduler.asyncio.sleep"
 _TIME_PATH = "engram.consolidation.scheduler.time.time"
 
 
+def _clock(values):
+    """time.time side_effect: play the sequence, then repeat the last value.
+
+    Exact-length side_effect lists are brittle — an extra time() call on a
+    slower runner raises StopIteration (the CI-only backlog-test failure).
+    """
+    it = iter(values)
+    last = values[-1]
+
+    def _next():
+        nonlocal last
+        try:
+            last = next(it)
+        except StopIteration:
+            pass
+        return last
+
+    return _next
+
+
 class _FakeEngine:
     """Minimal mock of ConsolidationEngine for scheduler tests."""
 
@@ -176,7 +196,7 @@ class TestConsolidationScheduler:
         ]
         with (
             patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
-            patch(_TIME_PATH, side_effect=time_values),
+            patch(_TIME_PATH, side_effect=_clock(time_values)),
         ):
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
@@ -282,7 +302,7 @@ class TestPressureTriggering:
         time_values = [0.0, 100.0, 100.0]
         with (
             patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
-            patch(_TIME_PATH, side_effect=time_values),
+            patch(_TIME_PATH, side_effect=_clock(time_values)),
         ):
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
@@ -323,7 +343,7 @@ class TestPressureTriggering:
         time_values = [0.0, 100.0, 100.0]
         with (
             patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
-            patch(_TIME_PATH, side_effect=time_values),
+            patch(_TIME_PATH, side_effect=_clock(time_values)),
         ):
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
@@ -358,7 +378,7 @@ class TestPressureTriggering:
         time_values = [0.0, 100.0, 100.0]
         with (
             patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
-            patch(_TIME_PATH, side_effect=time_values),
+            patch(_TIME_PATH, side_effect=_clock(time_values)),
         ):
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
@@ -427,7 +447,7 @@ class TestBacklogAndPersistence:
         time_values = [1_100.0, 1_100.0, 1_100.0]
         with (
             patch(_SLEEP_PATH, new_callable=AsyncMock) as mock_sleep,
-            patch(_TIME_PATH, side_effect=time_values),
+            patch(_TIME_PATH, side_effect=_clock(time_values)),
         ):
             mock_sleep.side_effect = [None, asyncio.CancelledError()]
             scheduler.start()
