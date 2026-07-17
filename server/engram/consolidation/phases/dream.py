@@ -143,19 +143,26 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         # 3c. LTD sweep for low-activation entities (broader hygiene)
         ltd_sweep_decayed = 0
+        ltd_sweep_skipped = False
         if cfg.consolidation_dream_ltd_sweep_enabled and not dry_run:
-            ltd_sweep_decayed = await self._apply_ltd_low_activation_sweep(
+            sweep_decayed = await self._apply_ltd_low_activation_sweep(
                 activation_store=activation_store,
                 graph_store=graph_store,
                 group_id=group_id,
                 cfg=cfg,
                 now=now,
             )
+            if sweep_decayed is None:
+                # fail-closed: identity protection unavailable — sweep skipped
+                ltd_sweep_skipped = True
+            else:
+                ltd_sweep_decayed = sweep_decayed
 
         # 4. Dream associations: discover cross-domain creative connections
         assoc_count = 0
+        assoc_pairs_skipped = 0
         if cfg.consolidation_dream_associations_enabled:
-            assoc_records = await self._find_dream_associations(
+            assoc_records, assoc_pairs_skipped = await self._find_dream_associations(
                 group_id=group_id,
                 graph_store=graph_store,
                 search_index=search_index,
@@ -167,6 +174,12 @@ class DreamSpreadingPhase(ConsolidationPhase):
             assoc_count = len(assoc_records)
             records.extend(assoc_records)
 
+        skip_markers: list[str] = []
+        if ltd_sweep_skipped:
+            skip_markers.append("ltd_sweep_skipped:identity_core_unavailable")
+        if assoc_pairs_skipped:
+            skip_markers.append(f"assoc_pairs_skipped:path_check_failed={assoc_pairs_skipped}")
+
         elapsed = (time.perf_counter() - t0) * 1000
         return PhaseResult(
             phase=self.name,
@@ -174,6 +187,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
             items_processed=len(seeds or []),
             items_affected=edges_boosted + assoc_count + edges_decayed + ltd_sweep_decayed,
             duration_ms=round(elapsed, 1),
+            error="; ".join(skip_markers) if skip_markers else None,
         ), records
 
     # ------------------------------------------------------------------
@@ -341,7 +355,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
         group_id: str,
         cfg: ActivationConfig,
         now: float,
-    ) -> int:
+    ) -> int | None:
         """Sweep low-activation entities and decay their unboosted edges.
 
         Complements seed-based LTD by targeting entities below the dream seed
@@ -349,6 +363,9 @@ class DreamSpreadingPhase(ConsolidationPhase):
         their contaminated edges would otherwise persist indefinitely.
 
         Uses a reduced decay rate to avoid aggressive pruning.
+
+        Returns the number of decayed edges, or None when the sweep was
+        skipped fail-closed because identity-core protection could not load.
         """
         floor = cfg.consolidation_dream_activation_floor
         sweep_size = cfg.consolidation_dream_ltd_sweep_size
@@ -382,8 +399,14 @@ class DreamSpreadingPhase(ConsolidationPhase):
             try:
                 core_entities = await graph_store.get_identity_core_entities(group_id)
                 identity_core_ids = {e.id for e in core_entities}
-            except Exception:
-                pass
+            except Exception as exc:
+                # fail-closed: without identity protection the destructive
+                # sweep must not run this cycle (logged + counted in result).
+                logger.warning(
+                    "Dream LTD sweep skipped: identity-core fetch failed: %s",
+                    exc,
+                )
+                return None
 
         decayed = 0
         for entity_id in sampled_ids:
@@ -444,7 +467,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
         cycle_id: str,
         dry_run: bool,
         context: CycleContext | None,
-    ) -> list[DreamAssociationRecord]:
+    ) -> tuple[list[DreamAssociationRecord], int]:
         """Discover semantically similar but structurally distant cross-domain pairs.
 
         Algorithm:
@@ -457,6 +480,9 @@ class DreamSpreadingPhase(ConsolidationPhase):
            - Check structural proximity
            - Compute surprise score: similarity × (1 - structural_proximity)
            - If surprise >= threshold: create relationship + audit record
+
+        Returns (records, pairs_skipped) where pairs_skipped counts candidate
+        pairs dropped fail-closed because the connectivity check errored.
         """
         t0 = time.perf_counter()
         max_duration_ms = cfg.consolidation_dream_assoc_max_duration_ms
@@ -473,19 +499,19 @@ class DreamSpreadingPhase(ConsolidationPhase):
         ]
 
         if len(eligible) < 2:
-            return []
+            return [], 0
 
         # 2. Partition by domain
         domain_buckets = self._partition_by_domain(eligible, cfg)
         domain_names = list(domain_buckets.keys())
         if len(domain_names) < 2:
-            return []
+            return [], 0
 
         # 3. Batch retrieve embeddings (text + optional graph structural)
         all_ids = [e.id for e in eligible]
         embeddings = await search_index.get_entity_embeddings(all_ids, group_id=group_id)
         if not embeddings:
-            return []
+            return [], 0
 
         # 3b. Blend graph embeddings if available (richer structural similarity)
         graph_embeddings: dict[str, list[float]] | None = None
@@ -514,6 +540,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         # 5. Filter and create associations
         records: list[DreamAssociationRecord] = []
+        pairs_skipped = 0
         domain_pair_counts: dict[tuple[str, str], int] = {}
         max_per_cycle = cfg.consolidation_dream_assoc_max_per_cycle
         max_per_pair = cfg.consolidation_dream_assoc_max_per_domain_pair
@@ -534,7 +561,6 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 continue
 
             # Check structural proximity
-            structural_proximity = 0.0
             try:
                 connected = await graph_store.path_exists_within_hops(
                     src_id,
@@ -542,10 +568,18 @@ class DreamSpreadingPhase(ConsolidationPhase):
                     max_hops=cfg.consolidation_dream_assoc_structural_max_hops,
                     group_id=group_id,
                 )
-                if connected:
-                    structural_proximity = 1.0
-            except Exception:
-                pass  # Assume disconnected on error
+            except Exception as exc:
+                # fail-closed: unknown connectivity must not read as maximal
+                # surprise — skip this pair, no speculative edge (counted).
+                pairs_skipped += 1
+                logger.warning(
+                    "Dream associations: connectivity check failed for (%s, %s); skipping pair: %s",
+                    src_id,
+                    tgt_id,
+                    exc,
+                )
+                continue
+            structural_proximity = 1.0 if connected else 0.0
 
             # Compute surprise score
             surprise = _compute_surprise_score(similarity, structural_proximity)
@@ -602,12 +636,14 @@ class DreamSpreadingPhase(ConsolidationPhase):
                 context.dream_association_ids.add(record.id)
 
         logger.info(
-            "Dream associations: %d candidates → %d created (dry_run=%s)",
+            "Dream associations: %d candidates → %d created, %d skipped on failed "
+            "connectivity check (dry_run=%s)",
             len(candidates),
             len(records),
+            pairs_skipped,
             dry_run,
         )
-        return records
+        return records, pairs_skipped
 
     @staticmethod
     def _partition_by_domain(

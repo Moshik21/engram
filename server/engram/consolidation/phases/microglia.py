@@ -112,11 +112,18 @@ class MicrogliaPhase(ConsolidationPhase):
 
         # Load identity-core entities for protection
         identity_core_ids: set[str] = set()
+        identity_core_available = True
         try:
             core_entities = await graph_store.get_identity_core_entities(group_id)
             identity_core_ids = {e.id for e in core_entities}
-        except Exception:
-            pass
+        except Exception as exc:
+            # fail-closed: without identity-core protection the destructive
+            # demotion pass must not run this cycle (logged + counted below).
+            identity_core_available = False
+            logger.warning(
+                "Microglia: identity-core fetch failed; demotion pass skipped this cycle: %s",
+                exc,
+            )
 
         # Get cycle number (approximate from context)
         cycle_number = _extract_cycle_number(cycle_id)
@@ -139,7 +146,7 @@ class MicrogliaPhase(ConsolidationPhase):
 
         # --- Step 2: Demote confirmed + aged tags ---
         demoted = 0
-        if consolidation_store is not None and not dry_run:
+        if consolidation_store is not None and not dry_run and identity_core_available:
             demoted = await self._demote_confirmed_tags(
                 consolidation_store=consolidation_store,
                 graph_store=graph_store,
@@ -193,6 +200,9 @@ class MicrogliaPhase(ConsolidationPhase):
 
         elapsed = (time.perf_counter() - t0) * 1000
         total_affected = demoted + tagged_edges + confirmed + repaired + cleared
+        skip_marker = (
+            None if identity_core_available else "demotion_skipped:identity_core_unavailable"
+        )
 
         # Without a consolidation store the complement Tag->Confirm->Demote
         # edge lifecycle cannot run; only direct summary repairs are possible.
@@ -207,6 +217,7 @@ class MicrogliaPhase(ConsolidationPhase):
                 ),
                 items_affected=0,
                 duration_ms=round(elapsed, 1),
+                error=skip_marker,
             ), records
 
         return PhaseResult(
@@ -217,6 +228,7 @@ class MicrogliaPhase(ConsolidationPhase):
             ),
             items_affected=total_affected,
             duration_ms=round(elapsed, 1),
+            error=skip_marker,
         ), records
 
     # ------------------------------------------------------------------
