@@ -121,11 +121,14 @@ class TestLiteModeIntegration:
         manager1 = GraphManager(graph_store, activation_store, search_index, ext1)
         await manager1.ingest_episode(content="ep1", group_id=gid)
 
-        # Second episode references "python" (lowercase)
+        # Second episode repeats "Python" with new information. (An
+        # all-lowercase "python" would be rejected by validate_entity_name's
+        # intentional noise gate — lowercase names are narrow-extractor junk
+        # by contract, covered below.)
         ext2 = MockExtractor(
             ExtractionResult(
                 entities=[
-                    {"name": "python", "entity_type": "Technology", "summary": "Language v2"},
+                    {"name": "Python", "entity_type": "Technology", "summary": "Language v2"},
                 ],
                 relationships=[],
             )
@@ -133,20 +136,29 @@ class TestLiteModeIntegration:
         manager2 = GraphManager(graph_store, activation_store, search_index, ext2)
         await manager2.ingest_episode(content="ep2", group_id=gid)
 
-        # Should be one entity, not two
+        # Should be one entity, not two, with both summaries merged.
         entities = await graph_store.find_entities(group_id=gid)
         python_entities = [e for e in entities if "python" in e.name.lower()]
         assert len(python_entities) == 1
         assert "v1" in python_entities[0].summary
-        # KNOWN GAP (pre-existing, predates the 2026-07 changeset): the repeat
-        # mention resolves to the existing entity but its NEW summary is
-        # silently discarded — no update_entity call, no deferred evidence row
-        # to adjudicate later. Whether repeat-mention summary merge is the
-        # intended contract is open (reconsolidation and the merge phase are
-        # the designed summary-update paths now). Tracked in project memory
-        # deep-audit follow-ups; un-xfail when the contract is decided.
-        if "v2" not in python_entities[0].summary:
-            pytest.xfail("repeat-mention summary silently discarded (known pre-existing gap)")
+        assert "v2" in python_entities[0].summary
+
+        # Lowercase variant: rejected by the noise gate — must neither create
+        # a duplicate entity nor disturb the merged summary.
+        ext3 = MockExtractor(
+            ExtractionResult(
+                entities=[
+                    {"name": "python", "entity_type": "Technology", "summary": "Language v3"},
+                ],
+                relationships=[],
+            )
+        )
+        manager3 = GraphManager(graph_store, activation_store, search_index, ext3)
+        await manager3.ingest_episode(content="ep3", group_id=gid)
+        entities = await graph_store.find_entities(group_id=gid)
+        python_entities = [e for e in entities if "python" in e.name.lower()]
+        assert len(python_entities) == 1
+        assert "v3" not in python_entities[0].summary
 
     async def test_recall_with_activation_scores(self, graph_manager: GraphManager, gid):
         """Recall results include score_breakdown."""

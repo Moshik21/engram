@@ -433,7 +433,13 @@ class EpisodeReplayPhase(ConsolidationPhase):
                 if created_at < window_cutoff:
                     reached_window_end = True
                     break
-                if status != "completed":
+                # QUEUED episodes are the primary replay target: capture
+                # stores every episode as QUEUED, and under quiet/shell
+                # scheduling no worker ever advances them. Requiring
+                # 'completed' here excluded the entire backlog this phase
+                # exists to drain (observed live: replay selected 0 of 3039
+                # cue_only episodes in its first metabolize window).
+                if status not in {"completed", "queued", "pending"}:
                     continue
                 # Skip already-extracted episodes — narrow re-extraction is
                 # deterministic waste.  Target CUE_ONLY / QUEUED episodes only.

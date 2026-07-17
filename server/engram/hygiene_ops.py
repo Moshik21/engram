@@ -274,12 +274,19 @@ async def execute_hygiene_mop(
         from engram.models.consolidation import CycleContext
 
         try:
+            # Backlog sweep: the default 24h replay window targets recent
+            # triage-skips, but the mop is the ONLY projection consumer under
+            # quiet/shell scheduling — widen to the config maximum (30 days)
+            # so the dormant cue_only/queued backlog actually drains.
+            replay_cfg = activation_cfg.model_copy(
+                update={"consolidation_replay_window_hours": 720.0}
+            )
             result, records = await EpisodeReplayPhase(extractor=extractor).execute(
                 group_id=group_id,
                 graph_store=graph_store,
                 activation_store=activation_store,
                 search_index=search_index,
-                cfg=activation_cfg,
+                cfg=replay_cfg,
                 cycle_id="mop_cli",
                 dry_run=bool(dry_run),
                 context=CycleContext(),

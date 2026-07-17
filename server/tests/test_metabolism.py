@@ -324,3 +324,57 @@ class TestActivationPersistence:
         path = tmp_path / "snap.json"
         path.write_text("{not json")
         assert MemoryActivationStore().load_from_file(path) == 0
+
+
+class TestReplayBacklogEligibility:
+    """Replay must select QUEUED episodes — capture stores everything QUEUED
+    and under quiet/shell scheduling no worker ever advances them. The old
+    status=='completed' filter excluded the entire backlog (live: 0 of 3039
+    selected)."""
+
+    @pytest.mark.asyncio
+    async def test_queued_episodes_are_eligible(self):
+        from datetime import datetime, timedelta, timezone
+        from types import SimpleNamespace
+
+        from engram.consolidation.phases.replay import EpisodeReplayPhase
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        def _ep(eid, status, proj, hours_old):
+            return SimpleNamespace(
+                id=eid,
+                status=status,
+                projection_state=proj,
+                created_at=now - timedelta(hours=hours_old),
+            )
+
+        episodes = [
+            _ep("ep_q", "queued", "cue_only", 5),
+            _ep("ep_c", "completed", "cue_only", 6),
+            _ep("ep_p", "completed", "projected", 7),  # already extracted
+            _ep("ep_x", "extracting", "cue_only", 8),  # mid-pipeline
+            _ep("ep_fresh", "queued", "cue_only", 0.1),  # under min age
+        ]
+
+        calls = {"n": 0}
+
+        async def get_episodes(group_id, limit, offset):
+            calls["n"] += 1
+            return episodes[offset : offset + limit] if calls["n"] < 10 else []
+
+        store = SimpleNamespace(get_episodes=get_episodes)
+        phase = EpisodeReplayPhase(extractor=object())
+        eligible = await phase._load_eligible_episodes(
+            graph_store=store,
+            group_id="g",
+            max_per_cycle=10,
+            window_cutoff=now - timedelta(hours=720),
+            age_cutoff=now - timedelta(hours=1),
+        )
+        ids = [e.id for e in eligible]
+        assert "ep_q" in ids, "QUEUED backlog episodes must be replay-eligible"
+        assert "ep_c" in ids
+        assert "ep_p" not in ids
+        assert "ep_x" not in ids
+        assert "ep_fresh" not in ids
