@@ -98,3 +98,7 @@ copilot-*
 
 # Generated demo artifacts
 server/showcase-export.md
+
+# Generated benchmark outputs and downloadable datasets (see engram.benchmark.longmemeval.dataset.download_dataset)
+server/results/
+server/data/longmemeval/
