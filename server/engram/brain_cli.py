@@ -304,12 +304,7 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
     from engram.graph_manager import GraphManager
     from engram.hygiene_ops import execute_hygiene_mop
     from engram.loop_adjustment import effective_activation_config, load_active_adjustment
-    from engram.storage.bootstrap import (
-        close_if_supported,
-        create_local_runtime_stores,
-        initialize_search_index_for_graph,
-    )
-    from engram.storage.resolver import resolve_mode
+    from engram.storage.bootstrap import open_local_stores
 
     config = EngramConfig()
     object.__setattr__(config, "runtime_role", "brain")
@@ -324,24 +319,19 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
     activation_cfg = effective_activation_config(config.activation, loop_adj)
     dry_run = bool(args.dry_run) if args.dry_run is not None else False
 
-    graph_store = activation_store = search_index = None
-    try:
-        mode = await resolve_mode(config.mode)
-        graph_store, activation_store, search_index = create_local_runtime_stores(mode, config)
-        await graph_store.initialize()
-        await initialize_search_index_for_graph(search_index, graph_store=graph_store, mode=mode)
+    async with open_local_stores(config, local_runtime=True) as stores:
         extractor = create_extractor(config)
         graph_manager = GraphManager(
-            graph_store=graph_store,
-            activation_store=activation_store,
-            search_index=search_index,
+            graph_store=stores.graph_store,
+            activation_store=stores.activation_store,
+            search_index=stores.search_index,
             extractor=extractor,
             cfg=activation_cfg,
         )
         report = await execute_hygiene_mop(
-            graph_store=graph_store,
-            activation_store=activation_store,
-            search_index=search_index,
+            graph_store=stores.graph_store,
+            activation_store=stores.activation_store,
+            search_index=stores.search_index,
             activation_cfg=activation_cfg,
             group_id=group_id,
             budget=max(1, int(getattr(args, "budget", 1000) or 1000)),
@@ -376,10 +366,6 @@ async def _run_mop(args: argparse.Namespace) -> dict[str, Any]:
             },
             "report": report,
         }
-    finally:
-        await close_if_supported(search_index)
-        await close_if_supported(activation_store)
-        await close_if_supported(graph_store)
 
 
 async def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
@@ -392,12 +378,7 @@ async def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
     from engram.consolidation.presenter import serialize_cycle_summary
     from engram.extraction.factory import create_extractor
     from engram.graph_manager import GraphManager
-    from engram.storage.bootstrap import (
-        close_if_supported,
-        create_consolidation_store_for_graph,
-        initialize_search_index_for_graph,
-    )
-    from engram.storage.factory import create_stores
+    from engram.storage.bootstrap import open_local_stores
     from engram.storage.resolver import EngineMode, resolve_mode
 
     config = EngramConfig()
@@ -419,29 +400,21 @@ async def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
         object.__setattr__(cfg, "worker_enabled", True)
 
     mode = await resolve_mode(config.mode)
-    graph_store = None
-    activation_store = None
-    search_index = None
-    store = None
-    try:
-        graph_store, activation_store, search_index = create_stores(mode, config)
-        await graph_store.initialize()
-        await initialize_search_index_for_graph(
-            search_index,
-            graph_store=graph_store,
-            mode=mode,
-        )
-        consolidation_sqlite_path = None
-        if mode == EngineMode.FULL:
-            consolidation_sqlite_path = Path.home() / ".engram" / "consolidation.db"
-            consolidation_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
+    consolidation_sqlite_path = None
+    if mode == EngineMode.FULL:
+        consolidation_sqlite_path = Path.home() / ".engram" / "consolidation.db"
+        consolidation_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
-        store = await create_consolidation_store_for_graph(
-            config,
-            graph_store=graph_store,
-            mode=mode,
-            sqlite_path=consolidation_sqlite_path,
-        )
+    async with open_local_stores(
+        config,
+        mode=mode,
+        with_consolidation=True,
+        consolidation_sqlite_path=consolidation_sqlite_path,
+    ) as stores:
+        graph_store = stores.graph_store
+        activation_store = stores.activation_store
+        search_index = stores.search_index
+        store = stores.consolidation_store
         extractor = create_extractor(config)
         graph_manager = GraphManager(
             graph_store=graph_store,
@@ -493,11 +466,6 @@ async def _run_cycle(args: argparse.Namespace) -> dict[str, Any]:
             "profile": profile,
             "tier": args.tier,
         }
-    finally:
-        await close_if_supported(store)
-        await close_if_supported(search_index)
-        await close_if_supported(activation_store)
-        await close_if_supported(graph_store)
 
 
 def run_brain_command(args: argparse.Namespace) -> int:

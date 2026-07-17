@@ -15,9 +15,7 @@ from engram.consolidation.evidence_drain import (
     load_deferred_evidence,
     reject_junk_evidence,
 )
-from engram.storage.bootstrap import close_if_supported, initialize_search_index_for_graph
-from engram.storage.factory import create_stores
-from engram.storage.resolver import resolve_mode
+from engram.storage.bootstrap import open_local_stores
 
 logger = logging.getLogger(__name__)
 
@@ -44,19 +42,8 @@ async def run(args: argparse.Namespace) -> None:
     config = EngramConfig()
     _apply_helix_data_dir(config, args.helix_data_dir)
 
-    mode = await resolve_mode(config.mode)
-    graph_store = None
-    activation_store = None
-    search_index = None
-
-    try:
-        graph_store, activation_store, search_index = create_stores(mode, config)
-        await graph_store.initialize()
-        await initialize_search_index_for_graph(
-            search_index,
-            graph_store=graph_store,
-            mode=mode,
-        )
+    async with open_local_stores(config) as stores:
+        graph_store = stores.graph_store
 
         rows = await load_deferred_evidence(graph_store, args.group_id)
         if args.mode == "audit":
@@ -96,10 +83,6 @@ async def run(args: argparse.Namespace) -> None:
             return
 
         raise SystemExit(f"Unknown mode: {args.mode}")
-    finally:
-        await close_if_supported(search_index)
-        await close_if_supported(activation_store)
-        await close_if_supported(graph_store)
 
 
 def main() -> None:

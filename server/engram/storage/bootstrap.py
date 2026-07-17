@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from contextlib import suppress
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
-from engram.storage.resolver import EngineMode
+from engram.storage.resolver import EngineMode, resolve_mode
+
+logger = logging.getLogger(__name__)
 
 
 def shared_sqlite_db(graph_store: Any, mode: EngineMode) -> Any | None:
@@ -243,3 +248,74 @@ async def stop_task_if_running(task: asyncio.Task | None) -> None:
     task.cancel()
     with suppress(asyncio.CancelledError):
         await task
+
+
+@dataclass
+class LocalStores:
+    """Opened local stores for a one-shot CLI/eval run."""
+
+    mode: EngineMode
+    graph_store: Any
+    activation_store: Any
+    search_index: Any
+    consolidation_store: Any | None = None
+
+
+@asynccontextmanager
+async def open_local_stores(
+    config: EngramConfig,
+    *,
+    mode: EngineMode | None = None,
+    with_consolidation: bool = False,
+    consolidation_sqlite_path: str | Path | None = None,
+    local_runtime: bool = False,
+) -> AsyncIterator[LocalStores]:
+    """Open graph/activation/search (+ optional consolidation) stores for a one-shot run.
+
+    Resolves the engine mode when not supplied, initializes the graph store and
+    search index, and guarantees reverse-order close on exit — including when
+    setup or the body fails partway.
+    """
+    if mode is None:
+        mode = await resolve_mode(config.mode)
+
+    opened: list[Any] = []
+    try:
+        if local_runtime:
+            graph_store, activation_store, search_index = create_local_runtime_stores(
+                mode,
+                config,
+            )
+        else:
+            from engram.storage.factory import create_stores
+
+            graph_store, activation_store, search_index = create_stores(mode, config)
+        opened = [graph_store, activation_store, search_index]
+        await graph_store.initialize()
+        await initialize_search_index_for_graph(
+            search_index,
+            graph_store=graph_store,
+            mode=mode,
+        )
+        consolidation_store = None
+        if with_consolidation:
+            consolidation_store = await create_consolidation_store_for_graph(
+                config,
+                graph_store=graph_store,
+                mode=mode,
+                sqlite_path=consolidation_sqlite_path,
+            )
+            opened.append(consolidation_store)
+        yield LocalStores(
+            mode=mode,
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            consolidation_store=consolidation_store,
+        )
+    finally:
+        for resource in reversed(opened):
+            try:
+                await close_if_supported(resource)
+            except Exception:  # silent-ok: unwind must still close remaining stores
+                logger.warning("Failed to close local store during unwind", exc_info=True)

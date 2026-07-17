@@ -19,12 +19,7 @@ from engram.consolidation.presenter import (
 from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.models.consolidation import ConsolidationCycle
-from engram.storage.bootstrap import (
-    close_if_supported,
-    create_consolidation_store_for_graph,
-    initialize_search_index_for_graph,
-)
-from engram.storage.factory import create_stores
+from engram.storage.bootstrap import open_local_stores
 from engram.storage.resolver import EngineMode, resolve_mode
 
 logger = logging.getLogger(__name__)
@@ -72,20 +67,22 @@ async def run(args: argparse.Namespace) -> None:
     """Run a single consolidation cycle."""
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
-    graph_store = None
-    activation_store = None
-    search_index = None
-    store = None
 
-    try:
-        graph_store, activation_store, search_index = create_stores(mode, config)
+    consolidation_sqlite_path = None
+    if mode == EngineMode.FULL:
+        consolidation_sqlite_path = Path.home() / ".engram" / "consolidation.db"
+        consolidation_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
 
-        await graph_store.initialize()
-        await initialize_search_index_for_graph(
-            search_index,
-            graph_store=graph_store,
-            mode=mode,
-        )
+    async with open_local_stores(
+        config,
+        mode=mode,
+        with_consolidation=True,
+        consolidation_sqlite_path=consolidation_sqlite_path,
+    ) as stores:
+        graph_store = stores.graph_store
+        activation_store = stores.activation_store
+        search_index = stores.search_index
+        store = stores.consolidation_store
 
         # Build activation config - use EngramConfig's nested activation
         # so env vars like ENGRAM_ACTIVATION__MICROGLIA_SCAN_EDGES_PER_CYCLE work.
@@ -116,18 +113,6 @@ async def run(args: argparse.Namespace) -> None:
         # Get graph stats before cycle
         stats = await graph_store.get_stats(group_id)
         print(f"Graph stats: {json.dumps(stats, indent=2)}")
-
-        consolidation_sqlite_path = None
-        if mode == EngineMode.FULL:
-            consolidation_sqlite_path = Path.home() / ".engram" / "consolidation.db"
-            consolidation_sqlite_path.parent.mkdir(parents=True, exist_ok=True)
-
-        store = await create_consolidation_store_for_graph(
-            config,
-            graph_store=graph_store,
-            mode=mode,
-            sqlite_path=consolidation_sqlite_path,
-        )
 
         extractor = create_extractor(config)
         graph_manager = GraphManager(
@@ -164,11 +149,6 @@ async def run(args: argparse.Namespace) -> None:
             profile=args.profile,
             graph_stats=stats,
         )
-    finally:
-        await close_if_supported(store)
-        await close_if_supported(search_index)
-        await close_if_supported(activation_store)
-        await close_if_supported(graph_store)
 
 
 def main() -> None:

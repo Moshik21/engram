@@ -77,12 +77,7 @@ async def _run_hygiene_command_locked(args: argparse.Namespace) -> int:
         debt_should_trigger_mop,
     )
     from engram.consolidation.pressure import ConsolidationPressure
-    from engram.storage.bootstrap import (
-        close_if_supported,
-        create_local_runtime_stores,
-        initialize_search_index_for_graph,
-    )
-    from engram.storage.resolver import resolve_mode
+    from engram.storage.bootstrap import open_local_stores
 
     requested = args.mode or "auto"
     config = EngramConfig(mode=requested)
@@ -107,64 +102,52 @@ async def _run_hygiene_command_locked(args: argparse.Namespace) -> int:
         activation_cfg = config.activation
         loop_adj = None
 
-    graph_store = None
-    activation_store = None
-    search_index = None
     try:
-        mode = await resolve_mode(config.mode)
-        graph_store, activation_store, search_index = create_local_runtime_stores(mode, config)
-        await graph_store.initialize()
-        await initialize_search_index_for_graph(search_index, graph_store=graph_store, mode=mode)
+        async with open_local_stores(config, local_runtime=True) as stores:
+            graph_store = stores.graph_store
 
-        debt = await collect_hygiene_debt_from_store(graph_store, group_id)
-        debt_pressure = debt_pressure_contribution(debt)
-        event_pressure = ConsolidationPressure().compute(activation_cfg)
-        total_pressure = event_pressure + debt_pressure
-        should_mop = debt_should_trigger_mop(
-            debt,
-            pressure_threshold=float(activation_cfg.consolidation_pressure_threshold),
-        )
-        report: dict[str, Any] = {
-            "group_id": group_id,
-            "debt": debt.to_dict(),
-            "pressure": {
-                "event_bus": round(event_pressure, 2),
-                "hygiene_debt": round(debt_pressure, 2),
-                "total": round(total_pressure, 2),
-                "threshold": activation_cfg.consolidation_pressure_threshold,
-                "should_trigger_mop": should_mop,
-            },
-        }
+            debt = await collect_hygiene_debt_from_store(graph_store, group_id)
+            debt_pressure = debt_pressure_contribution(debt)
+            event_pressure = ConsolidationPressure().compute(activation_cfg)
+            total_pressure = event_pressure + debt_pressure
+            should_mop = debt_should_trigger_mop(
+                debt,
+                pressure_threshold=float(activation_cfg.consolidation_pressure_threshold),
+            )
+            report: dict[str, Any] = {
+                "group_id": group_id,
+                "debt": debt.to_dict(),
+                "pressure": {
+                    "event_bus": round(event_pressure, 2),
+                    "hygiene_debt": round(debt_pressure, 2),
+                    "total": round(total_pressure, 2),
+                    "threshold": activation_cfg.consolidation_pressure_threshold,
+                    "should_trigger_mop": should_mop,
+                },
+            }
 
-        if args.action == "report":
+            if args.action == "report":
+                _emit(report, args.format)
+                return 0
+
+            from engram.hygiene_ops import execute_hygiene_mop
+
+            report = await execute_hygiene_mop(
+                graph_store=graph_store,
+                activation_store=stores.activation_store,
+                search_index=stores.search_index,
+                activation_cfg=activation_cfg,
+                group_id=group_id,
+                budget=max(1, int(args.budget)),
+                dry_run=bool(args.dry_run),
+                loop_adj=loop_adj,
+            )
             _emit(report, args.format)
             return 0
-
-        from engram.hygiene_ops import execute_hygiene_mop
-
-        report = await execute_hygiene_mop(
-            graph_store=graph_store,
-            activation_store=activation_store,
-            search_index=search_index,
-            activation_cfg=activation_cfg,
-            group_id=group_id,
-            budget=max(1, int(args.budget)),
-            dry_run=bool(args.dry_run),
-            loop_adj=loop_adj,
-        )
-        _emit(report, args.format)
-        return 0
     except Exception as exc:
         logger.exception("hygiene command failed")
         print(f"hygiene command failed: {exc}", file=sys.stderr)
         return 1
-    finally:
-        if search_index is not None:
-            await close_if_supported(search_index)
-        if activation_store is not None:
-            await close_if_supported(activation_store)
-        if graph_store is not None:
-            await close_if_supported(graph_store)
 
 
 def _emit(payload: dict[str, Any], fmt: str) -> None:

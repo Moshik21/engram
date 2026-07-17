@@ -180,15 +180,21 @@ async def test_consolidation_cli_closes_runtime_stores_after_phase_validation_er
         assert sqlite_path is None
         return _FakeClosable("consolidation", closed)
 
+    from engram.storage import bootstrap as bootstrap_mod
+    from engram.storage import factory as factory_mod
+
     monkeypatch.setattr(cli, "resolve_mode", fake_resolve_mode)
-    monkeypatch.setattr(cli, "create_stores", fake_create_stores)
+    # The store open/close ceremony moved into open_local_stores; patch the
+    # seams it calls (create_stores is imported lazily from the factory) so
+    # the REAL helper runs its reverse-order close logic over the fakes.
+    monkeypatch.setattr(factory_mod, "create_stores", fake_create_stores)
     monkeypatch.setattr(
-        cli,
+        bootstrap_mod,
         "initialize_search_index_for_graph",
         fake_initialize_search_index_for_graph,
     )
     monkeypatch.setattr(
-        cli,
+        bootstrap_mod,
         "create_consolidation_store_for_graph",
         fake_create_consolidation_store_for_graph,
     )

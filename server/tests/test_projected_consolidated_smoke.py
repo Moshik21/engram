@@ -45,10 +45,12 @@ class _FakeClosable:
 def test_projected_consolidated_smoke_closes_runtime_store_triple() -> None:
     source = inspect.getsource(run_projected_consolidated_smoke)
 
-    assert "close_if_supported(search_index)" in source
-    assert "close_if_supported(activation_store)" in source
-    assert "close_if_supported(graph_store)" in source
-    assert "_close_if_supported" not in source
+    # Reverse-order close of the runtime store triple is now guaranteed by the
+    # open_local_stores context manager (covered by test_open_local_stores.py).
+    assert "open_local_stores" in source
+    assert "close_if_supported(search_index)" not in source
+    assert "close_if_supported(activation_store)" not in source
+    assert "close_if_supported(graph_store)" not in source
 
 
 def test_projected_consolidated_smoke_uses_synchronous_capture() -> None:

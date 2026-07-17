@@ -27,11 +27,9 @@ from engram.graph_manager import GraphManager
 from engram.retrieval.need import analyze_memory_need
 from engram.storage.bootstrap import (
     close_if_supported,
-    create_consolidation_store_for_graph,
     create_evaluation_store_for_graph,
-    initialize_search_index_for_graph,
+    open_local_stores,
 )
-from engram.storage.factory import create_stores
 from engram.storage.resolver import EngineMode
 
 DEFAULT_GROUP_ID = "default"
@@ -128,199 +126,191 @@ async def run_projected_consolidated_smoke(
     )
     _apply_smoke_activation_overrides(config)
 
-    graph_store, activation_store, search_index = create_stores(mode, config)
-    await graph_store.initialize()
-    await initialize_search_index_for_graph(
-        search_index,
-        graph_store=graph_store,
-        mode=mode,
-    )
-
-    consolidation_store = await create_consolidation_store_for_graph(
+    async with open_local_stores(
         config,
-        graph_store=graph_store,
         mode=mode,
-        sqlite_path=sqlite_path,
-    )
-    evaluation_store = await create_evaluation_store_for_graph(
-        config,
-        graph_store=graph_store,
-        mode=mode,
-        sqlite_path=sqlite_path,
-    )
-
-    try:
-        config.configure_runtime_packet_cache(mode.value)
-        manager = GraphManager(
-            graph_store,
-            activation_store,
-            search_index,
-            create_extractor(config),
-            cfg=config.activation,
-            nerve_center_cfg=config.nerve_center,
-            runtime_mode=mode.value,
-        )
-        engine = ConsolidationEngine(
-            graph_store,
-            activation_store,
-            search_index,
-            cfg=config.activation,
-            consolidation_store=consolidation_store,
-            graph_manager=manager,
+        with_consolidation=True,
+        consolidation_sqlite_path=sqlite_path,
+    ) as stores:
+        graph_store = stores.graph_store
+        activation_store = stores.activation_store
+        search_index = stores.search_index
+        consolidation_store = stores.consolidation_store
+        evaluation_store = await create_evaluation_store_for_graph(
+            config,
+            graph_store=graph_store,
+            mode=mode,
+            sqlite_path=sqlite_path,
         )
 
-        episode_ids = []
-        for content in SMOKE_EPISODES:
-            episode_ids.append(
-                await manager.store_episode(content, group_id, "projected-consolidated-smoke")
+        try:
+            config.configure_runtime_packet_cache(mode.value)
+            manager = GraphManager(
+                graph_store,
+                activation_store,
+                search_index,
+                create_extractor(config),
+                cfg=config.activation,
+                nerve_center_cfg=config.nerve_center,
+                runtime_mode=mode.value,
             )
-        for content in _load_smoke_episodes(load_count):
-            episode_ids.append(
-                await manager.store_episode(
-                    content,
-                    group_id,
-                    "projected-consolidated-load-smoke",
+            engine = ConsolidationEngine(
+                graph_store,
+                activation_store,
+                search_index,
+                cfg=config.activation,
+                consolidation_store=consolidation_store,
+                graph_manager=manager,
+            )
+
+            episode_ids = []
+            for content in SMOKE_EPISODES:
+                episode_ids.append(
+                    await manager.store_episode(content, group_id, "projected-consolidated-smoke")
                 )
-            )
-        cue_feedback_checks = await _run_smoke_cue_feedback_check(
-            manager,
-            group_id=group_id,
-            episode_id=episode_ids[0],
-        )
-
-        expected_projected = len(SMOKE_EPISODES) + load_count
-        cycles = []
-        cycle = None
-        for cycle_index in range(_max_smoke_cycles(expected_projected)):
-            cycle = await engine.run_cycle(
+            for content in _load_smoke_episodes(load_count):
+                episode_ids.append(
+                    await manager.store_episode(
+                        content,
+                        group_id,
+                        "projected-consolidated-load-smoke",
+                    )
+                )
+            cue_feedback_checks = await _run_smoke_cue_feedback_check(
+                manager,
                 group_id=group_id,
-                trigger=(
-                    "projected_consolidated_smoke"
-                    if cycle_index == 0
-                    else "projected_consolidated_smoke_load_continue"
-                ),
-                dry_run=False,
-                phase_names={"triage"},
+                episode_id=episode_ids[0],
             )
-            cycles.append(cycle)
-            cycle_stats = await graph_store.get_stats(group_id)
-            if _projected_count(cycle_stats) >= expected_projected:
-                break
-        if cycle is None:
-            raise SystemExit("Projected/consolidated smoke did not run a consolidation cycle")
 
-        gate_recall_checks = await _run_smoke_recall_gate_check(
-            manager,
-            group_id=group_id,
-            load_count=load_count,
-        )
-        recall_checks = 0
-        if recall_rounds > 0:
-            recall_checks = await _run_smoke_recall_checks(
+            expected_projected = len(SMOKE_EPISODES) + load_count
+            cycles = []
+            cycle = None
+            for cycle_index in range(_max_smoke_cycles(expected_projected)):
+                cycle = await engine.run_cycle(
+                    group_id=group_id,
+                    trigger=(
+                        "projected_consolidated_smoke"
+                        if cycle_index == 0
+                        else "projected_consolidated_smoke_load_continue"
+                    ),
+                    dry_run=False,
+                    phase_names={"triage"},
+                )
+                cycles.append(cycle)
+                cycle_stats = await graph_store.get_stats(group_id)
+                if _projected_count(cycle_stats) >= expected_projected:
+                    break
+            if cycle is None:
+                raise SystemExit("Projected/consolidated smoke did not run a consolidation cycle")
+
+            gate_recall_checks = await _run_smoke_recall_gate_check(
                 manager,
                 group_id=group_id,
                 load_count=load_count,
-                rounds=recall_rounds,
             )
-        duration_checks, duration_elapsed = await _run_sustained_recall_checks(
-            manager,
-            group_id=group_id,
-            load_count=load_count,
-            min_duration_seconds=min_duration_seconds,
-            pause_seconds=pause_seconds,
-        )
-
-        await evaluation_store.save_recall_sample(
-            StoredRecallEvalSample(
-                group_id=group_id,
-                recall_triggered=True,
-                recall_helped=True,
-                recall_needed=True,
-                packets_surfaced=3,
-                packets_used=2,
-                false_recalls=0,
-                source="projected_consolidated_smoke",
-                query="What is Engram's brain loop?",
-                notes="Smoke label for projected/consolidated coverage.",
-            )
-        )
-        await evaluation_store.save_session_sample(
-            StoredSessionContinuitySample(
-                group_id=group_id,
-                baseline_score=0.2,
-                memory_score=0.8,
-                open_loop_expected=True,
-                open_loop_recovered=True,
-                temporal_expected=True,
-                temporal_correct=True,
-                source="projected_consolidated_smoke",
-                scenario="Continue the Engram architecture thread after projection.",
-                notes="Smoke label for continuity coverage.",
-            )
-        )
-
-        graph_state = await manager.get_graph_state(
-            group_id=group_id,
-            top_n=10,
-            include_edges=False,
-        )
-        stats = graph_state.get("stats") or {}
-        recall_metrics = stats.get("recall_metrics") or {}
-        if has_recall_runtime_metrics(recall_metrics):
-            await evaluation_store.save_recall_metrics_snapshot(
-                StoredRecallRuntimeMetricsSnapshot(
+            recall_checks = 0
+            if recall_rounds > 0:
+                recall_checks = await _run_smoke_recall_checks(
+                    manager,
                     group_id=group_id,
-                    metrics=dict(recall_metrics),
-                    source="projected_consolidated_smoke",
+                    load_count=load_count,
+                    rounds=recall_rounds,
                 )
+            duration_checks, duration_elapsed = await _run_sustained_recall_checks(
+                manager,
+                group_id=group_id,
+                load_count=load_count,
+                min_duration_seconds=min_duration_seconds,
+                pause_seconds=pause_seconds,
             )
-        recent_cycles = await consolidation_store.get_recent_cycles(group_id, limit=10)
-        calibration_snapshots = []
-        for recent_cycle in recent_cycles:
-            calibration_snapshots.extend(
-                await consolidation_store.get_calibration_snapshots(
-                    recent_cycle.id,
-                    group_id,
-                )
-            )
-        recall_samples = await evaluation_store.get_recall_samples(group_id, limit=100)
-        session_samples = await evaluation_store.get_session_samples(group_id, limit=100)
 
-        report = build_brain_loop_report(
-            stats,
-            group_id=group_id,
-            recent_cycles=recent_cycles,
-            calibration_snapshots=calibration_snapshots,
-            recall_samples=recall_samples,
-            session_samples=session_samples,
-        )
-        report["smoke"] = {
-            "mode": mode.value,
-            "sqlite_path": str(sqlite_path),
-            "helix_data_dir": str(helix_data_dir) if helix_data_dir else None,
-            "cycle_id": cycle.id,
-            "cycle_status": cycle.status,
-            "phase_count": len(cycle.phase_results),
-            "cycle_count": len(cycles),
-            "cycle_ids": [item.id for item in cycles],
-            "load_count": load_count,
-            "cue_feedback_checks": cue_feedback_checks,
-            "gate_recall_checks": gate_recall_checks,
-            "recall_rounds": recall_rounds,
-            "recall_checks": recall_checks,
-            "min_duration_seconds": min_duration_seconds,
-            "duration_recall_checks": duration_checks,
-            "duration_elapsed_seconds": duration_elapsed,
-            "pause_seconds": pause_seconds,
-        }
-        assert_smoke_report(report, expected_projected=expected_projected)
-        return report
-    finally:
-        await close_if_supported(evaluation_store)
-        await close_if_supported(consolidation_store)
-        await close_if_supported(search_index)
-        await close_if_supported(activation_store)
-        await close_if_supported(graph_store)
+            await evaluation_store.save_recall_sample(
+                StoredRecallEvalSample(
+                    group_id=group_id,
+                    recall_triggered=True,
+                    recall_helped=True,
+                    recall_needed=True,
+                    packets_surfaced=3,
+                    packets_used=2,
+                    false_recalls=0,
+                    source="projected_consolidated_smoke",
+                    query="What is Engram's brain loop?",
+                    notes="Smoke label for projected/consolidated coverage.",
+                )
+            )
+            await evaluation_store.save_session_sample(
+                StoredSessionContinuitySample(
+                    group_id=group_id,
+                    baseline_score=0.2,
+                    memory_score=0.8,
+                    open_loop_expected=True,
+                    open_loop_recovered=True,
+                    temporal_expected=True,
+                    temporal_correct=True,
+                    source="projected_consolidated_smoke",
+                    scenario="Continue the Engram architecture thread after projection.",
+                    notes="Smoke label for continuity coverage.",
+                )
+            )
+
+            graph_state = await manager.get_graph_state(
+                group_id=group_id,
+                top_n=10,
+                include_edges=False,
+            )
+            stats = graph_state.get("stats") or {}
+            recall_metrics = stats.get("recall_metrics") or {}
+            if has_recall_runtime_metrics(recall_metrics):
+                await evaluation_store.save_recall_metrics_snapshot(
+                    StoredRecallRuntimeMetricsSnapshot(
+                        group_id=group_id,
+                        metrics=dict(recall_metrics),
+                        source="projected_consolidated_smoke",
+                    )
+                )
+            recent_cycles = await consolidation_store.get_recent_cycles(group_id, limit=10)
+            calibration_snapshots = []
+            for recent_cycle in recent_cycles:
+                calibration_snapshots.extend(
+                    await consolidation_store.get_calibration_snapshots(
+                        recent_cycle.id,
+                        group_id,
+                    )
+                )
+            recall_samples = await evaluation_store.get_recall_samples(group_id, limit=100)
+            session_samples = await evaluation_store.get_session_samples(group_id, limit=100)
+
+            report = build_brain_loop_report(
+                stats,
+                group_id=group_id,
+                recent_cycles=recent_cycles,
+                calibration_snapshots=calibration_snapshots,
+                recall_samples=recall_samples,
+                session_samples=session_samples,
+            )
+            report["smoke"] = {
+                "mode": mode.value,
+                "sqlite_path": str(sqlite_path),
+                "helix_data_dir": str(helix_data_dir) if helix_data_dir else None,
+                "cycle_id": cycle.id,
+                "cycle_status": cycle.status,
+                "phase_count": len(cycle.phase_results),
+                "cycle_count": len(cycles),
+                "cycle_ids": [item.id for item in cycles],
+                "load_count": load_count,
+                "cue_feedback_checks": cue_feedback_checks,
+                "gate_recall_checks": gate_recall_checks,
+                "recall_rounds": recall_rounds,
+                "recall_checks": recall_checks,
+                "min_duration_seconds": min_duration_seconds,
+                "duration_recall_checks": duration_checks,
+                "duration_elapsed_seconds": duration_elapsed,
+                "pause_seconds": pause_seconds,
+            }
+            assert_smoke_report(report, expected_projected=expected_projected)
+            return report
+        finally:
+            await close_if_supported(evaluation_store)
 
 
 async def run_projected_consolidated_smoke_for_args(
