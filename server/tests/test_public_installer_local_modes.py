@@ -222,12 +222,12 @@ def test_install_script_forwards_explicit_helix_mode() -> None:
     ) in install_script
     assert 'if [ "$MODE" = "full" ]; then' in install_script
     assert 'if [ "$MODE" = "full" ] || [ "$MODE" = "openclaw" ]; then' not in install_script
-    assert 'package_spec="engram[local,native]"' in install_script
     assert "#subdirectory=server[local,native]" in install_script
     assert 'uv_tool_install_engram "$github_spec" "GitHub"' in install_script
-    assert install_script.index(
-        'uv_tool_install_engram "$github_spec" "GitHub"'
-    ) < install_script.index('uv_tool_install_engram "$package_spec" "PyPI"')
+    # SECURITY: the PyPI fallback must stay dead — 'engram' on PyPI is a
+    # third-party placeholder, not this project.
+    assert '"PyPI"' not in install_script
+    assert "pypi.org" not in install_script
     assert "resolve_helix_native_requirement" in install_script
     assert (
         "uv tool install --reinstall-package engram --reinstall-package "
