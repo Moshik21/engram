@@ -65,10 +65,11 @@ jobs:
 
       - name: Add swap (guard against runner OOM eviction)
         run: |
-          sudo fallocate -l 4G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          sudo fallocate -l 4G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
 
       - name: Run tests
         # -q not -v: three consecutive runs were externally canceled ~5min in
