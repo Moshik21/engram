@@ -11,6 +11,7 @@ import atexit
 import gc
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Lock
@@ -28,6 +29,52 @@ except ImportError:
 _ENGINE_CACHE: dict[str, Any] = {}
 _ENGINE_CACHE_LOCK = Lock()
 _ATEXIT_REGISTERED = False
+
+# Per-query failure counters (module-level: multiple transports share one
+# process). Silent-inert hardening: failures must be observable, never
+# metered as empty successes.
+_QUERY_FAILURES: dict[str, dict[str, int]] = {}
+_QUERY_FAILURES_LOCK = Lock()
+
+
+def _count_failure(endpoint: str, kind: str) -> None:
+    with _QUERY_FAILURES_LOCK:
+        stats = _QUERY_FAILURES.setdefault(
+            endpoint, {"errors": 0, "timeouts": 0, "dim_mismatch": 0, "batch_item_errors": 0}
+        )
+        stats[kind] = stats.get(kind, 0) + 1
+
+
+def get_query_failure_stats() -> dict[str, dict[str, int]]:
+    """Snapshot of per-query failure counters (errors/timeouts/dim_mismatch)."""
+    with _QUERY_FAILURES_LOCK:
+        return {k: dict(v) for k, v in _QUERY_FAILURES.items()}
+
+
+class NativeQueryError(RuntimeError):
+    """A native Helix query failed or timed out.
+
+    Silent-inert hardening: the transport previously swallowed EVERY failure
+    into `[]`, which upstream code metered as an empty success — the root of
+    eight confirmed production bugs (phantom writes, stale counts, invisible
+    listings). Failures now raise; callers that can legitimately tolerate one
+    must catch THIS type explicitly and mark the degradation.
+    """
+
+    def __init__(
+        self,
+        endpoint: str,
+        cause: str,
+        *,
+        timeout: bool = False,
+        elapsed_ms: float | None = None,
+    ) -> None:
+        self.endpoint = endpoint
+        self.cause = cause
+        self.timeout = timeout
+        self.elapsed_ms = elapsed_ms
+        kind = "timed out" if timeout else "failed"
+        super().__init__(f"native query {endpoint!r} {kind}: {cause}")
 
 
 class NativeTransport:
@@ -135,24 +182,55 @@ class NativeTransport:
             raise RuntimeError("NativeTransport not initialized")
         await asyncio.sleep(0)
 
+    def _query_timeout_seconds(self) -> float:
+        raw = getattr(self._config, "query_timeout_seconds", 20.0)
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return 20.0
+
     async def query(self, endpoint: str, payload: dict) -> list[dict]:
-        """Execute a single query via in-process engine."""
+        """Execute a single query via in-process engine.
+
+        Raises NativeQueryError on failure or timeout. Legitimate
+        empty-result signals from the engine (NoValue/NotFound/empty HNSW)
+        return []; nothing else does.
+        """
         if self._engine is None:
             raise RuntimeError("NativeTransport not initialized")
 
         loop = asyncio.get_event_loop()
         body_json = json.dumps(payload)
+        timeout_seconds = self._query_timeout_seconds()
+        started = time.monotonic()
 
         try:
-            result_json = await loop.run_in_executor(
+            future = loop.run_in_executor(
                 self._executor,
                 self._engine.query,
                 endpoint,
                 body_json,
             )
+            if timeout_seconds > 0:
+                # NOTE: cancellation cannot stop the Rust worker thread — the
+                # scan keeps running; the counter makes that cost observable.
+                result_json = await asyncio.wait_for(future, timeout=timeout_seconds)
+            else:
+                result_json = await future
 
             if not result_json:
                 return []
+
+            # Engine-level failures arrive as an error JSON *string*, not an
+            # exception — treating them as results silently dropped whole
+            # writes (the update_episode error=None incident).
+            if result_json.startswith('{"error"'):
+                _count_failure(endpoint, "errors")
+                raise NativeQueryError(
+                    endpoint,
+                    result_json[:300],
+                    elapsed_ms=(time.monotonic() - started) * 1000,
+                )
 
             raw = json.loads(result_json)
             if raw is None:
@@ -164,6 +242,22 @@ class NativeTransport:
 
             return unwrap_helix_results(raw)
 
+        except NativeQueryError:
+            raise
+        except TimeoutError:
+            _count_failure(endpoint, "timeouts")
+            elapsed_ms = (time.monotonic() - started) * 1000
+            logger.warning(
+                "Native query %s timed out after %.0fms (worker thread continues)",
+                endpoint,
+                elapsed_ms,
+            )
+            raise NativeQueryError(
+                endpoint,
+                f"timeout after {timeout_seconds:.1f}s",
+                timeout=True,
+                elapsed_ms=elapsed_ms,
+            ) from None
         except Exception as exc:
             exc_str = str(exc)
             if (
@@ -171,18 +265,29 @@ class NativeTransport:
                 or "NotFound" in exc_str
                 or "no entry point found for hnsw index" in exc_str.lower()
             ):
+                # silent-ok: engine signals a legitimately empty result set
+                # via these exception strings — this IS the empty contract.
                 return []
             if (
                 "invalid vector dimensions" in exc_str.lower()
                 or "mis-match in vector dimensions" in exc_str.lower()
             ):
+                # silent-ok: mixed-dimension brains (legacy 1024-d vectors
+                # alongside 768-d) tolerate per-vector mismatches on SEARCH;
+                # counted so drift is observable.
+                _count_failure(endpoint, "dim_mismatch")
                 logger.debug(
                     "Native query %s skipped due to vector dimension mismatch",
                     endpoint,
                 )
                 return []
+            _count_failure(endpoint, "errors")
             logger.error("Native query %s failed: %s", endpoint, exc)
-            return []
+            raise NativeQueryError(
+                endpoint,
+                exc_str[:300],
+                elapsed_ms=(time.monotonic() - started) * 1000,
+            ) from exc
 
     async def query_many(
         self,
@@ -240,8 +345,21 @@ class NativeTransport:
             from engram.storage.helix import unwrap_helix_results
 
             results: list[list[dict]] = []
-            for result_json in result_jsons:
-                if not result_json or result_json.startswith('{"error"'):
+            for (item_endpoint, _), result_json in zip(queries, result_jsons):
+                if result_json and result_json.startswith('{"error"'):
+                    # silent-ok: batch partial tolerance — one bad item must
+                    # not nuke a search fan-out; counted + warned so it is
+                    # never invisible, and the single-query path (used by the
+                    # whole-batch fallback below) raises on the same failure.
+                    _count_failure(item_endpoint, "batch_item_errors")
+                    logger.warning(
+                        "Native batch item %s failed: %s",
+                        item_endpoint,
+                        result_json[:200],
+                    )
+                    results.append([])
+                    continue
+                if not result_json:
                     results.append([])
                     continue
                 raw = json.loads(result_json)
@@ -252,6 +370,8 @@ class NativeTransport:
             return results
 
         except Exception:
+            # silent-ok: whole-batch failure degrades to individual queries,
+            # each of which raises NativeQueryError on real failures.
             logger.warning("Native batch failed, falling back", exc_info=True)
             return await self._fallback_concurrent(queries)
 
@@ -286,5 +406,5 @@ def _close_cached_engines() -> None:
     for engine in engines:
         try:
             engine.close()
-        except Exception:
+        except Exception:  # silent-ok: atexit teardown; process is exiting
             logger.debug("Failed to close cached native Helix engine", exc_info=True)

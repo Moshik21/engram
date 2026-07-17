@@ -83,12 +83,27 @@ async def build_api_entity_search_surface(
     limit: int = 20,
 ) -> dict:
     """Build the REST entity-search response from the shared lookup facade."""
-    results = await manager.search_entities(
-        group_id=group_id,
-        name=name,
-        entity_type=entity_type,
-        limit=limit,
-    )
+    try:
+        results = await manager.search_entities(
+            group_id=group_id,
+            name=name,
+            entity_type=entity_type,
+            limit=limit,
+        )
+    except Exception as exc:
+        # Silent-inert hardening: type-only listings full-scan the native
+        # store and can time out on large brains. That used to surface as an
+        # EMPTY 200 ("no Decisions exist") — now the degradation is explicit
+        # so callers (e.g. the organic continuity gate) know to use their
+        # indexed-probe fallback instead of trusting an empty list.
+        if type(exc).__name__ != "NativeQueryError":
+            raise
+        return {
+            "items": [],
+            "total": 0,
+            "status": "timeout" if getattr(exc, "timeout", False) else "error",
+            "detail": str(exc)[:200],
+        }
     items = [_api_entity_item(result) for result in results]
     return {"items": items, "total": len(items)}
 

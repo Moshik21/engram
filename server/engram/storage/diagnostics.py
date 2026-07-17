@@ -20,6 +20,17 @@ DEFAULT_STARTUP_TIMEOUT_SECONDS = 0.75
 BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS = 30.0
 
 
+def _native_query_failures() -> dict[str, dict[str, int]]:
+    """Per-endpoint native query failure counters (empty when none/unavailable)."""
+    try:
+        from engram.storage.helix.native_transport import get_query_failure_stats
+
+        return get_query_failure_stats()
+    except Exception:
+        # silent-ok: native transport absent (non-helix mode) means no failure stats to report.
+        return {}
+
+
 def default_helix_native_data_dir() -> Path:
     """Return the default path used by the bundled PyO3 Helix runtime."""
     return Path.home() / ".helix" / "engram-native"
@@ -216,6 +227,10 @@ class StorageDiagnostics:
                 "pathsAgeSeconds": _age_seconds(path_snapshot.captured_at, now=now),
                 "countsRefreshStatus": self._count_refresh_status(resolved_group),
                 "countsRefreshSkippedReason": self._count_refresh_skip_reason(live),
+                # Silent-inert hardening: native query failures/timeouts are
+                # counted per endpoint so a query that "returns nothing on the
+                # big brain" shows up here instead of masquerading as empty.
+                "queryFailures": _native_query_failures(),
                 "stageTimingsMs": {
                     "storage_counts": count_ms,
                     "storage_paths": path_ms,
@@ -333,14 +348,17 @@ class StorageDiagnostics:
         try:
             counts = task.result()
         except asyncio.CancelledError:
+            # silent-ok: observed refresh task was cancelled; no counts to cache.
             return
         except TimeoutError:
+            # silent-ok: background refresh timed out (logged); cache keeps prior counts.
             LOGGER.warning(
                 "background storage count refresh timed out after %.1f seconds",
                 BACKGROUND_COUNT_REFRESH_TIMEOUT_SECONDS,
             )
             return
         except Exception:
+            # silent-ok: background refresh failed (logged w/ traceback); cache keeps prior counts.
             LOGGER.warning("background storage count refresh failed", exc_info=True)
             return
         snapshot = _cached_counts(counts, captured_at=time.time(), status="background_live")
@@ -622,6 +640,7 @@ def _int_stat(payload: dict[str, Any], *keys: str) -> int:
         try:
             return int(value)
         except (TypeError, ValueError):
+            # silent-ok: stat coercion; non-numeric value falls through to next key / default 0.
             continue
     return 0
 
@@ -659,5 +678,6 @@ def _path_size(path: Path) -> int:
                 if not candidate.is_symlink():
                     total += candidate.stat().st_size
             except OSError:
+                # silent-ok: unstattable file skipped in size walk; best-effort disk total.
                 continue
     return total

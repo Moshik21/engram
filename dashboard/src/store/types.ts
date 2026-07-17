@@ -351,6 +351,10 @@ export interface StorageReport {
     countsAgeSeconds: number;
     pathsStatus: string;
     pathsAgeSeconds: number;
+    queryFailures?: Record<
+      string,
+      { errors: number; timeouts: number; dim_mismatch: number; batch_item_errors: number }
+    >;
   };
 }
 

@@ -359,6 +359,29 @@ function StorageCard({ storage }: { storage: StorageReport }) {
           accent="#818cf8"
           helper={`${formatSigned(storage.growthSinceStartup.cues)} since start`}
         />
+        {(() => {
+          // Silent-inert hardening: surface native query failures/timeouts so
+          // "returns nothing on the big brain" is visible, not invisible.
+          const failures = storage.diagnostics?.queryFailures ?? {};
+          const totals = Object.values(failures).reduce(
+            (acc, f) => acc + f.errors + f.timeouts,
+            0,
+          );
+          if (totals === 0) return null;
+          const worst = Object.entries(failures)
+            .sort(
+              (a, b) =>
+                b[1].errors + b[1].timeouts - (a[1].errors + a[1].timeouts),
+            )[0];
+          return (
+            <MiniMetric
+              label="Query failures"
+              value={totals.toLocaleString()}
+              accent="#f87171"
+              helper={worst ? `worst: ${worst[0]}` : ""}
+            />
+          );
+        })()}
       </div>
 
       {primaryPath ? (

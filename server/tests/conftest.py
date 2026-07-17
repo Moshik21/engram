@@ -40,13 +40,19 @@ def _helix_available() -> bool:
     return bool(_helix_probe(prefer_native=True).get("available"))
 
 
-def _test_helix_config() -> HelixDBConfig:
+def _test_helix_config(tmp_path: Path | None = None) -> HelixDBConfig:
     """Prefer native data-dir fixtures; fall back to HTTP :6969.
 
     Never point at the live product data-dir — tests use a disposable path.
+    Pass ``tmp_path`` for per-test isolation: Helix BM25 doc IDs are
+    content-derived, so re-creating the same content on a shared dir raises
+    "document already exists" (previously swallowed by the transport, which
+    let cross-test contamination pass silently).
     """
     if helix_native_available():
         data_dir = os.environ.get("ENGRAM_TEST_HELIX_DATA_DIR")
+        if not data_dir and tmp_path is not None:
+            data_dir = str(tmp_path / "helix-native")
         if not data_dir:
             data_dir = str(Path(os.environ.get("TMPDIR", "/tmp")) / "engram-helix-pytest-native")
         os.makedirs(data_dir, exist_ok=True)
@@ -62,16 +68,16 @@ def event_loop():
 
 
 @pytest.fixture
-def config() -> EngramConfig:
+def config(tmp_path: Path) -> EngramConfig:
     return EngramConfig(
-        helix=_test_helix_config(),
+        helix=_test_helix_config(tmp_path),
         _env_file=None,
     )
 
 
 @pytest.fixture
-def helix_config() -> HelixDBConfig:
-    return _test_helix_config()
+def helix_config(tmp_path: Path) -> HelixDBConfig:
+    return _test_helix_config(tmp_path)
 
 
 @pytest.fixture

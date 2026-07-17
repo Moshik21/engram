@@ -18,6 +18,7 @@ class _FailingEngine:
 @pytest.mark.asyncio
 async def test_native_transport_treats_missing_hnsw_index_as_empty(caplog) -> None:
     transport = object.__new__(NativeTransport)
+    transport._config = None  # default query timeout
     transport._engine = _FailingEngine(
         "Query 'search_graph_embed_vectors' failed: "
         "Vector error: no entry point found for hnsw index"

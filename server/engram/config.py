@@ -57,6 +57,15 @@ class HelixDBConfig(BaseModel):
     verbose: bool = False
     max_workers: int = 4
     data_dir: str = ""  # Native transport: LMDB data dir (~/.helix/engram-native)
+    query_timeout_seconds: float = Field(
+        default=20.0,
+        ge=0.0,
+        le=600.0,
+        description=(
+            "Per-query wall bound for the native transport; timed-out queries "
+            "raise NativeQueryError instead of silently returning []. 0 disables."
+        ),
+    )
     adjudication_metrics_cache_ttl_seconds: float = Field(
         default=60.0,
         ge=0.0,
