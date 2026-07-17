@@ -188,6 +188,8 @@ class HelixAtlasStore:
             try:
                 await self._query("delete_atlas_snapshot", {"id": helix_id})
             except Exception:
+                # silent-ok: best-effort prior-snapshot cleanup during upsert;
+                # the new snapshot node is still (re)created below.
                 pass
         else:
             # Try to find existing snapshot by query and delete
@@ -204,9 +206,13 @@ class HelixAtlasStore:
                             try:
                                 await self._query("delete_atlas_snapshot", {"id": hid})
                             except Exception:
+                                # silent-ok: best-effort prior-snapshot cleanup
+                                # during upsert; new snapshot node recreated below.
                                 pass
                         break
             except Exception:
+                # silent-ok: best-effort lookup of a stale snapshot to delete;
+                # absence/failure just means nothing to clean before recreate.
                 pass
 
         # -- 3. Create snapshot node --

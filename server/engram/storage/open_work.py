@@ -41,4 +41,5 @@ def _int(value: Any) -> int:
     try:
         return int(value or 0)
     except (TypeError, ValueError):
+        # silent-ok: count coercion; a non-numeric status value normalizes to 0.
         return 0

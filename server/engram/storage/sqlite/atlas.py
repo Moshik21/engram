@@ -95,6 +95,7 @@ class SQLiteAtlasStore:
                 "ALTER TABLE atlas_regions ADD COLUMN latest_entity_created_at TEXT"
             )
         except Exception:
+            # silent-ok: idempotent migration, column already exists on upgraded DBs
             pass
         await self.db.execute(
             """

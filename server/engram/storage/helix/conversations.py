@@ -297,6 +297,8 @@ class HelixConversationStore:
                         if _safe_get(e, "entity_id", "")
                     ]
                 except Exception:
+                    # silent-ok: best-effort entity enrichment; the conversation
+                    # is still listed (with empty entityIds) if the sub-fetch fails.
                     logger.debug(
                         "Failed to fetch entities for conversation %s",
                         cid,
@@ -434,6 +436,9 @@ class HelixConversationStore:
                 {"conv_id": conv_helix_id, "entity_id": entity_helix_id},
             )
         except Exception:
+            # silent-ok: best-effort secondary write — the conversation's
+            # messages (primary) are persisted separately and callers tag each
+            # recalled entity in a loop, so one link failure must not abort it.
             logger.debug(
                 "link_conversation_entity failed for conv=%s entity=%s",
                 conversation_id,
@@ -447,10 +452,10 @@ class HelixConversationStore:
         This is a lightweight version of the graph store's resolver,
         scoped to conversation tagging.
         """
-        try:
-            results = await self._query("find_entities_by_group", {"gid": group_id})
-        except Exception:
-            return None
+        # A query failure must propagate (caught by the best-effort tag_entity
+        # handler) so it is never confused with a genuine "entity not found":
+        # an empty result set returns None below; a failure raises.
+        results = await self._query("find_entities_by_group", {"gid": group_id})
         for item in results:
             eid = _safe_get(item, "entity_id", "")
             if eid == entity_id:
@@ -520,6 +525,9 @@ class HelixConversationStore:
                 if message_id:
                     self._msg_id_cache.pop(message_id, None)
         except Exception:
+            # silent-ok: best-effort message cleanup; the conversation node
+            # delete (primary) is still attempted below and surfaces its own
+            # failure. Orphaned messages miss on next resolve, never served.
             logger.debug(
                 "conversation message cleanup failed for %s",
                 conversation_id,
@@ -530,12 +538,14 @@ class HelixConversationStore:
         try:
             await self._query("delete_conversation", {"id": helix_id})
         except Exception:
-            logger.debug(
+            # Primary delete: a failure must surface, never masquerade as the
+            # `False` we return for a genuinely absent/unowned conversation.
+            logger.error(
                 "delete_conversation failed for %s",
                 conversation_id,
                 exc_info=True,
             )
-            return False
+            raise
 
         # Clean up conversation cache entry.
         # Message cache entries for this conversation become stale but

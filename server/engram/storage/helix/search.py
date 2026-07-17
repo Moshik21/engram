@@ -316,8 +316,13 @@ class HelixSearchIndex:
 
             return unwrap_helix_results(results)
         except Exception as e:
+            exc_name = type(e).__name__
+            if "NoValue" in exc_name or "NotFound" in exc_name:
+                # silent-ok: helix-py signals a legitimately empty result set via
+                # these exceptions — this IS the empty contract (matches NativeTransport).
+                return []
             logger.warning("HelixSearchIndex._query(%s) failed: %s", endpoint, e)
-            return []
+            raise
 
     def _get_fallback_provider(self) -> EmbeddingProvider | None:
         """Lazily create a local FastEmbed fallback provider.
@@ -339,12 +344,16 @@ class HelixSearchIndex:
             )
             return self._fallback_provider
         except ImportError:
+            # silent-ok: FastEmbed is an optional dependency; its absence means
+            # there is simply no local embedding fallback available.
             logger.warning(
                 "HelixSearchIndex: FastEmbed not installed, no fallback available. "
                 "Install with: pip install fastembed"
             )
             return None
         except Exception as e:
+            # silent-ok: fallback provider init failure is logged; the caller
+            # handles a None provider as "no fallback available".
             logger.warning("HelixSearchIndex: fallback provider init failed: %s", e)
             return None
 
@@ -661,7 +670,9 @@ class HelixSearchIndex:
                     if topic_segments:
                         return topic_segments
         except Exception:
-            pass  # Fall through to size-based
+            # silent-ok: topic segmentation is optional; fall through to the
+            # size-based splitting path below.
+            pass
 
         # Step 4: Fallback — size-based splitting at sentence boundaries
         segments = []
@@ -992,6 +1003,8 @@ class HelixSearchIndex:
                         if embedding and self._storage_dim > 0:
                             embedding = truncate_vectors([embedding], self._storage_dim)[0]
                     except Exception as mm_err:
+                        # silent-ok: multimodal embedding is optional; falls back
+                        # to the text-only embedding path below.
                         logger.warning(
                             "Multimodal embedding failed for episode %s, "
                             "falling back to text-only: %s",
@@ -1085,6 +1098,8 @@ class HelixSearchIndex:
                                 )
                                 used_server_embed = True
                             except Exception:
+                                # silent-ok: server-side embed attempt; falls back
+                                # to client-side embedding below when it fails.
                                 pass
                         if not used_server_embed:
                             chunk_vecs = await self._embed_texts([chunk_text])
@@ -1138,7 +1153,11 @@ class HelixSearchIndex:
                 },
             )
         except Exception as e:
+            # Cue vector indexing is a write; its failure must surface so the
+            # capture-service best-effort wrapper marks the cue index failed
+            # instead of recording a phantom success (the silent-inert bug class).
             logger.warning("Failed to index cue %s: %s", cue.episode_id, e)
+            raise
 
     async def batch_index_entities(self, entities: list[Entity]) -> int:
         """Batch-embed and index multiple entities. Returns count indexed."""
@@ -1178,6 +1197,8 @@ class HelixSearchIndex:
                 )
                 indexed += 1
             except Exception as e:
+                # silent-ok: per-entity failure is reflected in the returned
+                # indexed count (< len(valid)); reindex backfill repairs it.
                 logger.warning("Failed to index entity %s: %s", entity.id, e)
 
         return indexed
@@ -1513,6 +1534,9 @@ class HelixSearchIndex:
 
             return list(seen.values())[:limit]
         except Exception as e:
+            # silent-ok: chunk search is additive precision enrichment; the
+            # failure is logged here and the caller (retrieval/pipeline) treats
+            # an empty return as non-fatal, so the primary episode search stands.
             logger.warning("search_episode_chunks failed: %s", e)
             return []
 
@@ -1739,7 +1763,8 @@ class HelixSearchIndex:
                 )
                 break
             except Exception:
-                # Dimension mismatch or other error — try next dimension
+                # silent-ok: dimension probe — try the next candidate vector
+                # dimension when this one mismatches or errors.
                 continue
 
         return results
@@ -1804,6 +1829,8 @@ class HelixSearchIndex:
                     await self._query("add_graph_embed_vector", payload)
                     count += 1
                 except Exception:
+                    # silent-ok: per-vector write failure is reflected in the
+                    # returned count; the next sync re-pushes missing vectors.
                     pass
             return count
 
@@ -1864,13 +1891,16 @@ class HelixSearchIndex:
                             await self._query("delete_graph_embed_vector", {"id": row_id})
                             deleted += 1
                         except Exception:
+                            # silent-ok: per-vector delete failure is reflected in
+                            # the returned deleted count; retried on next clear.
                             pass
 
                 # Found entries at this dimension — that's the index dimension.
                 # No need to try others.
                 break
             except Exception:
-                # Dimension mismatch for this trial — try next
+                # silent-ok: dimension probe — try the next candidate vector
+                # dimension for this trial when it mismatches or errors.
                 continue
 
         if deleted:

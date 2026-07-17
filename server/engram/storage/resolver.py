@@ -115,6 +115,7 @@ def _check_native() -> bool:
 
         return True
     except ImportError:
+        # silent-ok: capability probe; missing native extension selects fallback backend
         return False
 
 
@@ -128,6 +129,7 @@ async def _check_helix() -> bool:
         socket.create_connection((host, port), timeout=2)
         return True
     except Exception:
+        # silent-ok: connectivity probe; unreachable HelixDB selects the next backend
         return False
 
 
@@ -146,6 +148,7 @@ async def _check_redis() -> bool:
         await r.aclose()
         return True
     except Exception:
+        # silent-ok: connectivity probe; unreachable Redis means not full-mode-ready
         return False
 
 
@@ -163,6 +166,7 @@ async def _check_falkordb() -> bool:
         db.list_graphs()
         return True
     except Exception:
+        # silent-ok: connectivity probe; unreachable FalkorDB means not full-mode-ready
         return False
 
 

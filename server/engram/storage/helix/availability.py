@@ -19,6 +19,7 @@ def helix_native_importable() -> bool:
 
         return True
     except Exception:
+        # silent-ok: import probe; ImportError/failure is the availability signal
         return False
 
 
@@ -33,6 +34,7 @@ def helix_http_available(
         socket.create_connection((host, port), timeout=timeout)
         return True
     except Exception:
+        # silent-ok: TCP reachability probe; connection failure is the signal
         return False
 
 
@@ -58,6 +60,7 @@ def helix_native_available(
     try:
         path.mkdir(parents=True, exist_ok=True)
     except OSError:
+        # silent-ok: writability probe; mkdir failure means data-dir unusable
         return False
     if require_writable and not os.access(path, os.W_OK):
         return False

@@ -189,6 +189,7 @@ class SQLiteGraphStore:
             try:
                 await self._db.execute(sql)
             except Exception:
+                # silent-ok: idempotent schema/index DDL, statement already applied
                 pass
         await self._db.commit()
 
@@ -261,7 +262,8 @@ class SQLiteGraphStore:
             try:
                 await self._db.execute(sql)
             except Exception:
-                pass  # Column already exists
+                # silent-ok: idempotent migration, column already exists
+                pass
         await self._db.commit()
 
     async def close(self) -> None:
@@ -517,7 +519,9 @@ class SQLiteGraphStore:
                         seen_ids.add(entity.id)
                         results.append(entity)
             except Exception:
-                pass  # Malformed FTS5 query — fall through gracefully
+                # silent-ok: FTS5 MATCH rejects malformed tokens; exact + prefix
+                # phases against the same DB still supply candidates
+                logger.debug("FTS5 candidate phase skipped for %r", fts_query)
 
         # Phase 3: Prefix LIKE fallback (catches typos that FTS5 stemming misses)
         if (
@@ -541,6 +545,8 @@ class SQLiteGraphStore:
                         seen_ids.add(entity.id)
                         results.append(entity)
             except Exception:
+                # silent-ok: additive typo-catch fallback; exact + FTS phases
+                # already queried the same DB, so a real DB fault surfaced there
                 pass
 
         return results[:limit]
@@ -2111,6 +2117,8 @@ class SQLiteGraphStore:
             try:
                 source_episode_ids = json.loads(row["source_episode_ids"])
             except (json.JSONDecodeError, TypeError):
+                # silent-ok: legacy/corrupt JSON in optional provenance field;
+                # empty list is a safe default and the entity still loads
                 pass
         evidence_count = row["evidence_count"] if "evidence_count" in row.keys() else 0
 
@@ -2792,4 +2800,5 @@ def _parse_dt(value: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(value)
     except (ValueError, TypeError):
+        # silent-ok: unparseable/legacy datetime string degrades to None (nullable field)
         return None

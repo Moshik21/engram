@@ -197,8 +197,11 @@ class HelixClient:
             return unwrap_helix_results(raw)
 
         except httpx.ConnectError:
+            # A lost connection is a hard failure, never an empty result —
+            # surfacing it (like NativeTransport) keeps callers from metering
+            # the outage as "nothing found" (the silent-inert bug class).
             logger.error("HelixDB connection lost for %s", endpoint)
-            return []
+            raise
         except Exception as exc:
             exc_name = type(exc).__name__
             if "NoValue" in exc_name or "NotFound" in exc_name:

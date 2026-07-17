@@ -86,7 +86,8 @@ class SQLiteVectorStore:
                     f"ALTER TABLE embeddings ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"
                 )
             except Exception:
-                pass  # column already exists
+                # silent-ok: idempotent migration, column already exists
+                pass
 
         # Migration: upgrade legacy single-column PK (id) to composite (id, content_type).
         # Older DBs collided episode and cue vectors on the same id; rebuild the table so

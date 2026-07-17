@@ -64,7 +64,9 @@ class RedisSearchIndex:
             logger.info("RedisSearchIndex: index '%s' already exists", self._index_name)
             return
         except Exception:
-            pass  # Index does not exist, create it
+            # silent-ok: FT.INFO raises when the index is absent — that is the
+            # signal to create it below
+            pass
 
         dim = self._storage_dim if self._storage_dim > 0 else self._provider.dimension()
         m = self._config.hnsw_m
@@ -116,6 +118,8 @@ class RedisSearchIndex:
                 ef_construction,
             )
         except Exception as e:
+            # silent-ok: legacy full-mode lane; index-setup failure is logged and
+            # surfaces again via the search-failure logs below
             logger.warning("RedisSearchIndex: FT.CREATE failed: %s", e)
 
     def _hash_key(self, group_id: str, content_type: str, item_id: str) -> str:
@@ -170,6 +174,8 @@ class RedisSearchIndex:
                 },
             )
         except Exception as e:
+            # silent-ok: legacy lane, best-effort secondary vector index; entity is
+            # persisted by the graph store and the reindex phase re-embeds
             logger.warning("Failed to index entity %s: %s", entity.id, e)
 
     async def index_episode(self, episode: Episode) -> None:
@@ -226,6 +232,8 @@ class RedisSearchIndex:
                 },
             )
         except Exception as e:
+            # silent-ok: legacy lane, best-effort secondary vector index; episode is
+            # persisted by the graph store and the reindex phase re-embeds
             logger.warning("Failed to index episode %s: %s", episode.id, e)
 
     async def index_episode_cue(self, cue: EpisodeCue) -> None:
@@ -235,6 +243,7 @@ class RedisSearchIndex:
             try:
                 await self._redis.delete(key)
             except Exception as e:
+                # silent-ok: legacy lane, best-effort cleanup of a stale index entry
                 logger.warning("Failed to remove cue %s: %s", cue.episode_id, e)
             return
         if not self._embeddings_enabled:
@@ -265,6 +274,8 @@ class RedisSearchIndex:
                 },
             )
         except Exception as e:
+            # silent-ok: legacy lane, best-effort secondary vector index; cue is
+            # persisted by the graph store and the reindex phase re-embeds
             logger.warning("Failed to index cue %s: %s", cue.episode_id, e)
 
     @staticmethod
@@ -346,6 +357,8 @@ class RedisSearchIndex:
                 "score",
             )
         except Exception as e:
+            # silent-ok: legacy lane read path; FT.SEARCH failure degrades to
+            # empty text results, logged for visibility
             logger.debug("Redis text search failed (non-fatal): %s", e)
             return []
 
@@ -527,6 +540,8 @@ class RedisSearchIndex:
             if not query_vec:
                 return {}
         except Exception:
+            # silent-ok: legacy lane; query-embed failure degrades to no
+            # similarity scores for the caller to fuse
             return {}
 
         # Truncate query vector to storage dimension
@@ -551,6 +566,8 @@ class RedisSearchIndex:
                 if best_score > 0:
                     results[eid] = best_score
             except Exception:
+                # silent-ok: skip one entity whose stored vector can't be decoded;
+                # the remaining entities are still scored
                 continue
 
         return results
@@ -597,6 +614,8 @@ class RedisSearchIndex:
             await pipe.execute()
             return len(valid)
         except Exception as e:
+            # silent-ok: legacy lane, best-effort secondary vector index; entities
+            # are persisted by the graph store and the reindex phase re-embeds
             logger.warning("Batch index entities failed: %s", e)
             return 0
 
@@ -666,6 +685,8 @@ class RedisSearchIndex:
             if batch:
                 await self._redis.delete(*batch)
         except Exception as exc:
+            # silent-ok: legacy lane, secondary vector-index cleanup; the graph
+            # store's group deletion is the source of truth and failure is logged
             logger.warning(
                 "RedisSearchIndex.delete_group(%s) failed: %s",
                 group_id,

@@ -206,6 +206,8 @@ class FTS5SearchIndex:
             cursor = await self.db.execute(sql, params)
             rows = list(await cursor.fetchall())
         except Exception as e:
+            # silent-ok: FTS5 rejects malformed MATCH syntax; hybrid search
+            # degrades to vector-only when this returns empty
             logger.warning("FTS5 search failed for query %r: %s", query, e)
             return []
 
@@ -250,6 +252,8 @@ class FTS5SearchIndex:
             cursor = await self.db.execute(sql, params)
             rows = list(await cursor.fetchall())
         except Exception as e:
+            # silent-ok: FTS5 rejects malformed MATCH syntax; hybrid search
+            # degrades to vector-only when this returns empty
             logger.warning("FTS5 episode search failed for query %r: %s", query, e)
             return []
 
@@ -288,6 +292,8 @@ class FTS5SearchIndex:
             cursor = await self.db.execute(sql, params)
             rows = list(await cursor.fetchall())
         except Exception as e:
+            # silent-ok: FTS5 rejects malformed MATCH syntax; hybrid search
+            # degrades to vector-only when this returns empty
             logger.warning("FTS5 cue search failed for query %r: %s", query, e)
             return []
 

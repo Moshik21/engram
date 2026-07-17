@@ -53,6 +53,7 @@ def _create_embedding_provider(config: EngramConfig):
                     logger.warning("google-genai not installed — pip install google-genai")
                 # Fall through to next provider
             except Exception as e:
+                # silent-ok: provider ladder; logged Gemini failure falls through to next provider
                 logger.warning("GeminiProvider init failed: %s", e)
 
     # --- Voyage (explicit or auto-fallback) ---
@@ -93,6 +94,7 @@ def _create_embedding_provider(config: EngramConfig):
             )
             return provider
         except ImportError:
+            # silent-ok: optional dep probe; missing fastembed falls through to NoopProvider
             logger.warning(
                 "fastembed not installed — vector search disabled. "
                 "Install with: pip install fastembed"

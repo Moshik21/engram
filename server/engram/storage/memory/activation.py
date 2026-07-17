@@ -101,6 +101,8 @@ class MemoryActivationStore:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(payload), encoding="utf-8")
         except OSError:
+            # silent-ok: best-effort shutdown snapshot; failure is logged with a
+            # traceback and returning 0 avoids aborting the rest of shutdown cleanup.
             logger.warning("Activation snapshot write failed: %s", path, exc_info=True)
             return 0
         return len(states)
@@ -110,6 +112,7 @@ class MemoryActivationStore:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            # silent-ok: no readable snapshot to restore; start empty (next save rewrites it).
             return 0
         saved_at = payload.get("saved_at")
         if not isinstance(saved_at, (int, float)):
@@ -134,6 +137,7 @@ class MemoryActivationStore:
                     ts_beta=float(entry.get("ts_beta") or 1.0),
                 )
             except (TypeError, ValueError):
+                # silent-ok: skip a single malformed snapshot entry; others still restore.
                 continue
             self._states[eid] = state
             if group_id:

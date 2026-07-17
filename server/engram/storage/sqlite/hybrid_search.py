@@ -101,6 +101,8 @@ class HybridSearchIndex:
                         embed_model=self._embed_model,
                     )
             except Exception as e:
+                # silent-ok: best-effort secondary vector index; entity is already
+                # persisted by the graph store and the reindex phase re-embeds
                 logger.warning("Failed to embed entity %s: %s", entity.id, e)
 
     async def index_episode(self, episode: Episode) -> None:
@@ -146,6 +148,8 @@ class HybridSearchIndex:
                     embed_model=self._embed_model,
                 )
             except Exception as e:
+                # silent-ok: best-effort secondary vector index; episode is already
+                # persisted by the graph store and the reindex phase re-embeds
                 logger.warning("Failed to embed episode %s: %s", episode.id, e)
 
     async def index_episode_cue(self, cue: EpisodeCue) -> None:
@@ -156,6 +160,7 @@ class HybridSearchIndex:
             try:
                 await self._vectors.remove(cue.episode_id, content_type="episode_cue")
             except Exception as e:
+                # silent-ok: best-effort cleanup of a stale secondary index entry
                 logger.warning("Failed to remove cue embedding %s: %s", cue.episode_id, e)
             return
         try:
@@ -174,6 +179,8 @@ class HybridSearchIndex:
                 embed_model=self._embed_model,
             )
         except Exception as e:
+            # silent-ok: best-effort secondary vector index; cue is already
+            # persisted by the graph store and the reindex phase re-embeds
             logger.warning("Failed to embed cue %s: %s", cue.episode_id, e)
 
     async def batch_index_entities(self, entities: list[Entity]) -> int:
@@ -386,6 +393,9 @@ class HybridSearchIndex:
                 if not query_vec:
                     return {}
             except Exception:
+                # silent-ok: query-embed failure degrades to no vector scores;
+                # caller fuses this with other signals
+                logger.debug("compute_similarity: query embed failed for %r", query)
                 return {}
 
         # Truncate query vector to storage dimension
@@ -630,4 +640,6 @@ class HybridSearchIndex:
                         self._embed_provider,
                     )
         except Exception:
-            pass  # Non-fatal — table may not have versioning columns yet
+            # silent-ok: version-mismatch probe is advisory only; legacy DBs may
+            # lack the versioning columns and there is nothing to warn about
+            pass

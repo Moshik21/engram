@@ -295,6 +295,7 @@ class HelixConsolidationStore:
         try:
             data = json.loads(row["payload_json"] or "{}")
         except json.JSONDecodeError:
+            # silent-ok: malformed sidecar payload → treat as no active adjustment
             return None
         return data if isinstance(data, dict) else None
 
@@ -1586,6 +1587,8 @@ class HelixConsolidationStore:
                     if started_at < cutoff:
                         expired_cycles.append((group_id, cycle_id, helix_id))
             except Exception:
+                # silent-ok: best-effort TTL expiry scan; an un-scannable cycle
+                # is simply reconsidered on the next cleanup pass.
                 pass
 
         if not expired_cycles:
@@ -1632,8 +1635,12 @@ class HelixConsolidationStore:
                                     {"id": rec_helix_id},
                                 )
                             except Exception:
+                                # silent-ok: best-effort GC of an expired child
+                                # record; retried next cleanup pass if it fails.
                                 pass
                 except Exception:
+                    # silent-ok: best-effort GC record scan for one record type;
+                    # the remaining types and cycles still get processed.
                     pass
 
             # Delete the cycle node itself
@@ -1648,6 +1655,9 @@ class HelixConsolidationStore:
                     if str(self._cycle_id_cache.get(cycle_id)) == str(helix_id):
                         self._cycle_id_cache.pop(cycle_id, None)
                 except Exception:
+                    # silent-ok: best-effort GC of an expired cycle node; the
+                    # returned deleted_count omits it, so the failure is not
+                    # metered as a success, and the next pass retries it.
                     pass
 
         return deleted_count
@@ -1675,6 +1685,8 @@ class HelixConsolidationStore:
                         )
                     )
             except (json.JSONDecodeError, TypeError):
+                # silent-ok: malformed phase_results_json → cycle is still
+                # returned, just without its per-phase breakdown.
                 pass
 
         completed_at = _safe_get(d, "completed_at", None)

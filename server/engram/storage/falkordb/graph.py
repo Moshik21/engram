@@ -33,6 +33,7 @@ def _parse_dt(value: str | None) -> datetime | None:
     try:
         return datetime.fromisoformat(value)
     except (ValueError, TypeError):
+        # silent-ok: unparseable/legacy datetime string degrades to None (nullable field)
         return None
 
 
@@ -184,7 +185,8 @@ class FalkorDBGraphStore:
             try:
                 await self._query(idx)
             except Exception:
-                pass  # Index already exists
+                # silent-ok: idempotent index DDL, index already exists
+                pass
 
         logger.info(
             "FalkorDB graph store initialized (host=%s, port=%d, graph=%s)",
@@ -336,6 +338,8 @@ class FalkorDBGraphStore:
                     {"gid": group_id},
                 )
             except Exception:
+                # silent-ok: legacy falkordb lane; per-label deletion continues on
+                # failure and the failure is logged with a traceback
                 logger.debug(
                     "delete_group: failed to delete %s nodes for %s",
                     label,
@@ -1948,6 +1952,7 @@ class FalkorDBGraphStore:
             try:
                 pii_categories = json.loads(props["pii_categories"])
             except (json.JSONDecodeError, TypeError):
+                # silent-ok: corrupt/legacy JSON in optional field; None default is safe
                 pass
 
         attributes = None
@@ -1955,6 +1960,7 @@ class FalkorDBGraphStore:
             try:
                 attributes = json.loads(props["attributes"])
             except (json.JSONDecodeError, TypeError):
+                # silent-ok: corrupt/legacy JSON in optional field; None default is safe
                 pass
 
         return Entity(

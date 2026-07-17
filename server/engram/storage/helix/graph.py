@@ -40,6 +40,7 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(value)
+    # silent-ok: stored-field parse tolerance; malformed value degrades to None
     except (ValueError, TypeError):
         return None
 
@@ -51,6 +52,7 @@ def _json_list(value: Any) -> list:
         return []
     try:
         parsed = json.loads(str(value))
+    # silent-ok: stored-field parse tolerance; malformed value degrades to []
     except (json.JSONDecodeError, TypeError):
         return []
     return parsed if isinstance(parsed, list) else []
@@ -59,6 +61,7 @@ def _json_list(value: Any) -> list:
 def _as_int(value: Any) -> int:
     try:
         return int(value or 0)
+    # silent-ok: stored-field parse tolerance; malformed value degrades to 0
     except (TypeError, ValueError):
         return 0
 
@@ -70,6 +73,7 @@ def _has_count_row(rows: list[dict]) -> bool:
 def _as_float(value: Any) -> float:
     try:
         return float(value or 0.0)
+    # silent-ok: stored-field parse tolerance; malformed value degrades to 0.0
     except (TypeError, ValueError):
         return 0.0
 
@@ -526,6 +530,7 @@ class HelixGraphStore:
                     parsed_attrs = json.loads(parsed_attrs)
                 if isinstance(parsed_attrs, dict):
                     attributes = parsed_attrs
+            # silent-ok: stored-field parse tolerance; malformed attributes degrade to {}
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -534,6 +539,7 @@ class HelixGraphStore:
         if raw_pii:
             try:
                 pii_categories = json.loads(raw_pii)
+            # silent-ok: stored-field parse tolerance; malformed pii list degrades to None
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -547,6 +553,7 @@ class HelixGraphStore:
         if raw_source_eps:
             try:
                 source_episode_ids = json.loads(raw_source_eps)
+            # silent-ok: stored-field parse tolerance; malformed source list degrades to []
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -700,6 +707,7 @@ class HelixGraphStore:
         if raw_ctx:
             try:
                 ctx = json.loads(raw_ctx)
+            # silent-ok: stored-field parse tolerance; malformed context degrades to {}
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -796,6 +804,7 @@ class HelixGraphStore:
                 else:
                     kwargs["local"] = True
                 self._client = await asyncio.to_thread(Client, **kwargs)
+            # silent-ok: optional legacy helix-py SDK; native/HTTP transports are primary
             except ImportError:
                 pass
 
@@ -987,6 +996,7 @@ class HelixGraphStore:
                 if edge_hid is not None:
                     try:
                         await self._query("drop_edge", {"id": edge_hid})
+                    # silent-ok: best-effort cascade delete; failures counted at transport
                     except Exception:
                         pass
             await self._query("hard_delete_entity", {"id": helix_id})
@@ -1006,9 +1016,10 @@ class HelixGraphStore:
                 if hid is not None:
                     try:
                         await self._query("hard_delete_entity", {"id": hid})
+                    # silent-ok: best-effort cascade delete; failures counted at transport
                     except Exception:
                         pass
-        except Exception:
+        except Exception:  # silent-ok: outer scope logs; per-item failures counted at transport
             logger.debug("delete_group: entities failed for %s", group_id, exc_info=True)
 
         # Delete episodes
@@ -1026,15 +1037,17 @@ class HelixGraphStore:
                             cue_hid = self._extract_helix_id(cue)
                             if cue_hid is not None:
                                 await self._query("hard_delete_cue", {"id": cue_hid})
+                    # silent-ok: best-effort cue cascade; failures counted at transport
                     except Exception:
                         pass
                 hid = self._extract_helix_id(ep)
                 if hid is not None:
                     try:
                         await self._query("hard_delete_episode", {"id": hid})
+                    # silent-ok: best-effort cascade delete; failures counted at transport
                     except Exception:
                         pass
-        except Exception:
+        except Exception:  # silent-ok: outer scope logs; per-item failures counted at transport
             logger.debug("delete_group: episodes failed for %s", group_id, exc_info=True)
 
         # Delete intentions
@@ -1045,9 +1058,10 @@ class HelixGraphStore:
                 if hid is not None:
                     try:
                         await self._query("hard_delete_intention", {"id": hid})
+                    # silent-ok: best-effort cascade delete; failures counted at transport
                     except Exception:
                         pass
-        except Exception:
+        except Exception:  # silent-ok: outer scope logs; per-item failures counted at transport
             logger.debug("delete_group: intentions failed for %s", group_id, exc_info=True)
 
         # Clear caches
@@ -2377,7 +2391,7 @@ class HelixGraphStore:
             if group_id:
                 return await self._query("find_cues_by_group", {"gid": group_id})
             return await self._query("find_cues_all", {})
-        except Exception:
+        except Exception:  # silent-ok: explicit fallback path follows (per-episode cue scan)
             logger.debug("Bulk cue stats query unavailable; falling back", exc_info=True)
             return None
 
@@ -2408,7 +2422,7 @@ class HelixGraphStore:
                     {"projection_state": "projected"},
                 )
             return len(rows)
-        except Exception:
+        except Exception:  # silent-ok: explicit fallback path follows (per-episode projection scan)
             logger.debug(
                 "Bulk projected episode entity stats query unavailable; falling back",
                 exc_info=True,
@@ -2823,6 +2837,7 @@ class HelixGraphStore:
                 if edge_hid is not None:
                     try:
                         await self._query("drop_edge", {"id": edge_hid})
+                    # silent-ok: best-effort edge drop during merge; counted at transport
                     except Exception:
                         pass
                 continue
@@ -2869,6 +2884,7 @@ class HelixGraphStore:
             if edge_hid is not None:
                 try:
                     await self._query("drop_edge", {"id": edge_hid})
+                # silent-ok: best-effort edge drop during merge; counted at transport
                 except Exception:
                     pass
             transferred += 1
@@ -2883,6 +2899,7 @@ class HelixGraphStore:
                 if edge_hid is not None:
                     try:
                         await self._query("drop_edge", {"id": edge_hid})
+                    # silent-ok: best-effort edge drop during merge; counted at transport
                     except Exception:
                         pass
                 continue
@@ -2927,6 +2944,7 @@ class HelixGraphStore:
             if edge_hid is not None:
                 try:
                     await self._query("drop_edge", {"id": edge_hid})
+                # silent-ok: best-effort edge drop during merge; counted at transport
                 except Exception:
                     pass
             transferred += 1
@@ -2941,6 +2959,7 @@ class HelixGraphStore:
                         "link_episode_entity",
                         {"episode_id": ep_hid, "entity_id": keep_hid},
                     )
+                # silent-ok: best-effort episode relink during merge; counted at transport
                 except Exception:
                     pass
 
@@ -3284,6 +3303,7 @@ class HelixGraphStore:
                             "link_schema_member",
                             {"entity_id": schema_hid, "member_id": member_hid},
                         )
+                    # silent-ok: best-effort schema-member link; counted at transport
                     except Exception:
                         pass
 
@@ -3408,6 +3428,7 @@ class HelixGraphStore:
         if raw_ctx:
             try:
                 ctx = json.loads(raw_ctx)
+            # silent-ok: stored-field parse tolerance; malformed context degrades to {}
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -3676,7 +3697,7 @@ class HelixGraphStore:
         try:
             results = await self._query("find_entity_ids_by_group", {"gid": group_id})
             return len(results)
-        except Exception:
+        except Exception:  # silent-ok: explicit fallback path follows (full entity listing)
             logger.debug("find_entity_ids_by_group unavailable, falling back to full query")
         results = await self._query("find_entities_by_group", {"gid": group_id})
         return len(results)
