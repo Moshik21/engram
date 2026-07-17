@@ -21,6 +21,33 @@ from engram.storage.protocols import GraphStore, SearchIndex
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Signal health counters (degradation visibility)
+# ---------------------------------------------------------------------------
+
+# Embedding-absent scoring events for the current auto-validation pass.
+# EdgeInferencePhase resets these before scoring and surfaces the snapshot in
+# its phase result, so a broken embedder (missing embeddings silently scored
+# as neutral 0.5) is visible in cycle summaries. Module-level is safe: phases
+# score pairs sequentially within a cycle.
+_signal_health: dict[str, int] = {
+    "pairs_scored": 0,
+    "embedding_absent": 0,
+    "embedding_error": 0,
+}
+
+
+def reset_signal_health() -> None:
+    """Zero the signal-health counters (call at the start of a scoring pass)."""
+    for key in _signal_health:
+        _signal_health[key] = 0
+
+
+def signal_health_snapshot() -> dict[str, int]:
+    """Copy of the signal-health counters accumulated since the last reset."""
+    return dict(_signal_health)
+
+
+# ---------------------------------------------------------------------------
 # Domain groups (mirrored from config defaults)
 # ---------------------------------------------------------------------------
 
@@ -188,6 +215,8 @@ async def score_infer_pair(
     """
     # Signal 1: Embedding coherence (weight 0.30)
     emb_score = 0.5  # neutral default
+    embedding_unavailable = False
+    _signal_health["pairs_scored"] += 1
     try:
         embeddings = await search_index.get_entity_embeddings(
             [entity_a_id, entity_b_id],
@@ -200,8 +229,22 @@ async def score_infer_pair(
             norm_b = np.linalg.norm(vec_b)
             if norm_a > 0 and norm_b > 0:
                 emb_score = max(0.0, float(np.dot(vec_a, vec_b) / (norm_a * norm_b)))
+        else:
+            embedding_unavailable = True
+            _signal_health["embedding_absent"] += 1
     except Exception:
-        pass
+        # silent-ok: embedding lookup raised; the signal stays neutral 0.5
+        # (missing-embedding neutrality — changing that is EVAL-GATED).
+        # Counted and surfaced in the infer phase result so a broken embedder
+        # is visible in cycle summaries.
+        embedding_unavailable = True
+        _signal_health["embedding_error"] += 1
+        logger.debug(
+            "Infer scorer: embedding lookup failed for pair (%s, %s)",
+            entity_a_id,
+            entity_b_id,
+            exc_info=True,
+        )
 
     # Signal 2: Type compatibility (weight 0.20)
     type_score = compute_type_compatibility(entity_a_type, entity_b_type, domain_groups)
@@ -245,7 +288,14 @@ async def score_infer_pair(
             if gn_a > 0 and gn_b > 0:
                 graph_sim = max(0.0, float(np.dot(gv_a, gv_b) / (gn_a * gn_b)))
     except Exception:
-        pass
+        # silent-ok: optional graph-embedding lookup failed; the signal stays
+        # neutral 0.5 (structural embeddings may legitimately not exist yet).
+        logger.debug(
+            "Infer scorer: graph-embedding lookup failed for pair (%s, %s)",
+            entity_a_id,
+            entity_b_id,
+            exc_info=True,
+        )
 
     # Composite score
     score = (
@@ -265,6 +315,9 @@ async def score_infer_pair(
         "structural": round(structural_score, 4),
         "graph_emb": round(graph_sim, 4),
     }
+    if embedding_unavailable:
+        # Distinguishes "no embeddings available" from a genuine neutral 0.5.
+        signals["embedding_unavailable"] = 1.0
 
     if score >= approve_threshold:
         verdict = "approved"

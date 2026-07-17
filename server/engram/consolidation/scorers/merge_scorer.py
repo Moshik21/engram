@@ -6,12 +6,42 @@ embedding similarity, neighbor overlap, and summary overlap signals.
 
 from __future__ import annotations
 
+import logging
 import re
 
 import numpy as np
 
 from engram.entity_dedup_policy import dedup_policy, policy_aware_similarity, policy_features
 from engram.extraction.resolver import compute_similarity
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Signal health counters (degradation visibility)
+# ---------------------------------------------------------------------------
+
+# Embedding-absent scoring events for the current merge pass. MergePhase
+# resets these before scoring and surfaces the snapshot in its phase result,
+# so a broken embedder (merge silently degrading to name-dominated scoring)
+# is visible in cycle summaries. Module-level is safe: phases score pairs
+# sequentially within a cycle.
+_signal_health: dict[str, int] = {
+    "pairs_scored": 0,
+    "embedding_absent": 0,
+    "embedding_error": 0,
+}
+
+
+def reset_signal_health() -> None:
+    """Zero the signal-health counters (call at the start of a scoring pass)."""
+    for key in _signal_health:
+        _signal_health[key] = 0
+
+
+def signal_health_snapshot() -> dict[str, int]:
+    """Copy of the signal-health counters accumulated since the last reset."""
+    return dict(_signal_health)
+
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -352,6 +382,8 @@ async def score_merge_pair(
 
     # Signal 3: Embedding similarity (rescaled)
     emb_score = 0.0
+    embedding_unavailable = False
+    _signal_health["pairs_scored"] += 1
     try:
         embeddings = await search_index.get_entity_embeddings(
             [ea.id, eb.id],
@@ -365,8 +397,22 @@ async def score_merge_pair(
             if norm_a > 0 and norm_b > 0:
                 cos = float(np.dot(vec_a, vec_b) / (norm_a * norm_b))
                 emb_score = max(0.0, (cos - 0.70) / 0.30)
+        else:
+            embedding_unavailable = True
+            _signal_health["embedding_absent"] += 1
     except Exception:
-        pass
+        # silent-ok: embedding lookup raised; the signal degrades to 0.0
+        # (name-dominated scoring — changing that is EVAL-GATED). Counted and
+        # surfaced in the merge phase result so a broken embedder is visible
+        # in cycle summaries.
+        embedding_unavailable = True
+        _signal_health["embedding_error"] += 1
+        logger.debug(
+            "Merge scorer: embedding lookup failed for pair (%s, %s)",
+            ea.id,
+            eb.id,
+            exc_info=True,
+        )
 
     # Signal 4: Neighbor overlap (Jaccard)
     nbr_score = 0.0
@@ -379,7 +425,14 @@ async def score_merge_pair(
         if union:
             nbr_score = len(nid_a & nid_b) / len(union)
     except Exception:
-        pass
+        # silent-ok: neighbor lookup failed; the Jaccard signal degrades to
+        # 0.0 and the verdict rests on the remaining signals.
+        logger.debug(
+            "Merge scorer: neighbor lookup failed for pair (%s, %s)",
+            ea.id,
+            eb.id,
+            exc_info=True,
+        )
 
     # Signal 5: Summary overlap (Dice)
     sum_score = summary_overlap(
@@ -410,7 +463,14 @@ async def score_merge_pair(
             # Frequent co-occurrence = anti-merge signal (penalty)
             exclusivity_score = -0.3
     except Exception:
-        pass
+        # silent-ok: co-occurrence lookup failed; the exclusivity signal
+        # stays 0.0 (no merge boost and no anti-merge penalty).
+        logger.debug(
+            "Merge scorer: co-occurrence lookup failed for pair (%s, %s)",
+            ea.id,
+            eb.id,
+            exc_info=True,
+        )
 
     # Ensemble
     confidence = (
@@ -450,6 +510,9 @@ async def score_merge_pair(
         "exclusivity": round(exclusivity_score, 4),
         **policy_summary,
     }
+    if embedding_unavailable:
+        # Distinguishes "no embeddings available" from a genuine 0.0 cosine.
+        signals["embedding_unavailable"] = True
 
     if confidence >= merge_threshold:
         return "merge", round(confidence, 4), signals

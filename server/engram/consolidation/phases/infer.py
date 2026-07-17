@@ -251,8 +251,9 @@ class EdgeInferencePhase(ConsolidationPhase):
             records.extend(trans_records)
 
         # --- Multi-signal auto-validation (replaces LLM when enabled) ---
+        embedding_note: str | None = None
         if cfg.consolidation_infer_auto_validation_enabled:
-            await self._run_auto_validation_pass(
+            embedding_note = await self._run_auto_validation_pass(
                 records,
                 graph_store,
                 search_index,
@@ -356,6 +357,7 @@ class EdgeInferencePhase(ConsolidationPhase):
             items_processed=len(pairs) + (len(records) - len(pairs)),
             items_affected=affected,
             duration_ms=_elapsed_ms(t0),
+            error=embedding_note,
         ), records
 
     async def _run_auto_validation_pass(
@@ -366,9 +368,19 @@ class EdgeInferencePhase(ConsolidationPhase):
         cfg: ActivationConfig,
         group_id: str,
         dry_run: bool,
-    ) -> None:
-        """Validate inferred edges using multi-signal scoring (no LLM)."""
-        from engram.consolidation.scorers.infer_scorer import score_infer_pair
+    ) -> str | None:
+        """Validate inferred edges using multi-signal scoring (no LLM).
+
+        Returns a degradation note when pairs were scored without entity
+        embeddings (surfaced in the phase result), else ``None``.
+        """
+        from engram.consolidation.scorers.infer_scorer import (
+            reset_signal_health,
+            score_infer_pair,
+            signal_health_snapshot,
+        )
+
+        reset_signal_health()
 
         # Same candidate selection as LLM path
         threshold = cfg.consolidation_infer_llm_confidence_threshold
@@ -386,7 +398,7 @@ class EdgeInferencePhase(ConsolidationPhase):
         ][:max_validations]
 
         if not candidates:
-            return
+            return None
 
         # Need episode counts for ubiquity scoring
         all_ids: set[str] = set()
@@ -467,6 +479,20 @@ class EdgeInferencePhase(ConsolidationPhase):
             except Exception as exc:
                 logger.warning("Auto-validation failed for %s: %s", rec.source_name, exc)
                 rec.llm_verdict = "error"
+
+        # Surface embedding-signal degradation in the phase result so a broken
+        # embedder is visible in cycle summaries (status stays "success").
+        signal_health = signal_health_snapshot()
+        missing = signal_health["embedding_absent"] + signal_health["embedding_error"]
+        if not missing:
+            return None
+        note = (
+            f"embedding_signal_unavailable: {missing}/{signal_health['pairs_scored']} "
+            "auto-validated edges scored without entity embeddings "
+            "(missing embeddings treated as neutral)"
+        )
+        logger.warning("Infer: %s", note)
+        return note
 
     async def _run_llm_validation_pass(
         self,

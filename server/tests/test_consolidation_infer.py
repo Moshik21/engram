@@ -101,6 +101,47 @@ class TestEdgeInferencePhase:
         assert mentioned[0].source_episode.startswith("consolidation:")
 
     @pytest.mark.asyncio
+    async def test_embedding_outage_surfaces_in_phase_result(self, store, activation):
+        """A raising embedding provider is counted and noted in the phase
+        result (verdicts still use the neutral-0.5 degradation)."""
+        e1 = _entity("Alice")
+        e2 = _entity("Bob")
+        await store.create_entity(e1)
+        await store.create_entity(e2)
+
+        for _ in range(3):
+            ep = _episode()
+            await store.create_episode(ep)
+            await store.link_episode_entity(ep.id, e1.id)
+            await store.link_episode_entity(ep.id, e2.id)
+
+        cfg = ActivationConfig(
+            consolidation_infer_cooccurrence_min=3,
+            consolidation_cross_encoder_enabled=False,
+        )
+        raising_index = AsyncMock()
+        raising_index.get_entity_embeddings.side_effect = RuntimeError("embedder down")
+        raising_index.get_graph_embeddings.return_value = {}
+
+        phase = EdgeInferencePhase()
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=store,
+            activation_store=activation,
+            search_index=raising_index,
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        assert result.status == "success"
+        assert result.error is not None
+        assert "embedding_signal_unavailable: 1/1" in result.error
+        assert len(records) == 1
+        assert records[0].validation_signals.get("embedding_unavailable") == 1.0
+        assert records[0].llm_verdict in ("auto_approved", "auto_rejected", "auto_uncertain")
+
+    @pytest.mark.asyncio
     async def test_confidence_scaling(self, store, activation, search):
         e1 = _entity("Alice")
         e2 = _entity("Bob")

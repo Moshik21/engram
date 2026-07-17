@@ -12,7 +12,9 @@ from engram.consolidation.scorers.infer_scorer import (
     compute_structural_score,
     compute_type_compatibility,
     compute_ubiquity_score,
+    reset_signal_health,
     score_infer_pair,
+    signal_health_snapshot,
 )
 
 # ---------------------------------------------------------------------------
@@ -417,3 +419,98 @@ async def test_score_signals_are_rounded():
     for key, val in signals.items():
         # Check that val has at most 4 decimal places
         assert val == round(val, 4), f"{key} not rounded: {val}"
+
+
+# ---------------------------------------------------------------------------
+# Signal health counters (embedding degradation visibility)
+# ---------------------------------------------------------------------------
+
+_SCORE_KWARGS = dict(
+    entity_a_id="a",
+    entity_b_id="b",
+    entity_a_name="X",
+    entity_b_name="Y",
+    entity_a_type="Concept",
+    entity_b_type="Concept",
+    co_occurrence_count=5,
+    pmi_confidence=0.6,
+    ep_count_a=10,
+    ep_count_b=10,
+    total_episodes=100,
+    group_id="default",
+)
+
+
+@pytest.mark.asyncio
+async def test_embedding_absent_counted_and_verdict_unchanged():
+    """Empty embedding lookup increments embedding_absent; verdict unchanged."""
+    search_index, graph_store = _make_mocks()
+
+    reset_signal_health()
+    verdict, score, signals = await score_infer_pair(
+        search_index=search_index,
+        graph_store=graph_store,
+        **_SCORE_KWARGS,
+    )
+
+    health = signal_health_snapshot()
+    assert health["pairs_scored"] == 1
+    assert health["embedding_absent"] == 1
+    assert health["embedding_error"] == 0
+    # Missing embeddings still score as neutral 0.5 (behavior unchanged)
+    assert signals["embedding"] == 0.5
+    assert signals["embedding_unavailable"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_embedding_error_counted_and_verdict_unchanged():
+    """Raising embedding provider increments embedding_error; same verdict and
+    score as the embedding-absent degradation."""
+    baseline_index, baseline_store = _make_mocks()
+    reset_signal_health()
+    baseline_verdict, baseline_score, _ = await score_infer_pair(
+        search_index=baseline_index,
+        graph_store=baseline_store,
+        **_SCORE_KWARGS,
+    )
+
+    raising_index = AsyncMock()
+    raising_index.get_entity_embeddings.side_effect = RuntimeError("embedder down")
+    raising_index.get_graph_embeddings.return_value = {}
+    graph_store = AsyncMock()
+    graph_store.get_active_neighbors_with_weights.side_effect = [[], []]
+
+    reset_signal_health()
+    verdict, score, signals = await score_infer_pair(
+        search_index=raising_index,
+        graph_store=graph_store,
+        **_SCORE_KWARGS,
+    )
+
+    health = signal_health_snapshot()
+    assert health["pairs_scored"] == 1
+    assert health["embedding_absent"] == 0
+    assert health["embedding_error"] == 1
+    assert (verdict, score) == (baseline_verdict, baseline_score)
+    assert signals["embedding"] == 0.5
+    assert signals["embedding_unavailable"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_healthy_embeddings_not_counted():
+    """Working embeddings leave counters at zero and add no marker."""
+    vec = [1.0, 0.0, 0.0]
+    search_index, graph_store = _make_mocks(emb_a=vec, emb_b=vec)
+
+    reset_signal_health()
+    _, _, signals = await score_infer_pair(
+        search_index=search_index,
+        graph_store=graph_store,
+        **_SCORE_KWARGS,
+    )
+
+    health = signal_health_snapshot()
+    assert health["pairs_scored"] == 1
+    assert health["embedding_absent"] == 0
+    assert health["embedding_error"] == 0
+    assert "embedding_unavailable" not in signals

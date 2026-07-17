@@ -607,8 +607,15 @@ class EntityMergePhase(ConsolidationPhase):
                     )
 
         # --- Multi-signal scoring (replaces LLM judge when enabled) ---
+        embedding_note: str | None = None
         if cfg.consolidation_merge_multi_signal_enabled:
-            from engram.consolidation.scorers.merge_scorer import score_merge_pair
+            from engram.consolidation.scorers.merge_scorer import (
+                reset_signal_health,
+                score_merge_pair,
+                signal_health_snapshot,
+            )
+
+            reset_signal_health()
 
             multi_signal_candidates: list[tuple] = list(ann_llm_candidates)
             if not used_embeddings:
@@ -787,6 +794,19 @@ class EntityMergePhase(ConsolidationPhase):
                             self._keep_separate_cache.add(frozenset({ea.id, eb.id}))
             except Exception as exc:
                 logger.warning("Structural candidate discovery failed: %s", exc)
+
+        # Surface embedding-signal degradation in the phase result so a broken
+        # embedder is visible in cycle summaries (status stays "success").
+        if cfg.consolidation_merge_multi_signal_enabled:
+            signal_health = signal_health_snapshot()
+            missing = signal_health["embedding_absent"] + signal_health["embedding_error"]
+            if missing:
+                embedding_note = (
+                    f"embedding_signal_unavailable: {missing}/"
+                    f"{signal_health['pairs_scored']} multi-signal pairs scored "
+                    "without embeddings (merge degraded to name-dominated scoring)"
+                )
+                logger.warning("Merge: %s", embedding_note)
 
         # Collect merge groups
         groups: dict[str, list] = defaultdict(list)
@@ -973,6 +993,7 @@ class EntityMergePhase(ConsolidationPhase):
             items_processed=pairs_checked,
             items_affected=len(merge_records),
             duration_ms=_elapsed_ms(t0),
+            error=embedding_note,
         ), [*merge_records, *identifier_review_records]
 
     @staticmethod

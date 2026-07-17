@@ -15,7 +15,9 @@ from engram.consolidation.scorers.merge_scorer import (
     compute_name_score,
     containment_match,
     numeronym_match,
+    reset_signal_health,
     score_merge_pair,
+    signal_health_snapshot,
     summary_overlap,
     type_compatible,
 )
@@ -473,3 +475,190 @@ class TestScoreMergePair:
         assert verdict == "merge"
         assert conf >= 0.99
         assert signals["reason"] == "identifier_exact_match"
+
+
+# ---------------------------------------------------------------------------
+# Signal health counters (embedding degradation visibility)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestSignalHealth:
+    def _pair(self):
+        return (
+            MockEntity(id="e1", name="Python", entity_type="Technology"),
+            MockEntity(id="e2", name="python", entity_type="Technology"),
+        )
+
+    def _graph_store(self):
+        graph_store = AsyncMock()
+        graph_store.get_active_neighbors_with_weights.return_value = []
+        graph_store.get_episode_cooccurrence_count.return_value = 5
+        return graph_store
+
+    async def test_embedding_absent_counted_and_verdict_unchanged(self):
+        """Empty embedding lookup increments embedding_absent; verdict unchanged."""
+        ea, eb = self._pair()
+        search_index = AsyncMock()
+        search_index.get_entity_embeddings.return_value = {}
+
+        reset_signal_health()
+        verdict, conf, signals = await score_merge_pair(
+            ea,
+            eb,
+            search_index,
+            self._graph_store(),
+            "default",
+        )
+
+        health = signal_health_snapshot()
+        assert health["pairs_scored"] == 1
+        assert health["embedding_absent"] == 1
+        assert health["embedding_error"] == 0
+        # Degraded to name-dominated scoring (behavior unchanged)
+        assert verdict == "keep_separate"
+        assert signals["embedding"] == 0.0
+        assert signals["embedding_unavailable"] is True
+
+    async def test_embedding_error_counted_and_verdict_unchanged(self):
+        """Raising embedding provider increments embedding_error; same verdict
+        and confidence as the embedding-absent degradation."""
+        ea, eb = self._pair()
+        empty_index = AsyncMock()
+        empty_index.get_entity_embeddings.return_value = {}
+        raising_index = AsyncMock()
+        raising_index.get_entity_embeddings.side_effect = RuntimeError("embedder down")
+
+        reset_signal_health()
+        baseline_verdict, baseline_conf, _ = await score_merge_pair(
+            ea,
+            eb,
+            empty_index,
+            self._graph_store(),
+            "default",
+        )
+
+        reset_signal_health()
+        verdict, conf, signals = await score_merge_pair(
+            ea,
+            eb,
+            raising_index,
+            self._graph_store(),
+            "default",
+        )
+
+        health = signal_health_snapshot()
+        assert health["pairs_scored"] == 1
+        assert health["embedding_absent"] == 0
+        assert health["embedding_error"] == 1
+        assert (verdict, conf) == (baseline_verdict, baseline_conf)
+        assert signals["embedding"] == 0.0
+        assert signals["embedding_unavailable"] is True
+
+    async def test_healthy_embeddings_not_counted(self):
+        """Working embeddings leave counters at zero and add no marker."""
+        ea, eb = self._pair()
+        vec = np.ones(64, dtype=np.float32)
+        vec = vec / np.linalg.norm(vec)
+        search_index = AsyncMock()
+        search_index.get_entity_embeddings.return_value = {
+            "e1": vec.tolist(),
+            "e2": vec.tolist(),
+        }
+
+        reset_signal_health()
+        _, _, signals = await score_merge_pair(
+            ea,
+            eb,
+            search_index,
+            self._graph_store(),
+            "default",
+        )
+
+        health = signal_health_snapshot()
+        assert health["pairs_scored"] == 1
+        assert health["embedding_absent"] == 0
+        assert health["embedding_error"] == 0
+        assert "embedding_unavailable" not in signals
+
+    async def test_counters_accumulate_until_reset(self):
+        ea, eb = self._pair()
+        search_index = AsyncMock()
+        search_index.get_entity_embeddings.return_value = {}
+
+        reset_signal_health()
+        for _ in range(3):
+            await score_merge_pair(ea, eb, search_index, self._graph_store(), "default")
+        assert signal_health_snapshot()["embedding_absent"] == 3
+        assert signal_health_snapshot()["pairs_scored"] == 3
+
+        reset_signal_health()
+        assert signal_health_snapshot() == {
+            "pairs_scored": 0,
+            "embedding_absent": 0,
+            "embedding_error": 0,
+        }
+
+
+# ---------------------------------------------------------------------------
+# Phase-level surfacing: embedding degradation appears in the phase result
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestMergePhaseSurfacesEmbeddingDegradation:
+    def _phase_fixtures(self, embeddings: dict):
+        from engram.consolidation.phases.merge import EntityMergePhase
+
+        ea = MockEntity(id="m1", name="Fourth Son", entity_type="Person")
+        eb = MockEntity(id="m2", name="Benjamin", entity_type="Person")
+
+        graph_store = AsyncMock()
+        graph_store.find_entities.return_value = [ea, eb]
+        graph_store.find_structural_merge_candidates.return_value = [("m1", "m2", 3)]
+        graph_store.get_active_neighbors_with_weights.return_value = []
+        graph_store.get_episode_cooccurrence_count.return_value = 0
+
+        search_index = AsyncMock()
+        search_index.get_entity_embeddings.return_value = embeddings
+
+        return EntityMergePhase(), graph_store, search_index
+
+    async def test_missing_embeddings_noted_in_phase_result(self):
+        from engram.config import ActivationConfig
+
+        phase, graph_store, search_index = self._phase_fixtures(embeddings={})
+        result, _records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=search_index,
+            cfg=ActivationConfig(),
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        assert result.status == "success"
+        assert result.items_affected == 0
+        assert result.error is not None
+        assert "embedding_signal_unavailable: 1/1" in result.error
+
+    async def test_healthy_embeddings_no_note(self):
+        from engram.config import ActivationConfig
+
+        # Orthogonal vectors: full coverage but no ANN merge candidates
+        phase, graph_store, search_index = self._phase_fixtures(
+            embeddings={"m1": [1.0, 0.0], "m2": [0.0, 1.0]},
+        )
+        result, _records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=search_index,
+            cfg=ActivationConfig(),
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        assert result.status == "success"
+        assert result.error is None
