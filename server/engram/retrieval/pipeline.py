@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import math
 import time
@@ -1302,16 +1303,29 @@ async def retrieve(
     existing_ids = {eid for eid, _ in candidates}
     new_ids = [nid for nid in bonuses if nid not in existing_ids and bonuses[nid] > 0.0]
     if new_ids:
-        new_states = await activation_store.batch_get(new_ids)
-        activation_states.update(new_states)
         similarity_started = time.perf_counter()
-        discovered_sims = await search_index.compute_similarity(
-            query=query,
-            entity_ids=new_ids,
-            group_id=group_id,
-        )
-        _add_stage_timing(stage_timings_ms, "recall_embed", similarity_started)
-        candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
+        try:
+            new_states = await activation_store.batch_get(new_ids)
+            discovered_sims = await search_index.compute_similarity(
+                query=query,
+                entity_ids=new_ids,
+                group_id=group_id,
+            )
+        except Exception as exc:
+            # Degrade the spreading re-score instead of killing the whole
+            # recall: spreading-discovered entities are a bonus channel, not
+            # the primary result set. Native store failures (timeouts on
+            # large brains) surface as a logged marker; anything else raises.
+            if type(exc).__name__ != "NativeQueryError":
+                raise
+            _add_stage_timing(
+                stage_timings_ms, "recall_spreading_rescore_degraded", similarity_started
+            )
+            logger.warning("Spreading re-score degraded (native query failure): %s", str(exc)[:200])
+        else:
+            activation_states.update(new_states)
+            _add_stage_timing(stage_timings_ms, "recall_embed", similarity_started)
+            candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
 
     # Step 4.6: Fingerprint similarity computation (Wave 2)
     conv_fingerprint_sim: dict[str, float] | None = None
@@ -1575,6 +1589,12 @@ async def retrieve(
 
     # Step 5: Score all candidates
     if cfg.ts_enabled:
+        # Deterministic TS seed from the query + group so identical recalls
+        # draw identical Beta samples and score identically (M1.2).
+        ts_seed = int.from_bytes(
+            hashlib.blake2b(f"{group_id}\x00{query}".encode(), digest_size=8).digest(),
+            "big",
+        )
         scored = score_candidates_thompson(
             candidates=candidates,
             spreading_bonuses=bonuses,
@@ -1583,6 +1603,7 @@ async def retrieve(
             activation_states=activation_states,
             now=now,
             cfg=cfg,
+            rng_seed=ts_seed,
             conv_fingerprint_sim=conv_fingerprint_sim,
             priming_boosts=priming_boosts,
             graph_similarities=graph_similarities,
@@ -2064,10 +2085,16 @@ async def retrieve(
         )
 
         returned_ids = {r.node_id for r in results if r.result_type == "entity"}
-        all_candidate_id_set = {eid for eid, _ in candidates}
-        for eid in returned_ids:
-            await record_positive_feedback(eid, activation_store, cfg)
-        for eid in all_candidate_id_set - returned_ids:
-            await record_negative_feedback(eid, activation_store, cfg)
+        # Feedback only runs when entity results were actually surfaced to the
+        # caller. With an entity budget of 0 (e.g. passage_first_entity_budget=0)
+        # nothing is surfaced, so recording negative feedback against every
+        # candidate would monotonically grow ts_beta and flood the read path
+        # with activation writes (M1.2).
+        if returned_ids:
+            all_candidate_id_set = {eid for eid, _ in candidates}
+            for eid in returned_ids:
+                await record_positive_feedback(eid, activation_store, cfg)
+            for eid in all_candidate_id_set - returned_ids:
+                await record_negative_feedback(eid, activation_store, cfg)
 
     return results
