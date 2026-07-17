@@ -56,14 +56,33 @@ def build_bundle(
             os.chmod(bundle_root / "install.sh", 0o755)
 
         shutil.copy2(INSTALLER_DIR / "compose.yaml", bundle_root / "compose.yaml")
-        env_template = (INSTALLER_DIR / ".env.template").read_text(encoding="utf-8")
-        env_template = (
-            env_template
-            .replace("__INSTALL_ROOT__", "~/.engram/full")
-            .replace("__DATA_DIR__", "~/.engram/full/data")
-            .replace("__RELEASE_VERSION__", version)
-            .replace("__IMAGE_NAMESPACE__", image_namespace)
-            .replace("__IMAGE_TAG__", version)
+        # The env template is generated inline (installer/.env.template was
+        # never committed; the referenced file predates the engramctl rework).
+        # Keys mirror what installer/compose.yaml consumes.
+        env_template = "\n".join(
+            [
+                f"# Engram full-mode env — release {version}",
+                "ENGRAM_MODE=full",
+                "ENGRAM_DATA_DIR=~/.engram/full/data",
+                f"ENGRAM_IMAGE_NAMESPACE={image_namespace}",
+                f"ENGRAM_IMAGE_TAG={version}",
+                "ENGRAM_SERVER_IMAGE_NAME=engram-server",
+                "ENGRAM_DASHBOARD_IMAGE_NAME=engram-dashboard",
+                "ENGRAM_API_PORT=8100",
+                "ENGRAM_DASHBOARD_PORT=3000",
+                "ENGRAM_FALKORDB_PASSWORD=change-me",
+                "ENGRAM_REDIS_PASSWORD=change-me",
+                "ENGRAM_AUTH__ENABLED=false",
+                "ENGRAM_AUTH__BEARER_TOKEN=",
+                "ENGRAM_ENCRYPTION__ENABLED=false",
+                "ENGRAM_ENCRYPTION__MASTER_KEY=",
+                "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard",
+                "ENGRAM_ACTIVATION__RECALL_PROFILE=all",
+                "ENGRAM_ACTIVATION__WORKER_ENABLED=true",
+                "ANTHROPIC_API_KEY=",
+                "VOYAGE_API_KEY=",
+                "",
+            ]
         )
         (bundle_root / ".env.template").write_text(env_template, encoding="utf-8")
         shutil.copy2(INSTALLER_DIR / "engramctl", bundle_root / "engramctl")

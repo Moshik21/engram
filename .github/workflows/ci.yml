@@ -237,9 +237,15 @@ jobs:
           done
           exit 1
 
-      - name: Run one full-mode parity test
-        working-directory: server
-        run: uv run pytest tests/storage/full/test_rework_parity.py::test_full_mode_cue_usage_projects_episode_and_preserves_recall_parity -q
+      - name: REST golden-loop smoke against the running stack
+        # The pytest this step used to reference never existed (the file was
+        # never committed); probe the live REST surface instead.
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:8100/api/storage | grep -q '"counts"'
+          curl -fsS -X POST http://127.0.0.1:8100/api/knowledge/observe             -H 'Content-Type: application/json'             -d '{"content": "Full-mode CI smoke: Engram ships a Docker compat lane.", "source": "ci-smoke"}'             | grep -q 'episode'
+          curl -fsS -X POST http://127.0.0.1:8100/api/knowledge/recall             -H 'Content-Type: application/json'             -d '{"query": "Docker compat lane", "limit": 3}' > /tmp/recall.json
+          grep -q 'results' /tmp/recall.json
 
       - name: Print compose logs on failure
         if: failure()
