@@ -743,8 +743,43 @@ class TestReplayDeferredExtraction:
         graph_store.update_episode.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_projection_update_on_empty_extraction(self):
-        """No entities found → no projection_state update."""
+    async def test_empty_extraction_sets_terminal_marker(self):
+        """No entities found → terminal replay_no_new_info marker written."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        extractor = _make_extractor(entities=[], relationships=[])
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=extractor)
+        _, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+
+        assert records[0].skipped_reason == "no_new_info"
+        graph_store.update_episode.assert_called_once()
+        call_args = graph_store.update_episode.call_args
+        assert call_args[0][0] == ep.id
+        updates = call_args[0][1]
+        assert updates["projection_state"] == "cue_only"
+        assert updates["last_projection_reason"] == "replay_no_new_info"
+
+    @pytest.mark.asyncio
+    async def test_empty_extraction_dry_run_no_terminal_marker(self):
+        """Dry run with empty extraction writes nothing."""
         cfg = _make_cfg()
         ep = _make_episode()
         ep.projection_state = MagicMock()
@@ -766,10 +801,162 @@ class TestReplayDeferredExtraction:
             search_index=AsyncMock(),
             cfg=cfg,
             cycle_id="cyc_test",
-            dry_run=False,
+            dry_run=True,
         )
 
         graph_store.update_episode.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_replayed_empty_episode_not_reselected(self):
+        """The reason written on empty extraction excludes the episode next run."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+        graph_store.update_episode = AsyncMock()
+
+        phase = EpisodeReplayPhase(extractor=_make_extractor(entities=[], relationships=[]))
+        result, _ = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_run1",
+            dry_run=False,
+        )
+        assert result.items_processed == 1
+        written_reason = graph_store.update_episode.call_args[0][1]["last_projection_reason"]
+
+        # Second run: episode now carries the reason the first run wrote
+        ep2 = _make_episode()
+        ep2.projection_state = MagicMock()
+        ep2.projection_state.value = "cue_only"
+        ep2.last_projection_reason = written_reason
+
+        graph_store.get_episodes = AsyncMock(return_value=[ep2])
+        extractor2 = _make_extractor(entities=[], relationships=[])
+        phase2 = EpisodeReplayPhase(extractor=extractor2)
+        result2, _ = await phase2.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_run2",
+            dry_run=False,
+        )
+        assert result2.items_processed == 0
+        extractor2.extract.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "auto_capture_cue_only",
+            "system_discourse",
+            "triage_skip_meta",
+            "project_bootstrap_artifact",
+            "duplicate_content",
+        ],
+    )
+    async def test_parked_with_intent_not_selected(self, reason):
+        """Episodes parked by routing decisions are not replay-eligible."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+        ep.last_projection_reason = reason
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+
+        extractor = _make_extractor(entities=[{"name": "Alice", "entity_type": "person"}])
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, _ = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+        assert result.items_processed == 0
+        extractor.extract.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_source_not_selected(self):
+        """auto:bootstrap episodes (project docs) are never replay-extracted."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+        ep.last_projection_reason = None
+        ep.source = "auto:bootstrap"
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+
+        extractor = _make_extractor(entities=[{"name": "Alice", "entity_type": "person"}])
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, _ = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+        assert result.items_processed == 0
+        extractor.extract.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "worker_skip_threshold",
+            "triage_ratio_skip",
+            "worker_deferred_to_triage",
+            None,
+        ],
+    )
+    async def test_triage_deferred_still_selected(self, reason):
+        """Triage-deferred episodes are the replay backlog — still eligible."""
+        cfg = _make_cfg()
+        ep = _make_episode()
+        ep.projection_state = MagicMock()
+        ep.projection_state.value = "cue_only"
+        ep.last_projection_reason = reason
+
+        graph_store = AsyncMock()
+        graph_store.get_episodes = AsyncMock(return_value=[ep])
+        graph_store.find_entities = AsyncMock(return_value=[])
+        graph_store.get_episode_entities = AsyncMock(return_value=[])
+
+        extractor = _make_extractor(entities=[{"name": "Alice", "entity_type": "person"}])
+        phase = EpisodeReplayPhase(extractor=extractor)
+        result, records = await phase.execute(
+            group_id="test",
+            graph_store=graph_store,
+            activation_store=AsyncMock(),
+            search_index=AsyncMock(),
+            cfg=cfg,
+            cycle_id="cyc_test",
+            dry_run=False,
+        )
+        assert result.items_processed == 1
+        assert records[0].new_entities_found == 1
 
     @pytest.mark.asyncio
     async def test_vocab_linking_creates_links(self):

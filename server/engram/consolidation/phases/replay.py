@@ -28,6 +28,24 @@ from engram.utils.dates import utc_now
 
 logger = logging.getLogger(__name__)
 
+# Routing reasons that mark an episode as deliberately parked — replay must
+# not override these decisions. Triage-deferral reasons
+# ("worker_skip_threshold", "triage_ratio_skip", "worker_deferred_to_triage")
+# stay eligible: that backlog is what replay exists to drain.
+_REPLAY_INELIGIBLE_REASONS = frozenset(
+    {
+        "auto_capture_cue_only",  # worker: auto-capture below extract floor
+        "system_discourse",  # worker/projection: meta-discourse park
+        "triage_skip_meta",  # triage phase: meta-discourse park
+        "project_bootstrap_artifact",  # bootstrap docs (Layer-3 doc-noise block)
+        "duplicate_content",  # projection service: content dedup park
+        "replay_no_new_info",  # replay terminal: extraction found nothing
+    }
+)
+
+# Bootstrap documentation source — never replay-extract docs.
+_BOOTSTRAP_SOURCE = "auto:bootstrap"
+
 
 class EpisodeReplayPhase(ConsolidationPhase):
     """Extract entities from unextracted episodes and link known entities by name."""
@@ -259,6 +277,20 @@ class EpisodeReplayPhase(ConsolidationPhase):
         result = await self._extract_episode(extractor, episode, group_id)
 
         if not result.entities and not result.relationships:
+            if not dry_run:
+                # Terminal marker: without it this episode is re-selected and
+                # re-extracted every window forever. Content stays cue-searchable
+                # (CUE_ONLY); the selector excludes this reason.
+                await sync_projection_state(
+                    graph_store,
+                    episode.id,
+                    group_id=group_id,
+                    state=EpisodeProjectionState.CUE_ONLY,
+                    reason="replay_no_new_info",
+                    cue_layer_enabled=cfg.cue_layer_enabled,
+                    cue_reason="replay_no_new_info",
+                    log_prefix="Replay",
+                )
             return ReplayRecord(
                 cycle_id=cycle_id,
                 group_id=group_id,
@@ -448,6 +480,16 @@ class EpisodeReplayPhase(ConsolidationPhase):
                     pval = proj_state.value if hasattr(proj_state, "value") else str(proj_state)
                     if pval == "projected":
                         continue
+                # Respect routing intent: skip episodes deliberately parked
+                # (meta-discourse, auto-capture floor, bootstrap docs, dedup)
+                # and replay's own no-new-info terminal marker. Triage-deferred
+                # episodes remain eligible — they are the replay backlog.
+                reason = getattr(ep, "last_projection_reason", None)
+                if reason in _REPLAY_INELIGIBLE_REASONS:
+                    continue
+                source = str(getattr(ep, "source", "") or "")
+                if source == _BOOTSTRAP_SOURCE:
+                    continue
                 if created_at > age_cutoff:
                     continue
 
