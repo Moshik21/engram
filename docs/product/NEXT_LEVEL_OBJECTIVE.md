@@ -29,11 +29,20 @@ stacks, M1–M7 implementation, doc truth passes, test reconciliation).
       gate + `engram brain status` + doctor; power gate, no-op preflight, pause marker, deadline all shipped
       and unit-tested. Trailing-24h at execution time: 54.6% (dominated by the pre-fix overnight window —
       the exact failure class these changes eliminate).
+      **Kill testing PASSED live 2026-07-16 17:36:** kill -9 of a mid-window brain stranded the shell
+      exactly as modeled (marker present, flock auto-released); the next brain invocation resumed it
+      automatically, ran its window, cleared the marker — zero manual intervention. Bonus: the 1800s
+      deadline fired in production the same hour (runaway adjudication window) — clean cancel, honest
+      status, auto-resume. Remaining: the 7 consecutive days themselves.
 - [~] `open_work` trends down week-over-week; the deferred-54 plateau is resolved through adjudication
       (commit or reject — not bigger drain budgets).
       — **Measurement window opened 2026-07-16.** The consumer now exists: every mop window runs bounded
       evidence/edge adjudication (`deferred_cycles` finally advances) + zero-LLM replay; first new-code
       window ~15:00 on 2026-07-16. Track weekly via `engram hygiene report`.
+      **Same-day evidence:** deferred 54 (frozen) → 209 (pending unfrozen into the pipeline) → 20
+      (committed-or-rejected) across three windows; open_work 920 → 661 in the first window alone.
+      Replay backlog eligibility fixed same day (QUEUED episodes + 30-day mop window) — cue_only
+      drain starts with the next windows.
 - [x] `engram continuity --against-live` PASSES with `promote_if_missing=false` (aged organic Decision).
       — Verified live 2026-07-16: organic 6-day-old Decision recalled in 862ms, 0 scrap in top-5, no
       self-promotion (`--min-organic-age-days 6`; the 7-day default passes from 2026-07-17 as the
