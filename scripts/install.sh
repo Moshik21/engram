@@ -241,10 +241,8 @@ install_engram_package() {
 
   info "Installing Engram..."
 
-  local package_spec="engram[local]"
   local github_spec="git+https://github.com/${RELEASE_REPOSITORY}.git#subdirectory=server[local]"
   if is_native_install_mode; then
-    package_spec="engram[local,native]"
     github_spec="git+https://github.com/${RELEASE_REPOSITORY}.git#subdirectory=server[local,native]"
   fi
 
@@ -256,13 +254,15 @@ install_engram_package() {
     return
   fi
 
-  # Prefer the GitHub source until the PyPI package is promoted from placeholder.
+  # SECURITY: never fall back to PyPI. The name "engram" on PyPI is a
+  # THIRD-PARTY placeholder package ("Do not use.") that this project does
+  # not control — a network hiccup on the GitHub path must not route users
+  # to a stranger's code. Re-enable a package-index path only after this
+  # project owns a published name.
   if uv_tool_install_engram "$github_spec" "GitHub" 2>/dev/null; then
     info "Installed engram from GitHub"
-  elif uv_tool_install_engram "$package_spec" "PyPI" 2>/dev/null; then
-    info "Installed engram from PyPI"
   else
-    die "Failed to install engram. Check your network connection and try again."
+    die "Failed to install engram from GitHub. Check your network connection and try again."
   fi
 }
 
