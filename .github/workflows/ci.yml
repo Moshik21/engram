@@ -238,14 +238,30 @@ jobs:
           exit 1
 
       - name: REST golden-loop smoke against the running stack
-        # The pytest this step used to reference never existed (the file was
-        # never committed); probe the live REST surface instead.
+        # Every probe echoes its status + body head so a failure names itself.
         run: |
-          set -euo pipefail
-          curl -fsS http://127.0.0.1:8100/api/storage | grep -q '"counts"'
-          curl -fsS -X POST http://127.0.0.1:8100/api/knowledge/observe             -H 'Content-Type: application/json'             -d '{"content": "Full-mode CI smoke: Engram ships a Docker compat lane.", "source": "ci-smoke"}'             | grep -q 'episode'
-          curl -fsS -X POST http://127.0.0.1:8100/api/knowledge/recall             -H 'Content-Type: application/json'             -d '{"query": "Docker compat lane", "limit": 3}' > /tmp/recall.json
-          grep -q 'results' /tmp/recall.json
+          set -uo pipefail
+          fail=0
+          probe() {
+            local method="$1" path="$2" data="${3:-}"
+            local code
+            if [ -n "$data" ]; then
+              code=$(curl -s -o /tmp/resp.json -w '%{http_code}' -X "$method" \
+                -H 'Content-Type: application/json' -d "$data" "http://127.0.0.1:8100$path")
+            else
+              code=$(curl -s -o /tmp/resp.json -w '%{http_code}' "http://127.0.0.1:8100$path")
+            fi
+            echo "== $method $path -> $code"
+            head -c 400 /tmp/resp.json; echo
+            [ "$code" = "200" ] || fail=1
+          }
+          probe GET /api/storage
+          grep -q '"counts"' /tmp/resp.json || fail=1
+          curl -s http://127.0.0.1:8100/openapi.json -o /tmp/oa.json
+          python3 -c "import json; paths=json.load(open('/tmp/oa.json'))['paths']; print(len(paths),'routes'); missing=[p for p in ('/api/storage','/api/knowledge/observe','/api/knowledge/recall') if p not in paths]; print('missing:',missing); raise SystemExit(1 if missing else 0)" || fail=1
+          probe POST /api/knowledge/observe '{"content": "Full-mode CI smoke: Engram ships a Docker compat lane.", "source": "ci-smoke"}'
+          probe POST /api/knowledge/recall '{"query": "Docker compat lane", "limit": 3}'
+          exit $fail
 
       - name: Dump route table on failure
         if: failure()
