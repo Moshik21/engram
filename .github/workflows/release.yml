@@ -57,13 +57,15 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64
-            manylinux: "2014"
+            manylinux: "2_28"
             artifact: linux-x86_64
           - os: ubuntu-latest
             target: aarch64
-            manylinux: "2014"
+            manylinux: "2_28"
             artifact: linux-aarch64
-          - os: macos-13
+          # Both mac targets cross-compile from the arm64 runner; macos-13
+          # (Intel) runners are being retired and queue indefinitely.
+          - os: macos-14
             target: x86_64-apple-darwin
             manylinux: "off"
             artifact: macos-x86_64
@@ -78,6 +80,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # helix-db's build script compiles protobuf definitions and needs the
+      # protoc binary on the build host (or inside the manylinux container).
+      - name: Install protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
       - name: Build helix-native wheel
         uses: PyO3/maturin-action@v1
         with:
@@ -86,6 +94,8 @@ jobs:
           args: --release --out dist/helix-native
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
+          before-script-linux: |
+            dnf install -y protobuf-compiler || yum install -y protobuf-compiler
 
       - name: Upload helix-native wheel
         uses: actions/upload-artifact@v4
