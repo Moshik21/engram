@@ -485,6 +485,41 @@ async def _entity_query_pool(
         return []
 
 
+def map_cosine_to_pool_scale(
+    cosine: float,
+    ladder: list[tuple[float, float]],
+) -> float:
+    """Map a raw cosine onto the pool's RRF rank-normalized score scale.
+
+    ``ladder`` pairs the pool's search-hit cosines with the pool's search-hit
+    RRF scores, each sorted descending (a rank/quantile map — monotone by
+    construction even when BM25 and vector ranks disagree). A cosine-scored
+    candidate receives the RRF-scale value its true similarity merits within
+    the current pool, instead of competing raw against rank-normalized scores.
+
+    Above the top ladder point → the top RRF score; between points → linear
+    interpolation; below the bottom point → interpolated toward (0, 0).
+    An empty ladder returns the cosine unchanged.
+    """
+    if not ladder:
+        return cosine
+    top_cos, top_score = ladder[0]
+    if cosine >= top_cos:
+        return top_score
+    bot_cos, bot_score = ladder[-1]
+    if cosine < bot_cos:
+        if bot_cos <= 0.0:
+            return min(cosine, bot_score)
+        return bot_score * (cosine / bot_cos)
+    for (c_hi, s_hi), (c_lo, s_lo) in zip(ladder, ladder[1:]):
+        if c_lo <= cosine <= c_hi:
+            if c_hi == c_lo:
+                return s_lo
+            t = (cosine - c_lo) / (c_hi - c_lo)
+            return s_lo + t * (s_hi - s_lo)
+    return cosine
+
+
 def _merge_pools_rrf(
     pools: list[list[tuple[str, float]]],
     rrf_k: int,
@@ -639,6 +674,8 @@ async def generate_candidates(
     stage_timings_ms: dict[str, float] | None = None,
     name_match_out: dict[str, float] | None = None,
     budget_profile: str | None = None,
+    scale_ladder_out: list[tuple[float, float]] | None = None,
+    true_similarity_out: dict[str, float] | None = None,
 ) -> list[tuple[str, float]]:
     """Orchestrate multi-pool candidate generation.
 
@@ -650,6 +687,18 @@ async def generate_candidates(
     can seed graph traversal from deterministically name-resolved entities
     (the returned tuples carry only semantic similarity, which must not be
     polluted by name-match scores).
+
+    Scale unification (candidates-traversal stack, review §3): search
+    candidates carry RRF rank-normalized scores (top hit always 1.0) while
+    backfilled candidates carry raw cosine — the mixed scale buries
+    graph-discovered entities in the weight_semantic term. When
+    ``cfg.entity_episode_traversal_source == "candidates"``, true cosine is
+    computed for the whole pool; search hits keep their RRF scores unchanged
+    and non-search candidates are rank-mapped onto the RRF scale via
+    ``map_cosine_to_pool_scale``. ``scale_ladder_out`` (the cosine→RRF rank
+    map) and ``true_similarity_out`` ({entity_id: true cosine}, for
+    seed-threshold gating) are populated for the caller. The default
+    ("results") path is byte-identical.
     """
     if now is None:
         now = time.time()
@@ -815,25 +864,29 @@ async def generate_candidates(
     # Step 5: Build semantic score map from search results
     search_scores: dict[str, float] = {eid: score for eid, score in search_results}
 
-    # Backfill real semantic scores for non-search entities
+    # Backfill real semantic scores for non-search entities. Under the
+    # candidates-traversal stack, cosine is computed for the whole pool so
+    # non-search candidates can be rank-mapped onto the RRF scale.
+    unify_scale = cfg.entity_episode_traversal_source == "candidates"
     non_search_ids = [eid for eid in merged_ids if eid not in search_scores]
+    similarity_ids = list(merged_ids) if unify_scale else non_search_ids
     backfilled: dict[str, float] = {}
     skip_similarity_backfill = bool(
         primary_search_timed_out
         and not search_results
         and cfg.retrieval_skip_similarity_backfill_after_primary_timeout
     )
-    if non_search_ids and skip_similarity_backfill:
+    if similarity_ids and skip_similarity_backfill:
         _set_stage_metric(
             stage_timings_ms,
             "recall_similarity_backfill_skipped_primary_timeout",
-            len(non_search_ids),
+            len(similarity_ids),
         )
-    elif non_search_ids:
+    elif similarity_ids:
         backfilled = await _bounded_pool(
             search_index.compute_similarity(
                 query=query,
-                entity_ids=non_search_ids,
+                entity_ids=similarity_ids,
                 group_id=group_id,
             ),
             timeout_seconds=_stage_timeout_seconds(
@@ -846,15 +899,42 @@ async def generate_candidates(
             cancelled_key="recall_similarity_backfill_cancelled",
             fallback={},
         )
+
+    # Rank-map non-search candidates onto the RRF scale (gated). Search hits
+    # keep their RRF scores byte-identical; only cosine-scored candidates move
+    # (from raw-cosine-buried to the ladder position their similarity merits).
+    ladder: list[tuple[float, float]] = []
+    if unify_scale and backfilled:
+        if true_similarity_out is not None:
+            true_similarity_out.update(backfilled)
+        paired = [
+            (backfilled[eid], search_scores[eid])
+            for eid in merged_ids
+            if eid in search_scores and eid in backfilled
+        ]
+        ladder = list(
+            zip(
+                sorted((cos for cos, _ in paired), reverse=True),
+                sorted((score for _, score in paired), reverse=True),
+            )
+        )
+        if scale_ladder_out is not None:
+            scale_ladder_out.extend(ladder)
+
+    def _final_score(eid: str) -> float:
+        if eid in search_scores:
+            return search_scores[eid]
+        cosine = backfilled.get(eid, 0.0)
+        if unify_scale and eid in backfilled:
+            return map_cosine_to_pool_scale(cosine, ladder)
+        return cosine
+
     _set_stage_metric(stage_timings_ms, "recall_candidate_count", len(merged_ids))
     _set_stage_metric(
         stage_timings_ms,
         "recall_candidate_max_score",
-        max(
-            (search_scores.get(eid, backfilled.get(eid, 0.0)) for eid in merged_ids),
-            default=0.0,
-        ),
+        max((_final_score(eid) for eid in merged_ids), default=0.0),
     )
 
-    # Step 6: Return (entity_id, real_semantic_similarity) in RRF order
-    return [(eid, search_scores.get(eid, backfilled.get(eid, 0.0))) for eid in merged_ids]
+    # Step 6: Return (entity_id, semantic score on one pool scale) in RRF order
+    return [(eid, _final_score(eid)) for eid in merged_ids]

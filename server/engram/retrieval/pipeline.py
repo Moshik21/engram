@@ -455,6 +455,14 @@ async def retrieve(
     # consumed by identify_seeds). Defined here so it is in scope regardless of
     # which candidate-generation branch runs.
     name_match_seeds: dict[str, float] = {}
+    # Scale unification (candidates-traversal stack): the cosine→RRF rank map
+    # and true cosine per candidate, populated by generate_candidates when
+    # entity_episode_traversal_source == "candidates". The ladder rescores
+    # spreading-discovered entities (step 4.5) onto the pool scale; the true
+    # cosines make seed_threshold a relevance test instead of a rank cutoff.
+    scale_unification = cfg.entity_episode_traversal_source == "candidates"
+    scale_ladder: list[tuple[float, float]] = []
+    true_similarity_map: dict[str, float] = {}
     if cfg.multi_pool_enabled:
         from engram.retrieval.candidate_pool import generate_candidates
 
@@ -475,6 +483,8 @@ async def retrieve(
             stage_timings_ms=stage_timings_ms,
             name_match_out=name_match_seeds,
             budget_profile=budget_profile,
+            scale_ladder_out=scale_ladder if scale_unification else None,
+            true_similarity_out=true_similarity_map if scale_unification else None,
         )
         primary_search_timed_out = bool(
             stage_timings_ms and "recall_primary_search_timeout" in stage_timings_ms
@@ -1129,8 +1139,18 @@ async def retrieve(
         seed_node_ids = {nid for nid, _ in seeds}
         context_gate = None  # context gate is a BFS/PPR concept
     else:
+        # Scale unification: gate seeding on TRUE cosine where known, so
+        # seed_threshold means semantic relevance rather than a rank cutoff
+        # over RRF-normalized scores (which pass nearly every search hit and
+        # flatten edge_proximity to 1.0). Candidates without a true cosine
+        # (no embedding / degraded backend) keep their pool score.
+        seed_candidates = (
+            [(eid, true_similarity_map.get(eid, score)) for eid, score in candidates]
+            if scale_unification and true_similarity_map
+            else candidates
+        )
         seeds = identify_seeds(
-            candidates,
+            seed_candidates,
             activation_states,
             now,
             cfg,
@@ -1326,7 +1346,22 @@ async def retrieve(
         else:
             activation_states.update(new_states)
             _add_stage_timing(stage_timings_ms, "recall_embed", similarity_started)
-            candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
+            if scale_unification and scale_ladder:
+                # Scale unification: rank-map the discovered cosines onto the
+                # pool's RRF scale so graph-discovered entities compete at the
+                # position their true similarity merits instead of entering
+                # raw-cosine-buried below every rank-normalized search hit.
+                from engram.retrieval.candidate_pool import map_cosine_to_pool_scale
+
+                candidates = candidates + [
+                    (
+                        nid,
+                        map_cosine_to_pool_scale(discovered_sims.get(nid, 0.0), scale_ladder),
+                    )
+                    for nid in new_ids
+                ]
+            else:
+                candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
 
     # Step 4.6: Fingerprint similarity computation (Wave 2)
     conv_fingerprint_sim: dict[str, float] | None = None
