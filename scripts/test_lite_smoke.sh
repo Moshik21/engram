@@ -142,13 +142,21 @@ else
   fail "Health check failed after 30s"
 fi
 
-if command -v lsof >/dev/null 2>&1; then
+if command -v lsof >/dev/null 2>&1 && [ -f "$ENGRAM_HOME/engram.pid" ]; then
   pid_file_value="$(cat "$ENGRAM_HOME/engram.pid")"
   listener_pid="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN | head -n 1 || true)"
   if [ "$listener_pid" = "$pid_file_value" ]; then
     pass "PID owns isolated test port"
   else
     fail "PID file ($pid_file_value) does not own isolated port $PORT (listener: ${listener_pid:-none})"
+  fi
+elif command -v lsof >/dev/null 2>&1; then
+  # LaunchAgent lifecycle: no PID file; just require a listener on the port.
+  listener_pid="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN | head -n 1 || true)"
+  if [ -n "$listener_pid" ]; then
+    pass "Port owned by LaunchAgent-managed process ($listener_pid)"
+  else
+    fail "No listener on isolated port $PORT"
   fi
 fi
 
@@ -172,11 +180,24 @@ fi
 # Stop
 engramctl stop
 
-# PID file should be removed
-if [ ! -f "$ENGRAM_HOME/engram.pid" ]; then
-  pass "PID file removed after stop"
-else
+# Stop must release the port (PID file removed on the nohup path; the
+# LaunchAgent path never had one).
+if [ -f "$ENGRAM_HOME/engram.pid" ]; then
   fail "PID file still present after stop"
+else
+  stopped=0
+  for i in $(seq 1 10); do
+    if ! curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+      stopped=1
+      break
+    fi
+    sleep 1
+  done
+  if [ "$stopped" = "1" ]; then
+    pass "Server stopped (no PID file, port released)"
+  else
+    fail "Server still answering after stop"
+  fi
 fi
 
 # Restart cycle
