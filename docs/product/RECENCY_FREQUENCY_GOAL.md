@@ -1,0 +1,427 @@
+# Recency/Frequency Goal — usage signals earn their rank, or they don't ship
+
+**Status:** DRAFT pending founder review
+**Created:** 2026-07-18
+**Sources:** `RECENCY_FREQUENCY_REDESIGN.md` (the committed design + M0 triage),
+`experiments/RF_target_design.md` (full design, §1–§7), `experiments/RF_gear_triage.md`
+(M0 FIX-NOW rows), `experiments/RF_session_pollution.md` (the WM-episode-leak defect),
+`experiments/M4_1_activation_arm.md`, `experiments/M4_3_ts_arm.md`,
+`experiments/M3_1_oracle_surface.md`, `experiments/DECISIONS_2026-07-17.md`,
+`COGNITIVE_CORE_REVIEW_2026-07-17.md` (§1,§4), and the **corrected three-lens
+judge panel** (computational-cognitive-science 8/10, durability/blast-radius 7/10,
+eval-scaffold 6/10 — every blocker below is folded into a milestone or carries an
+explicit disagreement). This doc is the executable work order; read the design for
+the why. House style follows `COGNITIVE_CORE_GOAL.md`.
+
+## Objective (one sentence)
+
+Recency and frequency influence what Engram surfaces **only through tiered, trusted,
+echo-immune usage events composed as a bounded multiplicative tiebreaker** — every
+access writer, weight, store, session mutable, and activation reader in the R/F
+family becomes live-and-verified, eval-gated, or deleted, with the ranking default
+byte-identical until the six flip gates pass.
+
+## Resolved decisions (design + all three judges converge — do not relitigate)
+
+1. **One store, two views.** A single usage-event store; an ACT-R **hygiene** view
+   (prune floor, maturation, dashboard — *unchanged*, `engine.py:11-47`) and a new
+   **ranking** view `u`. Root cause fixed: one formula served a 768-day prune floor
+   and a 30%-band tiebreaker at once. (All three judges endorsed; "why two formulas"
+   is pre-answered — consumers need different transforms.)
+2. **`u = f · r′`, bounded, absolute, pool-independent.** `f = min(1,
+   ln(1+n_eff)/ln(1+N_cap))`, `r = 2^(−Δ_last/h)`, `r′ = r_floor + (1−r_floor)·r`;
+   defaults `N_cap=50, h=14d, r_floor=0.25`. Saturation moves from first-touch to
+   ~50 events, not deleted. Pool-relative percentile **rejected** (determinism hazard,
+   the M4.3 56→61 pool-drift class). Judge 1 independently recomputed the §D1 table
+   (1-used 0.067, 5-used 0.225, 50-used 0.296) — holds exactly.
+3. **Multiplicative bounded tiebreaker.** `final = composite_sem × (1 + β·u)`,
+   `β_max=0.30`; theorem **X overtakes Y only if `sem(X) > sem(Y)/(1+β)`**. Provably
+   prevents the 23→2 collapse (gold 0.50 vs person 0.30: `0.30 < 0.50/1.25`).
+   Multiplicative over capped-additive is correctly argued. (All endorsed.)
+4. **`w_surfaced=0` as a STRUCTURAL ranking choice, kept at hygiene weight 1.0.**
+   Surfacing is ranker output, not environmental need; any nonzero surfaced ranking
+   weight reopens the fixed point (discounting changes the rate, not the fixed point).
+   (All endorsed.)
+5. **Two recencies.** Environmental (`conversation_date`, Step-5.05, unchanged) vs
+   behavioral (`u`), composed multiplicatively, separately killable. (All endorsed.)
+6. **Delete the activation-based candidate backfill — usage is a reranker, not a
+   retriever** (arm E vs A cost 2 hits; rediscovery is the graph channel, 2/36→22/36).
+   *Judge-2 caveat resolved:* the FREQUENCY route loses its only "my top-used"
+   retriever, so M2.4 adds a bounded top-used retriever **sourced from `usage_events`
+   (loop-free)** OR a frequency-query rig as the gate before the backfill is deleted.
+7. **Thompson sampling = KILL** (recommended; reverses the recorded "SEEDED-ON, flip
+   parked" → needs founder ack, **F4**). Reward channel structurally absent; budget-0
+   doubly inert, budget>0 buys −1@5/−1@10 and 33→0 repeat-stability. (All endorsed kill;
+   one-line `ts_enabled=False` floor if ack withheld.)
+8. **Kill-switch at the multiplication site.** `usage_ranking_enabled` read post-composite;
+   `apply_route`'s write-set carries no usage field (closes the deep-copy trap,
+   `router.py:100-108`); two permanent tests (schema-frozen apply_route diff;
+   populated-store ≡ empty-store). (All endorsed.)
+9. **Session-pollution fix (M0.1-M0.3) is a FIX-NOW defect**, rig-proven 15→32 =
+   state-clean parity. (All endorsed.)
+10. **Used stays at `w_ranking=0` until the echo guard + G7 land** (Judge-1 blocker):
+    ship confirmed/corrected first (explicit, echo-immune); the citation scan turns on
+    only behind the echo guard and its yield/precision/echo gate.
+11. **All seven activation ranking-path readers gate under ONE flag** (Judge-2 blocker):
+    D3's two enumerated deletions are insufficient — the "populated ≡ empty" gate cannot
+    pass until spreading seed energy, temporal bypass, goal priming, the TS scorer twin,
+    prospective, and surprise readers are also neutralized (M2.2).
+12. **Confirmed journal uses a fold-then-compact ownership protocol** (Judge-2 blocker):
+    only the process whose snapshot incorporated an event may truncate it; non-owners
+    append but never truncate (M1.3).
+13. **One canonical, numbered gate set** (Judge-3 blocker): the two disagreeing tables
+    (arm-B 23/21/19; G4 36/33) are collapsed below to a single set; G2 = arm-A parity
+    (≥23), tagged mandatory-mechanism.
+14. **Launch runs on fallback defaults, not fitted-from-data** (Judge-3 blocker): the
+    `usage_events` distribution is empty at calibration time; §6 "every parameter from
+    data" is a post-launch re-fit, and pre-launch fitting on legacy `access_history` is a
+    surfacing-biased proxy, called out as such.
+
+## Constraints (binding)
+
+- **Live-brain safety:** never open `~/.helix/engram-native-dogfood-axi`; read-only
+  HTTP to `127.0.0.1:8100` permitted; experiments use the fakehome pattern
+  (`HOME=<scratchpad>/fakehome ENGRAM_MODE=lite`) or the read-only live copy at
+  `<scratchpad>/experiments/live-copy/`.
+- **Fully-local north star:** no external keys for any mechanism here; every rig is
+  judge-free reachability (local-judge accuracy is below instrument floor — DECISIONS
+  shared caveat). A G2 pass is a reachability claim, never an answer-quality claim.
+- **Eval-gated flips:** small-corpus results flip no shipped default; mechanism proofs
+  (no-op / determinism / silent-inert / echo-immunity) may. Only the live organic
+  continuity gate flips defaults.
+- **Byte-identical defaults until gates pass** — one carve-out: M0 defect fixes change
+  *session-shaped* behavior (the WM leak is live on every install). Their gate is the
+  session-pollution rig (state-clean arms stay byte-identical: FRESH 21/32 unchanged;
+  session-shaped recovers to parity), not byte-identity.
+- **Frozen public MCP 9-tool surface:** no new tools; any confirmed/corrected feedback
+  path lands on the operator surface unless **F1** decides otherwise. The agent-used
+  signal derives from the next `observe()` turn (D2), adding nothing to the surface.
+- **Concurrent-edit hazard:** `retrieval/pipeline.py`, `candidate_pool.py`,
+  `context_builder.py` are under sibling-workflow edit (2026-07-17). M0 rows touching
+  them land only after that stack merges; line numbers are snapshot-anchored.
+- **Storage silent-swallow contract stays green;** every new tolerated failure carries
+  `# silent-ok: <reason>`. Commit in logical stacks, targeted tests green before the next.
+
+## Global verification gates (apply to every milestone)
+
+- `cd server && uv run ruff check . && uv run ruff format --check .`
+- `env HOME=<fakehome> ENGRAM_MODE=lite uv run pytest -m "not requires_helix" -q` → 0 failed.
+- **Regression instruments (all fully local, judge-free):**
+  - M4.1 rig: `<scratchpad>/experiments/m41_activation/run_m41.py && run_m41b.py`
+  - Session rig: `<scratchpad>/experiments/rf_session_pollution/run_bisect.py`
+  - TS rig: `<scratchpad>/experiments/m43_ts_arm/run_ts_ab.py && run_fresh_ab.py`
+  - Oracle rig: `<scratchpad>/experiments/m31_oracle_surface/run_experiment.py --reuse`
+  - **Echo rig (NEW, G7):** `<scratchpad>/experiments/rf_echo/run_echo.py` — planted-label
+    citation-scan yield/precision + top-k feedback echo-immunity.
+- North-star: `cd server && uv run engram continuity --against-live --organic` green
+  before any default flip.
+- EVAL-GATED rows require their experiment report committed under
+  `docs/product/experiments/` before the default flips.
+
+---
+
+## M0 — FIX-NOW gear triage (wrong under ANY design; each independently landable)
+
+- [ ] **M0.1 WM episode-ID type filter (the session-pollution fix).** Skip
+      `item_type=="episode"` WM entries in `_working_memory_pool`
+      (candidate_pool.py:203-205), the single-pool injection (pipeline.py:543-548),
+      and the WM seed step (pipeline.py:1190-1197); keep episode entries in the buffer.
+      Files: retrieval/candidate_pool.py, retrieval/pipeline.py (AFTER sibling merge).
+      DoD: `run_bisect.py` S_BASE reach@10 15→≥32, FRESH unchanged 21/32; unit test a
+      WM episode entry never appears in the entity pool. **Gate: session-pollution rig.**
+- [ ] **M0.2 Gate session-state writes on `record_access`** (or explicit
+      `session_state=False` recall kwarg) (primary_results.py:187-194, 301-308). Files:
+      retrieval/primary_results.py. DoD: drift probe — consecutive identical recalls
+      with `record_access=False` are byte-stable (ids AND scores; today pool 36→42,
+      scores drift). **Precondition for G4;** verification: session-rig drift probe +
+      M4.3 fresh-AB 12/12.
+- [ ] **M0.3 MMR embedding-coverage hardening.** Fetch embeddings for all MMR
+      candidates, or penalize missing-embedding candidates, or exclude non-entity ids
+      before the top-20 window cut (pipeline.py:1917-1922; mmr.py:73-80). Files:
+      retrieval/mmr.py, retrieval/pipeline.py (after sibling merge). DoD: injecting N
+      phantom ids does not change MMR selection among scored entities; diag_mmr q1 shows
+      sourdough (0.4674) no longer demoted below lower-scored unpenalized entities.
+      **Gate: session rig; oracle rig unchanged (22/36 @5).**
+- [ ] **M0.4 Fresh-cfg clone in `_activation_pool` + permanent test.** Pass the live cfg
+      instead of constructing `ActivationConfig()` (candidate_pool.py:140). DoD: a
+      permanent test asserts a cfg-level `B_mid`/`weight_*` override reaches pool ranking
+      (Judge-3: prevents the next accidentally-vacuous arm).
+- [ ] **M0.5 Router explicit-zero kill-switch + permanent test.** In `apply_route`, any
+      weight the base cfg sets to exactly `0.0` stays `0.0` (zero = term disabled;
+      profiles redistribute only among enabled terms); behavior-preserving for every
+      shipped config (router.py:100-108). DoD: `cfg.weight_activation=0` + TEMPORAL query
+      ⇒ `routed.weight_activation==0`; default cfg ⇒ profiles byte-identical. Permanent
+      test asserting `_WEIGHT_PROFILES` is the single tuning point.
+- [ ] **M0.6 `compute_activation` signature drift.** Thread `consolidated_strength`
+      through the ~10 omitting ranking-path call sites (spreading.py:48,64; goals.py:102;
+      dream.py:222,384; microglia.py:386; candidate_pool.py:143). DoD: **grep gate** — zero
+      remaining 3-arg `compute_activation(state.access_history, now, cfg)` ranking-path
+      calls; unit test a cs-seeded zero-access entity is visible to goals. **Precondition
+      for any M3.2 flip and for M2.2's reader enumeration.**
+- [ ] **M0.7 Exploration/TS aliasing recorded.** Document + test that `ts_enabled=False`
+      re-enables the deterministic `exploration_weight` term (scorer.py:264-268;
+      config.py:184,366); TS rigs pin both knobs explicitly. DoD: rig configs name both knobs.
+- [ ] **M0.8 Predicate allowlist closed under canonicalization + loud reject.** (a)
+      Canonicalize before the allowlist check (client_proposals.py:242); (b) make
+      `ALLOWED_CLIENT_PREDICATES` canonical-closed (add LOCATED_IN, REQUIRES, HAS_ROLE,
+      CREATED, LIKES, DISLIKES, AIMS_FOR, EXPERT_IN, COLLABORATES_WITH, LEADS); (c) serialize
+      rejected rows (`status="rejected"`) + per-edge reasons + the allowlist in the error
+      payload, on partial commits too. No invented synonyms (INTERESTED_IN stays rejected,
+      visibly). **Coordinate with `fix-commit-policy` sibling** (commit_policy.py:126-133).
+      DoD: LOCATED_IN commits; proposed and stored predicate agree; partial-commit response
+      carries per-edge reasons.
+
+## M1 — Recording semantics + storage (D2/D6 storage half; lands BEFORE any ranking flip)
+
+*Sequencing invariant: writers and durability land here, ranking stays byte-identical
+(inert by G1/G5). Nothing in M1 changes the benchmark regime.*
+
+- [ ] **M1.1 `usage_events` store + tiered `record_access(tier=)` + snapshot v2.** Add
+      `usage_events: list[tuple[float, float]]` beside `access_history` (which stays whole
+      for prune); `record_access` grows a `tier` param, default `"surfaced"` (w_ranking=0)
+      keeps every caller hygiene-correct. Snapshot bumps to v2 (`"version":2`); v1 loads as
+      legacy/empty usage (forward-compat via `.get()`). Files: models/activation.py,
+      storage/memory/activation.py, config.py. DoD: v1↔v2 round-trip test; `n_eff`/`Δ_last`
+      computed O(1); no ranking read of `usage_events` yet.
+- [ ] **M1.2 Confirmed/corrected tier tagging via existing feedback path.** Tier-tag events
+      from the MCP `feedback` tool (`"confirmed"`→1.0, `"corrected"`→0.5, marks labile) and
+      treat cue-hit promotion as a confirmed-tier signal (feedback.py:458-459,263-315). Files:
+      retrieval/feedback.py. DoD: confirmed/corrected feedback appends a weighted
+      `usage_events` entry (test); prune/mature inputs unchanged (their tests green).
+- [ ] **M1.3 Confirmed-event JSONL journal — fold-then-compact ownership protocol.**
+      *(Judge-2 blocker 1 — data-loss race across shell + MCP-stdio + brain.)* Append-only
+      journal for confirmed/corrected, replayed on `load_from_file`, exempt from the 14-day
+      age-out. On save the **owning** process (a) re-reads and replays the whole current
+      journal into RAM so its snapshot is a superset of every journaled event, (b) writes
+      the snapshot, (c) truncates by rename-and-recreate (capture old inode), re-scanning
+      lines appended during the write into a fresh segment. Non-owning processes (stdio while
+      shell alive per mcp/server.py:437,445; brain) append but **never** truncate. Files:
+      storage/memory/activation.py, mcp/server.py. DoD: **an event written by a second process
+      is still present after the first process saves+truncates** (test); TOCTOU test — a line
+      appended between replay-at-load and truncate-at-save survives.
+- [ ] **M1.4 Agent-used citation scan WITH echo guard + dedup** *(Judge-1 blocker — the
+      self-referential access loop).* Recall keeps a **bounded** per-group ring buffer
+      (cap ~20-50, short-circuit when empty so the CQRS no-LLM `store_episode` path pays ~0)
+      of surfaced `(entity_id, name, ts)`; `store_episode` scans the next observed turn with
+      `_matches_entity_name` (feedback.py:700-711). **Echo guard:** a `used` event fires only
+      when the entity mention falls in **novel tokens** — diff the observed content against
+      the ring-buffer surfaced-payload text and require the mention outside the echoed span
+      (or restrict to the user-authored portion of the turn). **Dedup:** at most one used
+      event per `(entity_id, conversation)` per window, so a persistently in-context entity
+      cannot accrue runaway used events. Ships behind `recall_usage_feedback_enabled`, and
+      **`w_used` stays 0 in ranking until G7 passes** (resolved decision 10). Files:
+      retrieval/feedback.py, ingestion/capture_surface.py. DoD: G7 echo rig — feeding the
+      ranker's own top-k back as the synthetic next turn yields used-event count ~0; planted-
+      reliance transcript yields events above floor; adversarial common-word ("Python" surfaced
+      but not relied upon) does **not** fire. **EVAL-GATED: G7.**
+- [ ] **M1.5 Demote surfacing writers to `surfaced` tier.** P1 (primary_results.py:285-299)
+      and P9 (context_builder.py:1203-1216 — after sibling merge) record a `surfaced`-tier
+      event (hygiene weight 1.0, ranking weight 0) instead of a ranking prior. Files:
+      retrieval/primary_results.py, retrieval/context_builder.py. DoD: recall + get_context
+      record zero ranking-eligible events (store-spy); prune/mature inputs unchanged.
+- [ ] **M1.6 Environmental mention-frequency: tier or documented exclusion (F10).**
+      *(Judge-2 blocker 3 — P5 ingestion mentions silently map to w=0, leaving ranking-
+      frequency dependent entirely on the unproven scan.)* Per **F10**, either (a) give
+      ingestion mentions a loop-free `w_mentioned≈0.1-0.2` tier (user-content-driven, not
+      ranker-output), wired at extraction/apply.py:847 and bootstrap; or (b) document +
+      test the explicit rationale for excluding environmental occurrence from a system whose
+      basis is environmental statistics. DoD: whichever branch, a test pins the chosen tier
+      weight for ingestion mentions; the choice is recorded in the migration table.
+
+## M2 — De-saturation + router rebalance (D1/D3) [EVAL-GATED]
+
+- [ ] **M2.1 The `u = f·r′` ranking function + u-discrimination gate.** Implement the
+      picked signal (RF_target §1); **do NOT implement rank-relative/z-scored/retuned-sigmoid
+      normalization — the design rejects all three** *(Judge-3 blocker 2: the committed
+      REDESIGN M2.2 prose prescribed the rejected approach; this row supersedes it).* Files:
+      activation/engine.py (new `compute_u`), config.py. DoD: worked-number invariant test —
+      `u(1 surfaced)=0` exactly, `u(1 used)<u(5 used)<u(50 used)` at the stated gaps
+      (0.067/0.225/0.296), `u(50 confirmed recent)≥~0.9`, count/age separability; a hard-coded
+      constant `u` must FAIL this test. **Gate: u-discrimination (mechanism).**
+- [ ] **M2.2 Enumerate + gate ALL activation ranking-path readers under one flag.**
+      *(Judge-2 blocker 2 — D3 neutralized only 2 of 7; the "populated ≡ empty" gate cannot
+      pass otherwise.)* Gate/neutralize under a single `activation_ranking` flag: scorer term
+      (scorer.py:84-93) AND the TS twin (241-247), spreading seed energy (spreading.py:42-71,
+      the `energy=max(act,0.15)` temporal_mode seed that reproduces a slice of the collapse),
+      activation candidate pool (candidate_pool.py:120-148), temporal bypass (pipeline.py:536-550),
+      goal priming (goals.py:98-107,151), prospective, surprise. DoD: **populated store ==
+      empty store over a rig that exercises spreading AND `temporal_mode`** (not just the
+      scorer) — this is the G1 body. Note coupling to F4: if FLOOR not KILL, the TS scorer
+      twin's `w_act·act` term remains and must be gated here too.
+- [ ] **M2.3 Multiplicative router tiebreaker + delete additive term + delete backfill.**
+      `final = composite_sem × (1 + β_route·u)`, `β_max=0.30`; delete the additive
+      `w_act·act` term (scorer.py:66-120); router profiles lose the activation column, gain
+      `β_route` (FREQUENCY 0.30). Delete the activation-based candidate backfill
+      (candidate_pool.py:128-140, pipeline.py:531, ×3 temporal expansion). Kill-switch
+      `usage_ranking_enabled` at the multiplication site. Files: retrieval/router.py,
+      retrieval/scorer.py, retrieval/candidate_pool.py, retrieval/pipeline.py. DoD: two
+      permanent tests — (1) `apply_route` output differs from input only in (sem, spread,
+      edge, β) schema-frozen; (2) flag-off recall on a populated store byte-identical to empty
+      store. **EVAL-GATED: G1, G3.**
+- [ ] **M2.4 FREQUENCY-route bounded top-used retriever (or frequency-query rig gate).**
+      *(Judge-2 improvement — deleting the backfill removes the FREQUENCY route's only
+      "my top-used" retriever.)* Provide a bounded top-used retriever **sourced from
+      `usage_events` (loop-free, unlike the old activation store)** for the FREQUENCY route,
+      OR add a frequency-query rig ("what have I focused on lately") as the gate proving the
+      deletion costs no frequency-query answerability. Files: retrieval/candidate_pool.py,
+      retrieval/router.py. DoD: frequency-query rig report committed; retriever (if built) is
+      bounded and reads only `usage_events`. **EVAL-GATED: frequency-query rig.**
+- [ ] **M2.5 Neutralize-now (flag-ready, default unflipped).** Activation component 0 in all
+      `_WEIGHT_PROFILES` rows + `weight_activation=0` behind `usage_ranking_enabled=False`;
+      default behavior byte-identical (arm B0 proves inertness). DoD: M4.1 arms A/A2/C
+      byte-identical pre/post. **EVAL-GATED: G1.**
+- [ ] **M2.6 Real-corpus rerun — the flip gate.** M4.1 arms A/B/E on a real-corpus brain
+      (live-copy read-only or organic capture) + `engram continuity --against-live --organic`.
+      DoD: report committed under experiments/; **only then may M2.5's switch flip default**,
+      and only after **G7** (M1.4) has passed. **EVAL-GATED: G2, G6, G7.**
+
+## M3 — Importance prior calibration + flip (D6 importance lane) [EVAL-GATED; needs M0.6]
+
+- [ ] **M3.1 Magnitude calibration + bounded invariant.** Re-derive the M3.3 arithmetic
+      (one-shot durable ≈ 5-access mundane at 30d) against the M2.1 `u`; revisit cap per **F6**.
+      *(Judge-1 improvement: the 2.5× durable ranking multiplier composes multiplicatively and
+      escapes the "usage never beats semantics" theorem — a durable-but-weak item (sem 0.30→0.75)
+      beats a non-durable strong item (sem 0.50). Bring importance under an analogous bounded
+      invariant, or justify identity-core surfacing on weak match as intended.)* DoD: worked-
+      number test mirrors rf_judge_math scenarios; an importance-vs-semantics invariant test
+      states and enforces the chosen bound.
+- [ ] **M3.2 Flip `importance_prior_enabled` default.** Only after M0.6 + M3.1 + no regression
+      on M4.1/oracle rigs. DoD: eval report committed. **EVAL-GATED: continuity gate + M4.1/oracle.**
+
+## M4 — Durability + store unification (D6)
+
+- [ ] **M4.1 Periodic snapshot save** (shell + MCP stdio; interval or dirty-count trigger;
+      keep last-clean-exit ownership rules, mcp/server.py:425-451). DoD: kill -9 mid-session
+      loses ≤ interval of accesses (fake-clock test). *(Confirmed/corrected durability is the
+      journal, M1.3; this row bounds used/surfaced loss.)*
+- [ ] **M4.2 Graph rows: wire or delete (F3).** Wire = call `snapshot_to_graph`
+      (storage/memory/activation.py:159-175) in the mop window (shell paused ⇒ single-writer);
+      delete = drop columns + rewrite prune's pre-filter honestly (sqlite/graph.py:1529-1558;
+      helix/graph.py:2755-2813). *(Judge-2 improvement: if wired, the counts are last-clean-
+      exit-stale — the brain loads read-only, the shell's crash-window accesses are absent —
+      document them as approximate, not authoritative.)* DoD: prune pre-filter semantics
+      documented + tested either way; ranking never reads the column.
+- [ ] **M4.3 Redis activation store parity (full-mode compat lane).** *(Judge-2 improvement —
+      `redis/activation.py` is a separate implementation; `usage_events`, the tier param, and
+      v2 changes are silently absent otherwise.)* Mirror the M1.1 changes in the Redis store,
+      or document explicitly that the usage mechanism is inert in full mode (compat lane only).
+      DoD: a test pins whichever choice; no silent divergence.
+
+## M5 — Episode channel + vocabulary honesty (D4/D7/D8) [EVAL-GATED for the episode-u flip]
+
+- [ ] **M5.1 Episode `u_episode` via cue substrate + cue-bearing rig.** Add `used_count`
+      (tier-weighted) + `last_used_at` to the cue record; agent-used events from
+      `_matches_cue_content` in the same echo-guarded scan (M1.4); `u_episode = f·r′`.
+      *(Judge-3 blocker 4 — the M4.1/session/oracle rigs contain ZERO cues, so this channel is
+      untested.)* Build a cue-bearing rig variant (plant cues in the M4.1 corpus or a small
+      dedicated corpus) and mirror G1/G3/G4 for `u_episode`. *(Judge-1 improvement — episode
+      composition stacks `(1+β·u)≤1.30` × `(1+temporal_cue_boost)≤3.0` for a 3.9× max; add an
+      episode-side collapse/tie probe.)* Files: storage/*/cue schema, retrieval/pipeline.py.
+      DoD: episode no-op on empty cue-usage; episode tie-probe; episode determinism; episode
+      composition stress probe passes. **EVAL-GATED: episode G1/G3/G4 + composition probe.**
+- [ ] **M5.2 Document Step 5.05/5.06 as THE episode recency model** (docs + coverage for the
+      undated-episode no-boost edge, pipeline.py:1681-1801). DoD: doc + edge test.
+- [ ] **M5.3 TS default per F4.** If KILL: delete `score_candidates_thompson`, the pipeline
+      branch, `activation/feedback.py`, `ts_*` knobs, `ts_alpha/ts_beta` fields (+snapshot
+      compat). If FLOOR: one-line `ts_enabled=False` + `exploration_weight` pinned. If ever
+      revived: per-entity seeded draws `blake2b(group,query,entity_id)`. DoD: repeat-stability
+      ≥ 33/36 session-shaped on the TS rig either way.
+
+---
+
+## Acceptance gates — the flip criteria (one canonical set)
+
+*(Judge-3 blocker 3: the two disagreeing tables are collapsed here; G2 = arm-A parity,
+tagged mandatory-mechanism; the looser ≥21/≥19 variants are deleted. G7 is added by the
+Judge-1 echo blocker + Judge-3 producer-yield blocker. A gate pass is a reachability
+claim, never an answer-quality claim.)*
+
+| Gate | Instrument | Threshold | Scope |
+|------|-----------|-----------|-------|
+| **G1 no-op** | M4.1 rig, flag-on + **populated** store vs empty, **exercising spreading + temporal_mode** | byte-identical ids AND scores, 36/36 | mechanism (mandatory) |
+| **G2 usage never degrades** | M4.1 arm B (usage history relabeled `used`), real corpus | reach@10 ≥ **23** (arm-A parity; shipped scored 2/36); hard fail on regression | mandatory-mechanism |
+| **G3 used wins ties** | synthetic equal-sem tie-probe, one item `used` | 100% used-first *(wiring / inverse-silent-inert proof — proves the multiplication is live, not that usage improves ranking)* | mechanism |
+| **G4 determinism** | M4.3 fresh-AB, **`record_access=False`**, M0.2 WM-freeze precondition | 12/12 byte-identical; session repeat-stability ≥ 33/36 | mechanism |
+| **G5 budget-0 hygiene** | store-spy, M1.2-style | zero writes to **`usage_events`** (ranking store) on the read path; surfaced hygiene writes to `access_history` at w=0 permitted; **budget≥1 store-spy variant** included | mechanism |
+| **G6 real corpus** | `engram continuity --against-live --organic` + **live usage-event yield > floor** over a real capture window | no regression AND per-tier used+confirmed+corrected volume above the silent-inert floor | **flips defaults** |
+| **G7 citation-scan yield/precision + echo-immunity** *(NEW)* | echo rig, planted labels, judge-free | (a) used-event rate > floor on planted-reliance transcripts; (b) precision ≥ threshold vs planted labels; (c) adversarial common-word surfaced-but-not-relied ⇒ no fire; (d) top-k fed back as synthetic next turn ⇒ used-event count ~0 | **mandatory precondition to G6 / usage_ranking flip** |
+
+Additional mechanism gates: **u-discrimination** (M2.1 worked-number invariants — a constant
+`u` must fail), **de-saturation** (rf_judge_math: 1@1s de-saturated to 0.067 not 0.913, count/age
+separability), **surfacing regression** (oracle rig reach@5 ≥ 22/36 on the candidates-source arm —
+proves the graph channel survives the shared-pipeline R/F changes), **frequency-query rig** (M2.4),
+**session-pollution parity** (M0.1-M0.3: session-shaped reach@10 ≥ 32, state-clean unchanged 21/32).
+
+## Decisions needed from founder
+
+1. **F1 — Approve the agent-used citation scan (unblocks M1.4/M2):** the ingestion-time
+   citation scan derives used events from the next `observe()` on the frozen 9-tool surface,
+   no new tool. *Judges:* Judge-1 flags it as a self-referential echo loop unless guarded →
+   **M1.4 adds the echo guard + dedup + G7**; all three make G7 a hard precondition. Decision:
+   approve the guarded scan, plus whether confirmed/corrected also gets a public feedback path
+   or stays operator-surface-only. Reject ⇒ M1 ships confirmed/corrected only (weaker but
+   echo-immune, which Judge-1 endorses as the safe fallback).
+2. **F2 — Fate of surfacing/delivery recording (P1/P9):** telemetry-only stream or removed once
+   confirmed-use lands; get_context's closed loop (P9 + layer-3 ordering) needs an explicit verdict.
+   *(M1.5 demotes to hygiene tier regardless; F2 decides whether the telemetry stream stays.)*
+3. **F3 — Graph-row access columns (M4.2):** wire `snapshot_to_graph` on cadence, or delete the
+   columns and rewrite prune's pre-filter honestly. *Judge-2:* if wired, counts are last-clean-
+   exit-stale — document as approximate.
+4. **F4 — Thompson sampling: KILL vs FLOOR** (reverses recorded "SEEDED-ON, flip parked" →
+   needs ack). *All three judges endorse KILL* (reward channel structurally absent, un-eval-
+   gateable). (a) KILL (~1 day incl. snapshot compat); (b) FLOOR one-line `ts_enabled=False`
+   (~1hr, code dormant — but **M2.2 must still gate the TS scorer twin's `w_act·act` term**);
+   (c) hold. Drives M5.3.
+5. **F5 — Router TEMPORAL/FREQUENCY posture:** zero activation in profiles (D3) vs retune to
+   small nonzero after M2.1. *(D3's β_route table is the design's recommendation.)*
+6. **F6 — Importance-prior magnitude + bounded invariant (M3.1):** accept cs cap 0.05 or
+   recalibrate against the M2.1 `u`. *Judge-1:* the 2.5× durable multiplier can dominate
+   semantics — decide whether to bound it analogously to usage or justify identity-core weak-match
+   surfacing as intended.
+7. **F7 — Episode frequency prior:** build (cue `used_count`/`last_used_at`, M5.1) or park.
+   *(This doc builds it behind the episode-u gates; F7 confirms.)*
+8. **F8 — Judge panel:** the corrected three-lens panel HAS run and its blockers are folded above;
+   decide whether a re-pass against THIS goal doc is required before build sign-off, or waived on
+   the strength of the folded blockers.
+9. **F9 — Temporal vocabulary unification (D8):** promote to a milestone or leave parked.
+10. **F10 — Environmental mention-frequency tier (M1.6, NEW — Judge-2 blocker 3):** give ingestion
+    mentions a loop-free `w_mentioned≈0.1-0.2` ranking tier, OR document + test the explicit
+    exclusion of environmental occurrence. This decides whether ranking-frequency has any signal
+    beyond the citation scan at launch.
+
+## Parked (dated reasons)
+
+- **Distributed-practice / spacing fidelity in `u`** — parked 2026-07-18 (accepted tradeoff):
+  `u` uses only `Δ_last`, so 5 accesses over a month and 5 in one minute give identical `u` if
+  the last access matches (Judge-1 improvement). Defensible for a cheap O(1) deterministic
+  tiebreaker (the design's explicit rationale); a 2-3-point recency would recover most of it.
+  Unpark if calibration shows the loss matters.
+- **`r_floor` long-horizon age cutoff** — parked 2026-07-18: `r_floor=0.25` gives a ~6-7% standing
+  boost forever with no upper age cutoff (Judge-1). Verify against §6 calibration that abandoned
+  high-frequency items are not over-protected; add a cutoff only if calibration shows it.
+- **Global activation-weight zeroing default flip** — parked 2026-07-17: collapse magnitude from a
+  36-question synthetic rig; shipped config already inert; gate = M2.6 real-corpus rerun.
+- **`ts_enabled=False` default flip** — parked 2026-07-17: INCONCLUSIVE-on-lift / CONFIRMED-on-
+  mechanism; unpark path in F4 (M5.3).
+- **`entity_episode_traversal_source="candidates"` default flip** — parked 2026-07-17: oracle
+  ceiling on planted structure; needs real-corpus eval + RRF-vs-cosine scale normalization (M2.4/M3.1).
+- **M4.4 confirmed-use writer default-on** — superseded 2026-07-18 by M1.2/M1.4 (this doc builds
+  the guarded writer); unpark = F1.
+- **Entity-budget re-enable (`passage_first_entity_budget≥1`)** — parked 2026-07-17: the flag
+  couples five behaviors (cartography §11.1); re-enable only after M0 + M1 + M2 decouple recording
+  from surfacing.
+- **Cue-feedback read-path writes + conv-fingerprint capture-pollution probes** — parked
+  2026-07-17: not exercised by the session rig (no cues, recall-only sessions); worth separate
+  small probes.
+- **Reconsolidation cross-process fix** — parked 2026-07-17: 5-min in-RAM window vs 2h brain
+  cadence is structurally dead (cartography P6); superseded by D1's usage-signal framing.
+- **Full temporal-vocabulary unification (D8)** — parked pending F9.
+
+## Completion
+
+This goal is DONE when: M0 fully landed with the session rig at parity; F1–F10 each carry a
+founder decision; M1 (recording + storage + journal + echo-guarded scan) landed and inert by
+G1/G5 before any ranking flip; M2–M5 rows landed behind their named gates with experiment reports
+committed or explicitly parked with dated reasons; G1–G7 plus the mechanism gates green on the
+final stack; and the R/F knob census (cartography §10) contains zero rows whose status is
+"illusory" or "accidentally vacuous."
