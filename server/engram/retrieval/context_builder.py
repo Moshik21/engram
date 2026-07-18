@@ -539,6 +539,9 @@ class MemoryContextBuilder:
         self._briefing_cache = briefing_cache if briefing_cache is not None else {}
         self._get_cached_packets = get_cached_packets
         self._cache_packets = cache_packets
+        # Guard get_context's only write (Project auto-create) against the
+        # concurrent-first-call dupe within this process.
+        self._project_creates_in_flight: set[tuple[str, str]] = set()
 
     @property
     def briefing_cache(self) -> dict[tuple[str, str | None], tuple[float, str]]:
@@ -737,6 +740,62 @@ class MemoryContextBuilder:
             "entities": int(stats.get("entities") or 0),
         }
 
+    async def _get_or_create_project_entity(
+        self,
+        project_dir: Path,
+        project_path: str,
+        group_id: str,
+        now: float,
+        *,
+        lookup_timeout: float,
+    ) -> str | None:
+        """Create the Project entity once after a lookup miss.
+
+        get_context is a read surface; this is its only write. The in-flight
+        set covers concurrent get_context calls in this process (the second
+        caller skips the create instead of duplicating it) and the re-check
+        catches a create that committed after the caller's initial lookup
+        missed. A narrow cross-process race remains (two servers creating the
+        same Project simultaneously) and is left to consolidation merge.
+        """
+        key = (group_id, project_dir.name)
+        if key in self._project_creates_in_flight:
+            return None
+        self._project_creates_in_flight.add(key)
+        try:
+            try:
+                recheck = await asyncio.wait_for(
+                    self._graph.find_entities(
+                        name=project_dir.name,
+                        entity_type="Project",
+                        group_id=group_id,
+                        limit=1,
+                    ),
+                    timeout=lookup_timeout,
+                )
+            except TimeoutError:
+                return None
+            if recheck:
+                return recheck[0].id
+            project_entity_id = f"ent_{uuid.uuid4().hex[:12]}"
+            project_entity = Entity(
+                id=project_entity_id,
+                name=project_dir.name,
+                entity_type="Project",
+                summary=f"Software project at {project_path}",
+                attributes={"project_path": str(project_dir)},
+                group_id=group_id,
+            )
+            await self._graph.create_entity(project_entity)
+            await self._activation.record_access(
+                project_entity_id,
+                now,
+                group_id=group_id,
+            )
+            return project_entity_id
+        finally:
+            self._project_creates_in_flight.discard(key)
+
     async def get_context(
         self,
         group_id: str = "default",
@@ -838,20 +897,12 @@ class MemoryContextBuilder:
                 if existing_projects:
                     project_entity_id = existing_projects[0].id
                 elif not project_lookup_timed_out:
-                    project_entity_id = f"ent_{uuid.uuid4().hex[:12]}"
-                    project_entity = Entity(
-                        id=project_entity_id,
-                        name=project_dir.name,
-                        entity_type="Project",
-                        summary=f"Software project at {project_path}",
-                        attributes={"project_path": str(project_dir)},
-                        group_id=group_id,
-                    )
-                    await self._graph.create_entity(project_entity)
-                    await self._activation.record_access(
-                        project_entity_id,
+                    project_entity_id = await self._get_or_create_project_entity(
+                        project_dir,
+                        project_path,
+                        group_id,
                         now,
-                        group_id=group_id,
+                        lookup_timeout=project_lookup_timeout,
                     )
 
         layer1_entities: list[dict] = []
@@ -882,6 +933,7 @@ class MemoryContextBuilder:
 
         layer2_entities: list[dict] = []
         layer2_facts: list[str] = []
+        recall_recorded_ids: set[str] = set()
         if topic_hint:
             topic_recall_started = time.perf_counter()
             try:
@@ -900,7 +952,12 @@ class MemoryContextBuilder:
                 if result.get("result_type") in {"episode", "cue_episode"}:
                     continue
                 entity = result.get("entity")
-                if not entity or entity["id"] in seen_ids:
+                if not entity:
+                    continue
+                # The recall materializer already recorded access for these
+                # entities; the final recording loop must not record them again.
+                recall_recorded_ids.add(entity["id"])
+                if entity["id"] in seen_ids:
                     continue
                 hop = result.get("score_breakdown", {}).get("hop_distance")
                 if hop is None or hop == 0:
@@ -1136,12 +1193,20 @@ class MemoryContextBuilder:
         )
 
         token_estimate = self.estimate_tokens(context_text)
-        if token_estimate > max_tokens:
+        truncated = token_estimate > max_tokens
+        if truncated:
             char_budget = max_tokens * 4
             context_text = context_text[:char_budget]
             token_estimate = max_tokens
 
         for entity_data in all_entities:
+            if entity_data["id"] in recall_recorded_ids:
+                # Layer-2 recall results were already recorded by the recall
+                # materializer; recording again would double-strengthen them.
+                continue
+            if truncated and not _entity_delivered(context_text, entity_data):
+                # Cut by the char budget: never delivered, so never strengthened.
+                continue
             await self._activation.record_access(entity_data["id"], now, group_id=group_id)
             await self._publish_access_event(
                 entity_data["id"],
@@ -1495,6 +1560,17 @@ class MemoryContextBuilder:
         return min(default, max(0.25, max_tokens / 2000.0))
 
 
+def _entity_delivered(delivered_text: str, entity_data: Mapping[str, Any]) -> bool:
+    """True when the entity's rendered line survived the char-budget cut.
+
+    Matches the line prefix render_tier emits for every detail level
+    (``- {name} ({type}``); an entity cut by truncation must not be
+    activation-strengthened as if it had been delivered.
+    """
+    marker = f"- {entity_data['name']} ({entity_data['type']}"
+    return marker in delivered_text
+
+
 def _elapsed_ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 4)
 
@@ -1791,6 +1867,172 @@ def _cached_context_payload_from_manager(
     return payload
 
 
+# Literal placeholder hints that agents pass when they have no real topic.
+# A hint is discarded ONLY when it equals one of these tokens AND does not name
+# the actual project directory — a real project named "Engram" keeps its hint.
+_GENERIC_DURABLE_TOPIC_HINTS = frozenset({"engram", "default", "project"})
+# Blend/filler words that carry no topic signal for durable-pack relevance.
+_DURABLE_TOPIC_STOPWORDS = frozenset(
+    {
+        "and",
+        "about",
+        "context",
+        "for",
+        "from",
+        "the",
+        "this",
+        "that",
+        "with",
+        "project",
+        "durable",
+        "decision",
+        "decisions",
+        "preference",
+        "preferences",
+        "goal",
+        "goals",
+        "commitment",
+        "commitments",
+        "correction",
+        "corrections",
+    }
+)
+
+
+def _is_generic_durable_topic(query: str, project_path: str | None) -> bool:
+    """True when the hint is a literal placeholder token, not a real topic.
+
+    Rule: discard only when the hint casefolds to one of the LITERAL tokens in
+    ``_GENERIC_DURABLE_TOPIC_HINTS`` AND it does not equal the actual project
+    directory name from ``project_path``.
+    """
+    lowered = query.casefold()
+    if lowered not in _GENERIC_DURABLE_TOPIC_HINTS:
+        return False
+    if project_path:
+        try:
+            if Path(project_path).expanduser().name.casefold() == lowered:
+                return False
+        except Exception:
+            logger.debug("Generic-topic project name check failed", exc_info=True)
+    return True
+
+
+def _durable_topic_terms(topic: str | None) -> tuple[str, ...]:
+    """Lowercased topic tokens (>=3 chars, stopwords removed) for relevance."""
+    if not topic:
+        return ()
+    terms = [
+        term
+        for term in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", topic.casefold())
+        if term not in _DURABLE_TOPIC_STOPWORDS
+    ]
+    return tuple(dict.fromkeys(terms))
+
+
+def _durable_topic_relevance(
+    topic_terms: Sequence[str],
+    name: str,
+    summary: str,
+) -> float:
+    """Cheap lexical topic relevance: name hits weigh double summary hits."""
+    if not topic_terms:
+        return 0.0
+    name_l = (name or "").casefold()
+    summary_l = (summary or "").casefold()
+    score = 0.0
+    for term in topic_terms:
+        if term in name_l:
+            score += 2.0
+        if term in summary_l:
+            score += 1.0
+    return score
+
+
+def _durable_topic_relevance_for_result(
+    item: Mapping[str, Any],
+    topic_terms: Sequence[str],
+) -> float:
+    entity = item.get("entity") or {}
+    return _durable_topic_relevance(
+        topic_terms,
+        str(entity.get("name") or ""),
+        str(entity.get("summary") or ""),
+    )
+
+
+def _select_topic_aware_durable_results(
+    candidates: list[dict[str, Any]],
+    *,
+    topic_terms: Sequence[str],
+    max_packets: int,
+) -> list[dict[str, Any]]:
+    """Allocate durable pack slots for a real topic.
+
+    Identity core keeps at least one guaranteed slot; up to two slots go to
+    topic-relevant durable entities. When nothing durable matches the topic,
+    fall back to the identity-first pack (never an empty pack). Candidates
+    arrive score-sorted (identity first), so the fallback equals the
+    topic-less pack.
+    """
+
+    def _eid(item: Mapping[str, Any]) -> str:
+        return str(((item.get("entity") or {}).get("id")) or "")
+
+    def _is_identity(item: Mapping[str, Any]) -> bool:
+        breakdown = item.get("score_breakdown") or {}
+        return str(breakdown.get("source") or "") == "identity_core_list"
+
+    baseline = candidates[:max_packets]
+    identity = [item for item in candidates if _is_identity(item)]
+    topic_slots = min(2, max_packets - (1 if identity else 0))
+    if topic_slots <= 0:
+        return baseline
+
+    scored = [
+        (_durable_topic_relevance_for_result(item, topic_terms), index, item)
+        for index, item in enumerate(candidates)
+    ]
+    scored.sort(key=lambda entry: (-entry[0], entry[1]))
+    chosen_ids: set[str] = set()
+    topic_hits: list[dict[str, Any]] = []
+    for relevance, _, item in scored:
+        if relevance <= 0 or len(topic_hits) >= topic_slots:
+            break
+        eid = _eid(item)
+        if eid and eid in chosen_ids:
+            continue
+        topic_hits.append(item)
+        if eid:
+            chosen_ids.add(eid)
+    if not topic_hits:
+        return baseline
+
+    pack: list[dict[str, Any]] = []
+    # Identity-first guarantee: identity packets lead the pack.
+    for item in identity:
+        if len(pack) >= max_packets - len(topic_hits):
+            break
+        eid = _eid(item)
+        if eid and eid in chosen_ids:
+            continue
+        pack.append(item)
+        if eid:
+            chosen_ids.add(eid)
+    pack.extend(topic_hits)
+    if len(pack) < max_packets:
+        for item in candidates:
+            eid = _eid(item)
+            if eid and eid in chosen_ids:
+                continue
+            pack.append(item)
+            if eid:
+                chosen_ids.add(eid)
+            if len(pack) >= max_packets:
+                break
+    return pack[:max_packets]
+
+
 async def _durable_context_payload_from_manager(
     manager: Any,
     *,
@@ -1813,13 +2055,20 @@ async def _durable_context_payload_from_manager(
 
     raw_topic = (topic_hint or "").strip()
     query = raw_topic or _derive_context_topic_hint(None, project_path)
-    if not query or query.casefold() in {"engram", "default", "project"}:
+    if not query or _is_generic_durable_topic(query, project_path):
         query = _DEFAULT_DURABLE_CONTEXT_QUERY
-    elif len(query.split()) <= 3:
-        # Short project names: blend durable cues so probes still hit Decisions.
-        query = f"{query} decisions preferences goals"
+        topic_terms: tuple[str, ...] = ()
+    else:
+        # Real topic: rank the durable listing by relevance so 1-2 pack slots
+        # can go to topic-relevant durable entities (identity keeps >= 1 slot).
+        topic_terms = _durable_topic_terms(query)
+        if len(query.split()) <= 3:
+            # Short project names: blend durable cues so probes still hit Decisions.
+            query = f"{query} decisions preferences goals"
     # Long topic strings (full Decision names) keep their exact text so
     # exact-name rescue can hit without BM25 thrash.
+    # Note: `query` (topic-derived) is the process-cache key component, so each
+    # topic gets its own bounded cache entry (64-key TTL cache above).
 
     cfg = _manager_activation_config(manager)
     max_packets = max(1, min(5, int(getattr(cfg, "recall_packet_explicit_limit", 3) or 3)))
@@ -1854,14 +2103,21 @@ async def _durable_context_payload_from_manager(
                 group_id=group_id,
                 limit=max_packets,
                 timeout_seconds=probe_timeout,
+                topic_terms=topic_terms,
             )
             if isinstance(typed, list):
                 results.extend(typed)
         except Exception:
             logger.debug("Durable type listing failed", exc_info=True)
-        if len(results) >= max_packets:
+        if not topic_terms and len(results) >= max_packets:
             return results[:max_packets]
-        # 2) name rescue only if type/identity path was thin
+        if topic_terms and any(
+            _durable_topic_relevance_for_result(item, topic_terms) > 0 for item in results
+        ):
+            # Topic already represented in the listing — no rescue probes needed.
+            return results
+        # 2) name rescue only if the listing was thin (or blind to a real topic).
+        #    Same existing exact-name fallback as before — not a new scan type.
         try:
             rescue = await _durable_entity_name_rescue(
                 manager,
@@ -1872,12 +2128,17 @@ async def _durable_context_payload_from_manager(
             )
             if isinstance(rescue, list):
                 seen = {str((r.get("entity") or {}).get("id") or "") for r in results}
+                added = 0
                 for item in rescue:
                     eid = str((item.get("entity") or {}).get("id") or "")
                     if eid and eid not in seen:
                         results.append(item)
                         seen.add(eid)
-                    if len(results) >= max_packets:
+                        added += 1
+                    if topic_terms:
+                        if added >= max_packets:
+                            break
+                    elif len(results) >= max_packets:
                         break
         except Exception:
             logger.debug("Durable context name rescue failed", exc_info=True)
@@ -1910,6 +2171,13 @@ async def _durable_context_payload_from_manager(
 
     if not results:
         return None
+
+    if topic_terms:
+        results = _select_topic_aware_durable_results(
+            results,
+            topic_terms=topic_terms,
+            max_packets=max_packets,
+        )
 
     remaining = max(0.05, hard_budget - (time.perf_counter() - pack_started))
     try:
@@ -1949,14 +2217,6 @@ async def _durable_context_payload_from_manager(
         query,
         packet_payloads,
         entity_ids,
-    )
-    _cache_durable_context_packets(
-        manager,
-        group_id=group_id,
-        topic_hint=topic_hint,
-        project_path=project_path,
-        packets=packet_payloads,
-        build_duration_ms=_elapsed_ms(pack_started),
     )
 
     return _finalize_durable_context_payload(
@@ -2036,45 +2296,6 @@ def _finalize_durable_context_payload(
     return payload
 
 
-def _cache_durable_context_packets(
-    manager: Any,
-    *,
-    group_id: str,
-    topic_hint: str | None,
-    project_path: str | None,
-    packets: Sequence[Mapping[str, Any]],
-    build_duration_ms: float = 0.0,
-) -> None:
-    """Mirror durable packs into the manager packet cache when enabled."""
-    cache_packets = getattr(manager, "cache_memory_packets", None)
-    cfg = _manager_activation_config(manager)
-    if (
-        not getattr(cfg, "recall_packet_cache_enabled", False)
-        or not callable(cache_packets)
-        or not packets
-    ):
-        return
-    packets_to_cache = [
-        {key: value for key, value in dict(packet).items() if key != "_cache_scope"}
-        for packet in packets
-    ]
-    try:
-        result = cache_packets(
-            group_id,
-            scope=DURABLE_CONTEXT_PACKET_SCOPE,
-            topic_hint=topic_hint,
-            project_path=project_path,
-            packets=packets_to_cache,
-            build_duration_ms=build_duration_ms,
-            persist=False,
-        )
-    except Exception:
-        logger.debug("Durable context packet-cache write failed", exc_info=True)
-        return
-    if inspect.isawaitable(result):
-        _close_awaitable(result)
-
-
 def _render_durable_briefing(packets: Sequence[Mapping[str, Any]]) -> str:
     """Deterministic 2–3 sentence briefing from durable graph packets (no LLM)."""
     facts: list[str] = []
@@ -2101,12 +2322,18 @@ async def _list_durable_entities_by_type(
     group_id: str,
     limit: int = 5,
     timeout_seconds: float = 1.5,
+    topic_terms: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List Decision/Preference/… entities, dropping decision_statement scrap.
 
     Prefer graph ``find_entities_by_type`` / identity_core listing over hybrid
     search — search thrash on large native brains regularly blows the 1s
     durable-context budget and leaves get_context empty.
+
+    With ``topic_terms`` (real topic present) the identity listing does not
+    short-circuit at ``limit`` and the full (bounded) sorted listing is
+    returned so the topic-aware slot selector can rank it. Same probes, no new
+    scan types.
     """
     from engram.extraction.promotion import durable_result_boost, is_durable_recall_entity_type
     from engram.retrieval.recall_surface import _is_decision_statement_noise
@@ -2178,8 +2405,10 @@ async def _list_durable_entities_by_type(
                         "source": "durable_type_list",
                     }
                 )
-                if len(hits) >= limit:
+                if not topic_terms and len(hits) >= limit:
                     return hits[:limit]
+                if topic_terms and len(hits) >= max(1, limit) * 4:
+                    break
         except Exception:
             logger.debug("identity_core list for durable context failed", exc_info=True)
 
@@ -2238,6 +2467,10 @@ async def _list_durable_entities_by_type(
                 }
             )
     hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    if topic_terms:
+        # Topic mode: hand the full bounded listing to the slot selector so
+        # topic-relevant rows are not squeezed out by identity rows.
+        return hits
     return hits[: max(1, limit)]
 
 

@@ -2742,7 +2742,7 @@ class GraphManager:
             group_id=group_id,
             reason=reason,
         )
-        self.invalidate_memory_packet_cache(group_id)
+        self._invalidate_context_caches_after_forget(group_id)
         return result
 
     # ─── Forget fact ────────────────────────────────────────────────
@@ -2763,8 +2763,23 @@ class GraphManager:
             group_id=group_id,
             reason=reason,
         )
-        self.invalidate_memory_packet_cache(group_id)
+        self._invalidate_context_caches_after_forget(group_id)
         return result
+
+    def _invalidate_context_caches_after_forget(self, group_id: str) -> None:
+        """A forgotten fact must stop being served from every context cache.
+
+        Mirrors the remember()/observe commit invalidation: manager packet
+        cache, briefing cache, and the process-level durable context pack.
+        """
+        self.invalidate_memory_packet_cache(group_id)
+        self.invalidate_briefing_cache(group_id)
+        try:
+            from engram.retrieval.context_builder import invalidate_durable_context_cache
+
+            invalidate_durable_context_cache(group_id)
+        except Exception:
+            logger.debug("Durable context cache invalidation failed", exc_info=True)
 
     async def mark_identity_core(
         self,
