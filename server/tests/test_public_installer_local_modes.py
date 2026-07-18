@@ -296,7 +296,7 @@ def test_engramctl_start_honors_configured_api_port() -> None:
     assert "local_startup_attempts" in engramctl
     assert (
         'doctor --mode "${ENGRAM_MODE:-lite}" --server-url "$(api_base_url)" '
-        '"${doctor_args[@]}"' in engramctl
+        '${doctor_args[@]+"${doctor_args[@]}"}' in engramctl
     )
     assert "doctor_args+=(--require-golden-loop)" in engramctl
     assert "ENGRAM_DOCTOR_NO_LIFECYCLE" in engramctl
