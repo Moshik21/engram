@@ -1,7 +1,13 @@
 # Cognitive Core Goal — make the designed system and the shipped system the same system
 
-**Status:** DRAFT — pending founder approval; executable as written once
-approved
+**Status:** EXECUTING — approved 2026-07-17 (/goal); M1+M2 landed and pushed
+(8a4797b, f984b91), M3 code rows landed behind flags (supersession_enabled,
+importance_prior_enabled, hygiene_mop_merge_enabled — all default off; M3.2
+vocabulary is live), I1-I3 filed under docs/product/investigations/ with the
+I2 race fixed. Remaining: M3.1 oracle experiment, M4 eval arms, release tag.
+Notable premise correction from M3.4: exclusive-predicate supersession for
+location/employment classes already shipped unconditionally — the flag gates
+the CLASS EXPANSION (USES_VERSION/NAMED/PREFERS) and provenance recording.
 **Created:** 2026-07-17
 **Sources:** `COGNITIVE_CORE_REVIEW_2026-07-17.md` (findings, file:line
 evidence), `COGNITIVE_CORE_FIXES.md` (deliverable detail). This doc is the
@@ -69,7 +75,7 @@ theory-in-name-only.
 
 ## M1 — Stop the live bleeding (bug-class; no design change)
 
-- [ ] **M1.1 Prune sees usage.** Load the activation snapshot in the brain
+- [x] **M1.1 Prune sees usage.** Load the activation snapshot in the brain
       path and in `engram mcp` stdio; save on clean MCP exit. The shell
       writes the snapshot at shutdown (main.py:473) and the brain pauses
       the shell first, so a fresh file exists at mop start — it is simply
@@ -77,45 +83,45 @@ theory-in-name-only.
       mcp/server.py:305). DoD: brain-path store warm after open (unit test);
       live mop log reports nonzero loaded entries; prune.py:76-99
       protections exercised in a test with a populated snapshot.
-- [ ] **M1.2 Thompson sampling: seed + stop the flood.** No feedback
+- [x] **M1.2 Thompson sampling: seed + stop the flood.** No feedback
       recording when entity results were discarded by budget
       (pipeline.py:2060-2071); RNG seeded (scorer.py:231) from a stable
       input. DoD: identical scores on repeated identical recall (test);
       zero activation writes on budget-0 recall (store-spy test).
-- [ ] **M1.3 Fail-closed dream/microglia.** Identity-core fetch failure or
+- [x] **M1.3 Fail-closed dream/microglia.** Identity-core fetch failure or
       connectivity-check failure skips the destructive pass for the cycle
       (dream.py:381-387, 538-548; microglia.py:116-119), logged + tagged.
       DoD: raising-store unit tests show LTD/associations/demotion skipped.
-- [ ] **M1.4 Replay: terminal state + routing respect.** Empty extraction
+- [x] **M1.4 Replay: terminal state + routing respect.** Empty extraction
       flips a terminal marker; selector skips episodes parked by worker
       routing and bootstrap docs (replay.py:261-267, 427-452;
       worker_routing.py:99,127,162; project_bootstrap.py:455-461). DoD:
       parked/replayed-empty episodes not re-selected (tests); next live mop
       replay count reflects real work only.
-- [ ] **M1.5 Hot-path guards.** Spreading re-score awaits degrade with
+- [x] **M1.5 Hot-path guards.** Spreading re-score awaits degrade with
       marker instead of killing recall (pipeline.py:1305-1314). DoD:
       raising-store test returns results with degraded-stage marker.
-- [ ] **M1.6 Scorer contract honesty.** Merge/infer embedding failures
+- [x] **M1.6 Scorer contract honesty.** Merge/infer embedding failures
       tagged + counted + visible in cycle results (merge_scorer.py:368,381,
       412; infer_scorer.py:190-204,247). DoD: scorer tests; embedding-absent
       counter appears in cycle summary.
 
 ## M2 — Cheap correctness + honesty
 
-- [ ] **M2.1 Cue auto-recall gate.** Resolve 0.26-ceiling < 0.3-gate
+- [x] **M2.1 Cue auto-recall gate.** Resolve 0.26-ceiling < 0.3-gate
       (exempt or rescale; document intent). DoD: strong-cue test surfaces
       (or documented never-auto-surface decision + dead search removed).
-- [ ] **M2.2 entity_type normalization at commit.** DoD: lowercase
+- [x] **M2.2 entity_type normalization at commit.** DoD: lowercase
       extractor output gets typed semantics (test).
-- [ ] **M2.3 mat_tier single source of truth.** Model field added; native
+- [x] **M2.3 mat_tier single source of truth.** Model field added; native
       column round-trips (models/entity.py, helix/graph.py:588,859). DoD:
       tier persists across native write/read (test). (Survives decision 2 —
       identity_core promotion still writes tiers.)
-- [ ] **M2.4 Artifact merge exemption + class filter.** Artifact/Schema
+- [x] **M2.4 Artifact merge exemption + class filter.** Artifact/Schema
       types exempt from fuzzy merge (merge.py:822); `artifact_class`
       filters `search_artifacts` (artifacts.py:158). DoD: same-name
       two-project artifact test stays unmerged; class-filtered search test.
-- [ ] **M2.5 Deletion batch.** feedback_events store, spreading_bonus,
+- [x] **M2.5 Deletion batch.** feedback_events store, spreading_bonus,
       NeuroplasticityEngine, update_arousal_ema + knob, `_TIER_PHASES
       ["mop"]`, ClarificationIntent graph-entity minting, ~17 dead knobs
       (review list), **schema formation phase + tests (decision 1)**,
@@ -123,7 +129,7 @@ theory-in-name-only.
       the quiet/standard flags that enable them; CLAUDE.md/README claims
       updated to match. DoD: full suite green; grep proves no dangling
       references; docs updated in the same stack.
-- [ ] **M2.6 DecisionMaterializer noise stop.** Human-shaped names, dogfood
+- [x] **M2.6 DecisionMaterializer noise stop.** Human-shaped names, dogfood
       predicates behind config (decision_materializer.py:242-259). DoD: no
       `:decision_statement:` names minted (test); suppression regexes in
       promotion.py become dead-lettered (left in place, one release).
@@ -136,22 +142,22 @@ theory-in-name-only.
       (b) If positive: productionize behind `entity_episode_traversal_source
       ="candidates"`, fix RRF-vs-cosine scale sharing in the same stack
       (episode_traversal.py:127-136; pipeline.py:1308-1314). EVAL-GATED.
-- [ ] **M3.2 Durable types via local extraction.** Decision/Preference/
+- [x] **M3.2 Durable types via local extraction.** Decision/Preference/
       Commitment/Correction in the LLM prompt vocabulary AND narrow
       patterns (extraction/prompts.py:21-23; narrow/entity_extractor.py:
       385-407). DoD: per-type extraction tests; organic-capture probe
       produces a Decision from natural text with zero client proposals.
-- [ ] **M3.3 Importance as a prior.** `consolidated_strength` set at write
+- [x] **M3.3 Importance as a prior.** `consolidated_strength` set at write
       time for remember()/identity/durable commits; bounded; compact's
       absorbed mass decays (engine.py:29-34; compact.py:103-134). DoD:
       arithmetic test (one-shot durable ≈ 5-access mundane at 30d); no
       regression on the eval arm. EVAL-GATED for default-on.
-- [ ] **M3.4 Supersession (strategic bet).** Commit-time contradiction
+- [x] **M3.4 Supersession (strategic bet).** Commit-time contradiction
       detection for narrow high-value classes (location, preference,
       version, name) sets `valid_to` on the superseded fact; current-value
       preference at retrieval. DoD: "moved to Denver" unit family; depth
       -eval knowledge-update slice report. EVAL-GATED for scope expansion.
-- [ ] **M3.5 Bounded merge in the mop.** Exact-identifier +
+- [x] **M3.5 Bounded merge in the mop.** Exact-identifier +
       high-confidence-name dedup slice inside `execute_hygiene_mop`,
       budgeted (hygiene_ops.py). DoD: live window merges seeded dup pairs
       within budget and deadline.
@@ -171,11 +177,11 @@ theory-in-name-only.
 
 ## Investigations (subagent-sized, run alongside any milestone)
 
-- [ ] **I1 get_context/context_builder adversarial audit** (highest-traffic
+- [x] **I1 get_context/context_builder adversarial audit** (highest-traffic
       surface; records access at context_builder.py:851,1145).
-- [ ] **I2 Evidence drains vs corroboration gate** (hygiene_ops.py:148-215
+- [x] **I2 Evidence drains vs corroboration gate** (hygiene_ops.py:148-215
       vs the count≥2 Layer-3 promotion requirement).
-- [ ] **I3 MCP concurrent-open** — targeted concurrency test for two stdio
+- [x] **I3 MCP concurrent-open** — targeted concurrency test for two stdio
       sessions on one native dir; then design (advisory lock or shared
       open). No fix landed without the test first.
 

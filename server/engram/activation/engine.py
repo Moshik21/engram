@@ -59,6 +59,24 @@ def compute_activation(
     return normalize_activation(raw, cfg)
 
 
+def seed_consolidated_strength(
+    state: ActivationState,
+    amount: float,
+    cap: float,
+) -> bool:
+    """Seed an importance prior into consolidated_strength, bounded by cap.
+
+    The prior sits inside the ACT-R ln-sum (compute_base_level), giving
+    one-shot high-value facts a durable activation floor. The cap bounds
+    total consolidated_strength so repeated commits cannot inflate it.
+    Returns True when the state changed.
+    """
+    if amount <= 0.0 or state.consolidated_strength >= cap:
+        return False
+    state.consolidated_strength = min(cap, state.consolidated_strength + amount)
+    return True
+
+
 def record_access(
     state: ActivationState,
     now: float,

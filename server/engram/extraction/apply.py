@@ -35,6 +35,34 @@ from engram.utils.text_guards import is_meta_summary
 logger = logging.getLogger(__name__)
 
 
+# Importance-as-a-prior seeds (cfg.importance_prior_enabled, EVAL-GATED, default
+# off). Seeded into ActivationState.consolidated_strength at entity commit so
+# one-shot high-value facts (identity, durable types, client remember()
+# proposals) keep a floor inside the ACT-R ln-sum instead of decaying like
+# chatter. Bounded: total consolidated_strength never exceeds the cap, so
+# repeated commits of the same entity cannot inflate the prior.
+_IMPORTANCE_SEED_IDENTITY = 0.02
+_IMPORTANCE_SEED_DURABLE = 0.01
+_IMPORTANCE_SEED_CLIENT_PROPOSAL = 0.01
+_IMPORTANCE_SEED_CAP = 0.05
+_IMPORTANCE_DURABLE_TYPES = frozenset(
+    {"Decision", "Preference", "Commitment", "Correction", "Goal"}
+)
+
+
+# Supersession (cfg.supersession_enabled, M3.4, EVAL-GATED, default off).
+# Additional exclusive-by-nature predicate classes, on top of the always-on
+# EXCLUSIVE_PREDICATES set (which already covers the location/employment/role
+# classes post-canonicalization: LIVES_IN -> LOCATED_IN, EMPLOYED_BY ->
+# WORKS_AT, etc.). When the flag is on, a new edge in one of these classes
+# sets valid_to on prior ACTIVE same-source same-predicate different-target
+# edges instead of leaving both live ("moved to Denver" ends Seattle).
+# Known scope risk the eval gate exists for: PREFERS and USES_VERSION are
+# exclusive per (source, predicate) only when the source has a single slot —
+# "prefers coffee" then "prefers Python" would cross-supersede.
+_SUPERSESSION_EXCLUSIVE_PREDICATES = frozenset({"USES_VERSION", "NAMED", "IS_NAMED", "PREFERS"})
+
+
 # Role/title attribute keys that all denote a person's (current) role or title.
 # Extraction emits these inconsistently (role / new_role / job_title / position /
 # title), which left stale and current values COEXISTING on the entity (e.g.
@@ -373,7 +401,10 @@ async def apply_relationship_fact(
     elif polarity == "uncertain":
         rel_weight *= 0.5
 
-    if is_exclusive_predicate(predicate):
+    superseded_edge_ids: list[str] = []
+    if is_exclusive_predicate(predicate) or (
+        cfg.supersession_enabled and predicate in _SUPERSESSION_EXCLUSIVE_PREDICATES
+    ):
         constraints_hit.append("exclusive_predicate")
         conflicts = await graph_store.find_conflicting_relationships(
             source_id,
@@ -388,6 +419,8 @@ async def apply_relationship_fact(
                 valid_from,
                 group_id=group_id,
             )
+            if cfg.supersession_enabled:
+                superseded_edge_ids.append(conflict.id)
             logger.info(
                 "Invalidated conflicting relationship %s (%s -> %s via %s)",
                 conflict.id,
@@ -395,6 +428,17 @@ async def apply_relationship_fact(
                 conflict.target_id,
                 conflict.predicate,
             )
+    # Provenance for a future undo/audit: the superseding apply result carries
+    # which edges it closed and when. The Relationship model/stores have no
+    # edge-attribute column, so provenance lives on the apply-result metadata
+    # (which feeds evidence/audit records), not on the persisted edge.
+    supersession_meta: dict = {}
+    if superseded_edge_ids:
+        constraints_hit.append("superseded_prior")
+        supersession_meta = {
+            "superseded_edge_ids": superseded_edge_ids,
+            "superseded_at": valid_from.isoformat(),
+        }
 
     if polarity == "positive":
         contra_preds = get_contradictory_predicates(predicate)
@@ -457,7 +501,7 @@ async def apply_relationship_fact(
                 action=action,
                 created=False,
                 constraints_hit=constraints_hit + ["existing_duplicate"],
-                metadata={"existing_relationship_id": existing_rel.id},
+                metadata={"existing_relationship_id": existing_rel.id, **supersession_meta},
             )
 
     rel = Relationship(
@@ -488,7 +532,7 @@ async def apply_relationship_fact(
             action="persist_failed",
             created=False,
             constraints_hit=constraints_hit + ["persist_failed"],
-            metadata={"relationship_id": rel.id},
+            metadata={"relationship_id": rel.id, **supersession_meta},
         )
 
     if cfg.identity_core_enabled and predicate in cfg.identity_predicates:
@@ -510,7 +554,7 @@ async def apply_relationship_fact(
             except Exception:
                 logger.warning("Failed to mark identity core for %s", eid_to_mark, exc_info=True)
 
-    metadata: dict = {"relationship_id": rel.id}
+    metadata: dict = {"relationship_id": rel.id, **supersession_meta}
     if auto_created_endpoints:
         metadata["auto_created_endpoints"] = auto_created_endpoints
     return RelationshipApplyResult(
@@ -550,6 +594,37 @@ class ApplyEngine:
         self._conv_context = conv_context
         self._labile_tracker = labile_tracker
         self._event_publisher = event_publisher
+
+    async def _seed_importance_prior(
+        self,
+        entity_id: str,
+        entity_type: str,
+        *,
+        identity_core: bool,
+        client_proposal: bool,
+    ) -> None:
+        """Seed a bounded importance prior on the entity's activation state.
+
+        Routes through the activation store (get/set) so the graph write path
+        stays decoupled from activation internals. Gated by the caller on
+        cfg.importance_prior_enabled.
+        """
+        from engram.activation.engine import seed_consolidated_strength
+        from engram.models.activation import ActivationState
+
+        if identity_core:
+            seed = _IMPORTANCE_SEED_IDENTITY
+        elif entity_type in _IMPORTANCE_DURABLE_TYPES:
+            seed = _IMPORTANCE_SEED_DURABLE
+        elif client_proposal:
+            seed = _IMPORTANCE_SEED_CLIENT_PROPOSAL
+        else:
+            return
+        state = await self._activation.get_activation(entity_id)
+        if state is None:
+            state = ActivationState(node_id=entity_id)
+        if seed_consolidated_strength(state, seed, _IMPORTANCE_SEED_CAP):
+            await self._activation.set_activation(entity_id, state)
 
     async def apply_entities(
         self,
@@ -770,6 +845,14 @@ class ApplyEngine:
             outcome.entity_map[name] = entity_id
             await self._graph.link_episode_entity(episode.id, entity_id, group_id=group_id)
             await self._activation.record_access(entity_id, now, group_id=group_id)
+            if self._cfg.importance_prior_enabled:
+                await self._seed_importance_prior(
+                    entity_id,
+                    entity_type,
+                    identity_core=protect_identity
+                    or bool(existing_entity and getattr(existing_entity, "identity_core", False)),
+                    client_proposal=is_client_proposal,
+                )
             if self._publish_access_event is not None:
                 await self._publish_access_event(
                     entity_id,

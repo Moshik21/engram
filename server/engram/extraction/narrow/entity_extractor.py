@@ -104,6 +104,102 @@ _IDENTITY_CAPTURES: list[tuple[re.Pattern[str], str, str]] = [
     ),
 ]
 
+# Durable statement captures — the clause after the trigger becomes the entity
+# name, typed Decision/Preference/Commitment/Correction/Goal. These types carry
+# the durable machinery (2.5x boost, identity protection) and are exempt from
+# the 5-word name cap in validate_entity_name (allowed up to 24 words).
+_DURABLE_CAPTURES: list[tuple[re.Pattern[str], str, str]] = [
+    # (pattern, entity_type, signal_name)
+    (
+        re.compile(
+            r"\b(?:we|i)(?:\s+have)?\s+decided\s+(?:that\s+|to\s+)?([^.!?\n]+)",
+            re.I,
+        ),
+        "Decision",
+        "decision_statement",
+    ),
+    (
+        re.compile(r"\bdecision:\s*([^.!?\n]+)", re.I),
+        "Decision",
+        "decision_statement",
+    ),
+    (
+        re.compile(r"\bi\s+prefer\s+([^.!?\n]+)", re.I),
+        "Preference",
+        "preference_statement",
+    ),
+    (
+        re.compile(
+            r"\bi\s+like\s+([^.!?\n]+?\s+(?:over|more than|better than)\s+[^.!?\n]+)",
+            re.I,
+        ),
+        "Preference",
+        "preference_statement",
+    ),
+    (
+        re.compile(r"\b(?:i|we)\s+always\s+use\s+([^.!?\n]+)", re.I),
+        "Preference",
+        "preference_statement",
+    ),
+    (
+        re.compile(
+            r"\bi(?:'ll|\s+will)\s+(?:make\s+sure\s+(?:that\s+|to\s+)?|be\s+sure\s+to\s+"
+            r"|remember\s+to\s+|commit\s+to\s+)"
+            r"([^.!?\n]+)",
+            re.I,
+        ),
+        "Commitment",
+        "commitment_statement",
+    ),
+    (
+        re.compile(r"\bi\s+promise\s+(?:that\s+|to\s+)?([^.!?\n]+)", re.I),
+        "Commitment",
+        "commitment_statement",
+    ),
+    (
+        re.compile(
+            r"\bactually,?\s+it(?:'s|\s+is)\s+([^.!?\n]*?\bnot\b[^.!?\n]+)",
+            re.I,
+        ),
+        "Correction",
+        "correction_statement",
+    ),
+    (
+        re.compile(r"\bcorrection:\s*([^.!?\n]+)", re.I),
+        "Correction",
+        "correction_statement",
+    ),
+    (
+        re.compile(r"\bmy\s+goal\s+is\s+(?:to\s+)?([^.!?\n]+)", re.I),
+        "Goal",
+        "goal_statement",
+    ),
+    (
+        re.compile(
+            r"\bwe(?:'re|\s+are)\s+aiming\s+(?:to\s+|for\s+|at\s+)?([^.!?\n]+)",
+            re.I,
+        ),
+        "Goal",
+        "goal_statement",
+    ),
+]
+
+# Negation immediately before a durable trigger suppresses the capture
+# ("you shouldn't always use mocks"). Checked against a short window
+# ending at the match start.
+_DURABLE_NEGATION_BEFORE = re.compile(
+    r"\b(?:not|no|never|don'?t|doesn'?t|didn'?t|won'?t|wouldn'?t|shouldn'?t|can'?t|cannot)\s+$",
+    re.I,
+)
+# Clauses opening with a negation are not affirmative statements
+# ("I will not forget", "my goal is not to rewrite everything").
+_DURABLE_NEGATION_CLAUSE = re.compile(r"^(?:not|never|no)\b", re.I)
+
+# Statement clauses must look like statements, not fragments or essays.
+# Max matches the durable-type allowance in validate_entity_name.
+_DURABLE_MIN_WORDS = 2
+_DURABLE_MAX_WORDS = 24
+
 # Type inference heuristics
 _TECH_KEYWORDS = frozenset(
     {
@@ -478,6 +574,52 @@ class IdentityEntityExtractor:
                             "entity_type": entity_type,
                         },
                         source_span=_get_source_span(text, name),
+                        corroborating_signals=[
+                            signal,
+                            "identity_pattern",
+                        ],
+                    )
+                )
+
+        # 1b. Durable statement captures (Decision/Preference/Commitment/
+        # Correction/Goal). Conservative confidence — these are statement-shaped.
+        # "identity_pattern" is included so explicit first-person declarations
+        # get the same cold-start commit relaxation as identity captures.
+        for pattern, entity_type, signal in _DURABLE_CAPTURES:
+            for match in pattern.finditer(text):
+                clause = match.group(1).strip(" ,;:-\"'\u201c\u201d")
+                if not clause or clause.lower() in seen_names:
+                    continue
+                # Hypotheticals/conditionals are not statements of record.
+                preceding_clause = text[max(0, match.start() - 30) : match.start()].lower()
+                if re.search(r"\b(?:if|whether|unless|suppose|imagine)\s+$", preceding_clause):
+                    continue
+                # Never fire on questions: the clause runs to the sentence
+                # terminator, so check the char just past the capture.
+                if match.end(1) < len(text) and text[match.end(1)] == "?":
+                    continue
+                # Never fire on negations, before the trigger or opening the clause
+                preceding = text[max(0, match.start() - 40) : match.start()]
+                if _DURABLE_NEGATION_BEFORE.search(preceding):
+                    continue
+                if _DURABLE_NEGATION_CLAUSE.match(clause):
+                    continue
+                if not (_DURABLE_MIN_WORDS <= len(clause.split()) <= _DURABLE_MAX_WORDS):
+                    continue
+                seen_names.add(clause.lower())
+                candidates.append(
+                    EvidenceCandidate(
+                        episode_id=episode_id,
+                        group_id=group_id,
+                        fact_class="entity",
+                        confidence=0.60,
+                        source_type="narrow_extractor",
+                        extractor_name=self.name,
+                        payload={
+                            "name": clause,
+                            "entity_type": entity_type,
+                        },
+                        source_span=_get_source_span(text, clause),
                         corroborating_signals=[
                             signal,
                             "identity_pattern",

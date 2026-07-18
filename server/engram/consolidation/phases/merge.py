@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from collections import defaultdict
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 
@@ -1314,3 +1314,201 @@ def _decision_band(verdict: str) -> str:
     if verdict == "keep_separate":
         return "rejected"
     return "uncertain"
+
+
+# ---------------------------------------------------------------------------
+# Bounded exact-merge slice (hygiene mop)
+# ---------------------------------------------------------------------------
+
+# Deterministic-only name floor for the slice: exact normalized matches score
+# 1.0 and token reorderings near it, while substring containment tops out at
+# 0.9 (partial_ratio * 0.9) and stays excluded.
+_SLICE_NAME_THRESHOLD = 0.95
+# Pairwise cap per (type, prefix) block — oversized blocks belong to the full
+# merge phase, not a bounded hygiene slice.
+_SLICE_BLOCK_LIMIT = 200
+
+
+def _exact_slice_candidates(entities: list) -> list[tuple]:
+    """Deterministic short-circuit merge candidates only.
+
+    Exact canonical-identifier aliases plus very-high-confidence name pairs
+    (policy-aware similarity >= _SLICE_NAME_THRESHOLD, same type). No
+    embeddings, no ANN, no LLM, no cross-encoder.
+    """
+    candidates: list[tuple] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _add(ea, eb, reason: str, confidence: float) -> None:
+        key = _pair_key(ea.id, eb.id)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append((ea, eb, reason, confidence))
+
+    # Exact canonical-identifier aliases (cross-type allowed at merge time).
+    identifier_blocks: dict[str, list] = defaultdict(list)
+    for entity in entities:
+        canonical = getattr(entity, "canonical_identifier", None)
+        if canonical:
+            identifier_blocks[canonical].append(entity)
+    for block in identifier_blocks.values():
+        for i in range(len(block)):
+            for j in range(i + 1, len(block)):
+                ea, eb = block[i], block[j]
+                decision = dedup_policy(ea.name, eb.name)
+                if decision.exact_identifier_match:
+                    _add(ea, eb, decision.reason, 1.0)
+
+    # Very-high-confidence name tier: same-type prefix blocks, no boost.
+    name_blocks: dict[tuple[str, str], list] = defaultdict(list)
+    for entity in entities:
+        prefix = entity.name[:2].lower() if entity.name else ""
+        name_blocks[(entity.entity_type, prefix)].append(entity)
+    for name_block in name_blocks.values():
+        block = name_block[:_SLICE_BLOCK_LIMIT]
+        for i in range(len(block)):
+            for j in range(i + 1, len(block)):
+                ea, eb = block[i], block[j]
+                decision, sim = _policy_similarity(ea, eb, same_type_boost=0.0)
+                if decision.allowed and sim >= _SLICE_NAME_THRESHOLD:
+                    _add(ea, eb, _decision_reason(decision, "slice_name_threshold"), sim)
+
+    return candidates
+
+
+async def run_exact_merge_slice(
+    graph_store,
+    group_id: str,
+    budget: int = 25,
+    *,
+    activation_store=None,
+    search_index=None,
+    dry_run: bool = False,
+    max_history_size: int = 200,
+) -> dict[str, Any]:
+    """Bounded dedup pass over the deterministic merge short-circuits.
+
+    Consumer installs never run the merge phase, so exact duplicates are
+    otherwise permanent. Mirrors the phase's exact-identifier and
+    high-confidence name paths — Artifact/Schema/identity_core exemptions
+    included — with a hard merged-pair budget. Returns a drain-style summary.
+    """
+    from engram.extraction.promotion import identity_core_blocks_merge
+
+    result: dict[str, Any] = {
+        "dry_run": bool(dry_run),
+        "total": 0,
+        "merged": 0,
+        "errors": 0,
+        "pairs": [],
+    }
+    budget = max(0, int(budget))
+    if budget == 0:
+        return result
+
+    entities = await graph_store.find_entities(group_id=group_id, limit=100000)
+    entities = [e for e in entities if e.entity_type not in _MERGE_EXEMPT_ENTITY_TYPES]
+    candidates = _exact_slice_candidates(entities)
+    result["total"] = len(candidates)
+
+    consumed: set[str] = set()
+    for ea, eb, reason, confidence in candidates:
+        if result["merged"] >= budget:
+            break
+        if ea.id in consumed or eb.id in consumed:
+            continue
+        # Survivor selection mirrors the merge phase.
+        survivor, loser = sorted(
+            (ea, eb),
+            key=lambda e: (
+                -int(bool(getattr(e, "identity_core", False))),
+                -e.access_count,
+                e.created_at,
+            ),
+        )
+        if identity_core_blocks_merge(survivor, loser):
+            continue
+        exact_identifier = reason in {"identifier_exact_match", "hybrid_code_match"}
+        if survivor.entity_type != loser.entity_type and not exact_identifier:
+            continue
+
+        pair: dict[str, Any] = {
+            "keep_id": survivor.id,
+            "remove_id": loser.id,
+            "keep_name": survivor.name,
+            "remove_name": loser.name,
+            "reason": reason,
+            "confidence": round(confidence, 4),
+        }
+        if not dry_run:
+            try:
+                if (
+                    exact_identifier
+                    and IDENTIFIER_ENTITY_TYPE in {survivor.entity_type, loser.entity_type}
+                    and survivor.entity_type != IDENTIFIER_ENTITY_TYPE
+                    and should_promote_entity_type_to_identifier(survivor.entity_type)
+                ):
+                    await graph_store.update_entity(
+                        survivor.id,
+                        {"entity_type": IDENTIFIER_ENTITY_TYPE},
+                        group_id=group_id,
+                    )
+                    survivor.entity_type = IDENTIFIER_ENTITY_TYPE
+                pair["relationships_transferred"] = await graph_store.merge_entities(
+                    survivor.id,
+                    loser.id,
+                    group_id,
+                )
+
+                # Merge provenance (source episode tracking).
+                merged_sources = sorted(
+                    set(survivor.source_episode_ids or []) | set(loser.source_episode_ids or [])
+                )
+                provenance_updates: dict[str, object] = {
+                    "source_episode_ids": json.dumps(merged_sources),
+                    "evidence_count": len(merged_sources),
+                }
+                spans = [
+                    dt
+                    for dt in (survivor.evidence_span_start, loser.evidence_span_start)
+                    if dt is not None
+                ]
+                if spans:
+                    provenance_updates["evidence_span_start"] = min(spans).isoformat()
+                spans_end = [
+                    dt
+                    for dt in (survivor.evidence_span_end, loser.evidence_span_end)
+                    if dt is not None
+                ]
+                if spans_end:
+                    provenance_updates["evidence_span_end"] = max(spans_end).isoformat()
+                await graph_store.update_entity(survivor.id, provenance_updates, group_id)
+
+                if activation_store is not None:
+                    surv_state = await activation_store.get_activation(survivor.id)
+                    loser_state = await activation_store.get_activation(loser.id)
+                    if surv_state and loser_state:
+                        surv_state.access_history = sorted(
+                            set(surv_state.access_history + loser_state.access_history),
+                            reverse=True,
+                        )[:max_history_size]
+                        surv_state.access_count += loser_state.access_count
+                        surv_state.consolidated_strength += loser_state.consolidated_strength
+                        await activation_store.set_activation(survivor.id, surv_state)
+                    await activation_store.clear_activation(loser.id)
+                if search_index is not None:
+                    await search_index.remove(loser.id)
+            except Exception:
+                result["errors"] += 1
+                logger.exception(
+                    "Exact merge slice failed for %s <- %s",
+                    survivor.name,
+                    loser.name,
+                )
+                continue
+        result["merged"] += 1
+        consumed.add(loser.id)
+        result["pairs"].append(pair)
+
+    return result

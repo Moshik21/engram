@@ -301,6 +301,28 @@ async def execute_hygiene_mop(
             logger.exception("mop replay pass failed")
             mop["replay"] = {"status": "error"}
 
+    # Bounded dedup: consumer installs never run the merge phase, so exact
+    # duplicates (the documented graph fragmentation) are otherwise permanent.
+    # Deterministic short-circuits only — no embeddings, no ANN, no LLM.
+    if getattr(activation_cfg, "hygiene_mop_merge_enabled", False):
+        from engram.consolidation.phases.merge import run_exact_merge_slice
+
+        try:
+            mop["merge_slice"] = await run_exact_merge_slice(
+                graph_store,
+                group_id,
+                budget=int(getattr(activation_cfg, "hygiene_mop_merge_budget", 25) or 25),
+                activation_store=activation_store,
+                search_index=search_index,
+                dry_run=bool(dry_run),
+                max_history_size=int(activation_cfg.max_history_size),
+            )
+        except Exception:
+            logger.exception("mop merge slice failed")
+            mop["merge_slice"] = {"status": "error"}
+    else:
+        mop["merge_slice"] = {"skipped": True, "reason": "hygiene_mop_merge_enabled=False"}
+
     from engram.consolidation.phases.prune import PrunePhase
     from engram.models.consolidation import CycleContext
 

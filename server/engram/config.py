@@ -1033,6 +1033,18 @@ class ActivationConfig(BaseModel):
     consolidation_compaction_horizon_days: int = Field(default=90, ge=30, le=365)
     consolidation_compaction_keep_min: int = Field(default=10, ge=5, le=50)
     consolidation_compaction_logarithmic: bool = Field(default=True)
+    compact_strength_decay: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Per-compaction-pass decay applied to previously absorbed "
+            "consolidated_strength so compacted mass stops being a monotone "
+            "accumulator (systematic overestimate for old compacted entities). "
+            "Default 1.0 preserves today's scoring exactly; the M4 eval arm "
+            "decides the production value (0.9 suggested)"
+        ),
+    )
 
     # --- Episode replay ---
     consolidation_replay_enabled: bool = Field(default=False)
@@ -1156,6 +1168,19 @@ class ActivationConfig(BaseModel):
         description="Fold hygiene debt scoreboard into pressure when stats are available",
     )
     # Budgeted autonomic drains
+    hygiene_mop_merge_enabled: bool = Field(
+        default=False,
+        description=(
+            "Run the bounded exact-identifier/high-confidence-name merge slice "
+            "inside the hygiene mop (consumer installs never run the merge phase)"
+        ),
+    )
+    hygiene_mop_merge_budget: int = Field(
+        default=25,
+        ge=1,
+        le=500,
+        description="Max entity pairs the mop merge slice may merge per window",
+    )
     consolidation_cue_hygiene_enabled: bool = Field(default=True)
     consolidation_cue_hygiene_max_per_cycle: int = Field(default=200, ge=1, le=5000)
     consolidation_cue_hygiene_min_age_days: float = Field(default=14.0, ge=1.0, le=365.0)
@@ -1476,6 +1501,27 @@ class ActivationConfig(BaseModel):
             "WORKS_AT",
         ],
         description="Relationship predicates that trigger identity core auto-detection",
+    )
+
+    # --- Importance as a prior (M3.3, EVAL-GATED) ---
+    importance_prior_enabled: bool = Field(
+        default=False,
+        description=(
+            "Seed consolidated_strength at entity commit for identity-core, "
+            "durable-typed, and client-proposal commits so one-shot high-value "
+            "facts do not decay like chatter"
+        ),
+    )
+
+    # --- Supersession / bi-temporal current-value (M3.4, EVAL-GATED) ---
+    supersession_enabled: bool = Field(
+        default=False,
+        description=(
+            "Extend commit-time exclusive-predicate supersession to the "
+            "additional high-value classes (USES_VERSION, NAMED, IS_NAMED, "
+            "PREFERS) and record superseded-edge provenance on the apply "
+            "result. Off = pre-existing exclusive set only, no provenance."
+        ),
     )
 
     # --- Cross-domain penalty (topic-aware spreading) ---

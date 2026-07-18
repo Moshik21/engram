@@ -20,7 +20,8 @@ EXTRACTION_SYSTEM_PROMPT = (
     '      "name": "Entity Name",\n'
     '      "entity_type": "Person|Organization|Project|Technology|'
     "Concept|Location|Event|CreativeWork|Article|Software|"
-    'HealthCondition|BodyPart|Emotion|Goal|Preference|Habit|Intention|Identifier|Other",\n'
+    "HealthCondition|BodyPart|Emotion|Goal|Preference|Decision|Commitment|"
+    'Correction|Habit|Intention|Identifier|Other",\n'
     "  Type guidance:\n"
     "  - Project: work initiative, research project, business venture\n"
     "  - CreativeWork: book, novel, song, film, artwork, story\n"
@@ -33,7 +34,11 @@ EXTRACTION_SYSTEM_PROMPT = (
     "  - BodyPart: anatomical body part, organ\n"
     "  - Emotion: feeling, mood, psychological state\n"
     "  - Goal: aspiration, objective, plan, intention\n"
-    "  - Preference: like, dislike, taste, opinion\n"
+    "  - Preference: like, dislike, taste, opinion the user stated\n"
+    "  - Decision: a decision the user or team made ('we decided to use X')\n"
+    "  - Commitment: a promise or commitment the user made ('I'll make sure...')\n"
+    "  - Correction: a correction of a previously stated fact "
+    "('actually, it's X not Y')\n"
     "  - Habit: routine, practice, recurring behavior\n"
     "  - Intention: prospective memory trigger, reminder, future action\n"
     '      "summary": "Brief description of this entity based on the text",\n'

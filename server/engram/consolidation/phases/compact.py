@@ -99,6 +99,13 @@ class AccessHistoryCompactionPhase(ConsolidationPhase):
                 items_affected += 1
                 if not dry_run:
                     dropped = set(state.access_history) - set(compacted)
+                    # Absorbed-mass decay (independent of importance_prior_enabled
+                    # — this fixes a confirmed defect): previously absorbed
+                    # consolidated_strength decays by compact_strength_decay each
+                    # compaction pass, so the scalar stops being a monotone
+                    # accumulator that systematically overestimates old,
+                    # repeatedly compacted entities.
+                    state.consolidated_strength *= cfg.compact_strength_decay
                     if dropped:
                         state.consolidated_strength += compute_dropped_strength(
                             dropped,
