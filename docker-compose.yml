@@ -23,7 +23,9 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          # 512M OOM-killed the server mid-recall (local embedding model +
+          # query path exceed it; curl saw an empty reply).
+          memory: 1536M
     networks:
       - engram-net
 
@@ -91,7 +93,9 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          # 512M OOM-killed the server mid-recall (local embedding model +
+          # query path exceed it; curl saw an empty reply).
+          memory: 1536M
     networks:
       - engram-net
 

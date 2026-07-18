@@ -112,11 +112,14 @@ phase 3 "Runtime lifecycle"
 
 engramctl start
 
-# PID file should exist
+# Lifecycle marker: LaunchAgent-managed shells (macOS) have no PID file by
+# design (launchd owns the process); the nohup path writes one. Accept either.
 if [ -f "$ENGRAM_HOME/engram.pid" ]; then
-  pass "PID file created"
+  pass "PID file created (nohup lifecycle)"
+elif launchctl list 2>/dev/null | grep -q "dev.engram.local"; then
+  pass "LaunchAgent lifecycle active (no PID file by design)"
 else
-  fail "PID file not found after start"
+  fail "No PID file and no LaunchAgent after start"
 fi
 
 # Health check with retry
