@@ -1,16 +1,12 @@
 # Cognitive Core Goal — make the designed system and the shipped system the same system
 
-**Status:** EXECUTING — approved 2026-07-17 (/goal); M1+M2 landed and pushed
-(8a4797b, f984b91), M3 code rows landed behind flags (supersession_enabled,
-importance_prior_enabled, hygiene_mop_merge_enabled — all default off; M3.2
-vocabulary is live), I1-I3 filed under docs/product/investigations/ with the
-I2 race fixed. M3.1 oracle experiment + M4 eval arms RAN — decisions recorded
-in `experiments/DECISIONS_2026-07-17.md` (oracle POSITIVE; activation + TS
-NEGATIVE; default flips parked pending real-corpus evals). Remaining: release
-tag; parked default flips per decisions doc.
-Notable premise correction from M3.4: exclusive-predicate supersession for
-location/employment classes already shipped unconditionally — the flag gates
-the CLASS EXPANSION (USES_VERSION/NAMED/PREFERS) and provenance recording.
+**Status:** COMPLETE 2026-07-18. M1+M2+M3 landed and pushed; experiments run
+with per-arm decisions (oracle-surface POSITIVE 2/36→22/36 reach@5;
+activation-as-ranker NEGATIVE; TS inert — flips parked for real-corpus
+reruns per policy); I1-I3 filed, I2 race fixed. First fully-green CI run in
+repo history (all 10 jobs), then v0.1.0 released: ghcr images + 3 native
+wheels (linux-aarch64 non-blocking pending cross-OpenSSL) + install bundle;
+installer wheel-discovery verified against the live release.
 **Created:** 2026-07-17
 **Sources:** `COGNITIVE_CORE_REVIEW_2026-07-17.md` (findings, file:line
 evidence), `COGNITIVE_CORE_FIXES.md` (deliverable detail). This doc is the
