@@ -101,6 +101,14 @@ class RecallService:
         # episode is surfaced (cue content stays unsurfaced), but the cue hit
         # must still drive promotion feedback. Maps episode node_id -> cue score.
         suppressed_cue_scores: dict[str, float] = {}
+        # Ranked entity candidate pool captured for entity->episode traversal
+        # when entity_episode_traversal_source="candidates". The kwarg is only
+        # passed in that mode so the default call (and stub retrieve_fns) are
+        # byte-identical to today's behavior.
+        entity_candidate_scores: list[tuple[str, float]] = []
+        extra_retrieve_kwargs: dict[str, Any] = {}
+        if self._cfg.entity_episode_traversal_source == "candidates":
+            extra_retrieve_kwargs["entity_candidates_out"] = entity_candidate_scores
         retrieve_started = time.perf_counter()
         try:
             scored_results = await self._retrieve(
@@ -123,6 +131,7 @@ class RecallService:
                 stage_timings_ms=stage_timings_ms,
                 suppressed_cue_out=suppressed_cue_scores,
                 budget_profile=budget_profile_for_source(interaction_source),
+                **extra_retrieve_kwargs,
             )
         except asyncio.CancelledError:
             stage_timings_ms["recall_retrieve_cancelled"] = _elapsed_ms(retrieve_started)
@@ -190,6 +199,7 @@ class RecallService:
                 interaction_type=interaction_type,
                 interaction_source=interaction_source,
                 stage_timings_ms=stage_timings_ms,
+                entity_candidates=entity_candidate_scores or None,
             )
         except asyncio.CancelledError:
             stage_timings_ms["recall_post_process_cancelled"] = _elapsed_ms(post_started)

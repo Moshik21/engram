@@ -181,3 +181,69 @@ async def test_traversal_read_errors_do_not_abort_recall_expansion() -> None:
 
     assert len(results) == 2
     assert seen_episode_ids == {"ep_parent"}
+
+
+@pytest.mark.asyncio
+async def test_candidate_scores_ignored_when_source_is_results() -> None:
+    """Default source='results': provided candidate pool must not change behavior."""
+    graph = AsyncMock()
+    graph.get_episodes_for_entity = AsyncMock(return_value=[])
+    cfg = ActivationConfig(
+        entity_episode_traversal_enabled=True,
+        entity_episode_max_entities=5,
+    )
+    assert cfg.entity_episode_traversal_source == "results"
+    results: list[dict] = [
+        {"result_type": "episode", "episode": {"id": "ep_only"}, "score": 0.9},
+    ]
+
+    await _service(graph, cfg).append_entity_linked_episodes(
+        results,
+        group_id="native_brain",
+        seen_episode_ids={"ep_only"},
+        candidate_entity_scores=[("ent_candidate", 0.8)],
+    )
+
+    # No entity entries in final results -> traversal is starved, candidates ignored.
+    graph.get_episodes_for_entity.assert_not_awaited()
+    assert len(results) == 1
+
+
+@pytest.mark.asyncio
+async def test_candidate_source_traverses_pool_when_no_entity_results() -> None:
+    """source='candidates': traversal feeds from the candidate pool even with entity budget 0."""
+    graph = AsyncMock()
+    episodes = {"ep_bridge": _episode("ep_bridge")}
+    graph.get_episodes_for_entity = AsyncMock(return_value=["ep_bridge"])
+    graph.get_episode_by_id = AsyncMock(
+        side_effect=lambda episode_id, group_id: episodes[episode_id]
+    )
+    graph.get_episode_entities = AsyncMock(return_value=["ent_candidate"])
+    cfg = ActivationConfig(
+        entity_episode_traversal_enabled=True,
+        entity_episode_traversal_source="candidates",
+        entity_episode_max_entities=1,
+        entity_episode_max_per_entity=5,
+        entity_episode_weight=0.5,
+    )
+    results: list[dict] = [
+        {"result_type": "episode", "episode": {"id": "ep_direct"}, "score": 0.9},
+    ]
+
+    await _service(graph, cfg).append_entity_linked_episodes(
+        results,
+        group_id="native_brain",
+        seen_episode_ids={"ep_direct"},
+        candidate_entity_scores=[("ent_low", 0.2), ("ent_candidate", 0.8)],
+    )
+
+    appended = results[-1]
+    assert appended["episode"]["id"] == "ep_bridge"
+    assert appended["score"] == pytest.approx(0.4)
+    assert appended["score_breakdown"]["parent_entity_id"] == "ent_candidate"
+    # max_entities=1 caps the pool to the highest-scoring candidate.
+    graph.get_episodes_for_entity.assert_awaited_once_with(
+        "ent_candidate",
+        group_id="native_brain",
+        limit=5,
+    )

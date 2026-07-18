@@ -30,12 +30,20 @@ class RecallEpisodeTraversal:
         *,
         group_id: str,
         seen_episode_ids: set[str],
+        candidate_entity_scores: list[tuple[str, float]] | None = None,
     ) -> None:
         """Follow top entity hits to linked episodes and append synthetic results."""
         if not self._cfg.entity_episode_traversal_enabled:
             return
 
-        entity_scores = self._top_entity_scores(results)
+        if self._cfg.entity_episode_traversal_source == "candidates" and candidate_entity_scores:
+            entity_scores = sorted(
+                candidate_entity_scores,
+                key=lambda item: item[1],
+                reverse=True,
+            )[: self._cfg.entity_episode_max_entities]
+        else:
+            entity_scores = self._top_entity_scores(results)
         for entity_id, entity_score in entity_scores:
             try:
                 linked_episode_ids = await self._graph.get_episodes_for_entity(

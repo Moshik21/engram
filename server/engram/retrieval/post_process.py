@@ -72,13 +72,20 @@ class RecallPostProcessor:
         interaction_type: str | None,
         interaction_source: str,
         stage_timings_ms: dict[str, float] | None = None,
+        entity_candidates: list[tuple[str, float]] | None = None,
     ) -> RecallPostProcessResult:
         """Apply episode expansion, recall side effects, and final scoring."""
+        # Only pass the candidate pool when present so existing traversal
+        # stubs (and the default 'results' source) see today's exact call.
+        traversal_kwargs: dict[str, Any] = (
+            {"candidate_entity_scores": entity_candidates} if entity_candidates else {}
+        )
         await self._bounded_stage(
             self._episode_traversal.append_entity_linked_episodes(
                 results,
                 group_id=group_id,
                 seen_episode_ids=seen_episode_ids,
+                **traversal_kwargs,
             ),
             stage_timings_ms=stage_timings_ms,
             stage_key="recall_entity_episode_traversal",

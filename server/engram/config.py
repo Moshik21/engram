@@ -586,6 +586,18 @@ class ActivationConfig(BaseModel):
             "0 disables the substage timeout."
         ),
     )
+    entity_episode_traversal_source: str = Field(
+        default="results",
+        pattern="^(results|candidates)$",
+        description=(
+            "Where entity->episode traversal reads entities from: 'results' "
+            "(today's behavior — entity entries in the FINAL recall results, "
+            "which the default entity budget of 0 leaves empty) or "
+            "'candidates' (the ranked entity candidate pool from the retrieval "
+            "pipeline, so graph-discovered entities can surface their linked "
+            "episodes even when no entity wins a final slot)."
+        ),
+    )
 
     # --- Temporal contiguity ---
     temporal_contiguity_enabled: bool = Field(

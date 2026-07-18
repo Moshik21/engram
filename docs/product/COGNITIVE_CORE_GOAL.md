@@ -4,7 +4,10 @@
 (8a4797b, f984b91), M3 code rows landed behind flags (supersession_enabled,
 importance_prior_enabled, hygiene_mop_merge_enabled — all default off; M3.2
 vocabulary is live), I1-I3 filed under docs/product/investigations/ with the
-I2 race fixed. Remaining: M3.1 oracle experiment, M4 eval arms, release tag.
+I2 race fixed. M3.1 oracle experiment + M4 eval arms RAN — decisions recorded
+in `experiments/DECISIONS_2026-07-17.md` (oracle POSITIVE; activation + TS
+NEGATIVE; default flips parked pending real-corpus evals). Remaining: release
+tag; parked default flips per decisions doc.
 Notable premise correction from M3.4: exclusive-predicate supersession for
 location/employment classes already shipped unconditionally — the flag gates
 the CLASS EXPANSION (USES_VERSION/NAMED/PREFERS) and provenance recording.
@@ -136,12 +139,12 @@ theory-in-name-only.
 
 ## M3 — Design corrections (each behind flag or experiment)
 
-- [ ] **M3.1 Graph→episode surfacing.** (a) Oracle experiment: feed
-      `append_entity_linked_episodes` from top-K entity candidates on the
-      depth-eval; report reachability/accuracy (docs/product/experiments/).
-      (b) If positive: productionize behind `entity_episode_traversal_source
-      ="candidates"`, fix RRF-vs-cosine scale sharing in the same stack
-      (episode_traversal.py:127-136; pipeline.py:1308-1314). EVAL-GATED.
+- [~] **M3.1 Graph→episode surfacing.** (a) DONE, POSITIVE: oracle rig
+      reach@5 2/36 → 22/36 (see experiments/M3_1_oracle_surface.md).
+      (b) DONE: flag `entity_episode_traversal_source` shipped,
+      default `"results"` (unchanged behavior). PARKED: default flip to
+      `"candidates"` + RRF-vs-cosine scale fix await real-corpus eval
+      (experiments/DECISIONS_2026-07-17.md). EVAL-GATED.
 - [x] **M3.2 Durable types via local extraction.** Decision/Preference/
       Commitment/Correction in the LLM prompt vocabulary AND narrow
       patterns (extraction/prompts.py:21-23; narrow/entity_extractor.py:
@@ -164,16 +167,21 @@ theory-in-name-only.
 
 ## M4 — Instrument the theory
 
-- [ ] **M4.1 Activation arm** (`record_access=True` — adapter.py:431-436).
-      Report per-question-type deltas → ACT-R stays a ranking term or
-      becomes telemetry.
-- [ ] **M4.2 Surfacing arm** = M3.1(a); doubles as the Gate-G revisit with
-      a mechanism that can actually move episodes.
-- [ ] **M4.3 TS arm** (seeded-on vs off) → decides `ts_enabled` default
-      (decision 3 sunset clause).
-- [ ] **M4.4 Confirmed-use access recording** for the eval arm (feedback
-      path exists — retrieval/feedback.py:183) so the recency/frequency
-      prior reflects usage, not ranker output. Design note first; EVAL-GATED.
+- [~] **M4.1 Activation arm** — RAN, NEGATIVE as ranking term (reach@10
+      23→2 with usage history; term-zeroed arm recovers to 21; no-op with
+      no history, so benchmark regime unaffected). Weight-zeroing PARKED
+      pending real-corpus rerun (experiments/M4_1_activation_arm.md,
+      DECISIONS_2026-07-17.md).
+- [x] **M4.2 Surfacing arm** = M3.1(a); doubles as the Gate-G revisit with
+      a mechanism that can actually move episodes. POSITIVE — see M3.1.
+- [~] **M4.3 TS arm** — RAN, NEGATIVE: dead code at shipped budget 0
+      (byte-identical on/off), no lift + 0/36 repeat-stability at budget 3.
+      `ts_enabled=False` recommended; flip PARKED (small-corpus lift delta
+      inconclusive; mechanism findings firm). experiments/M4_3_ts_arm.md.
+- [~] **M4.4 Confirmed-use access recording** — design note written
+      (DECISIONS_2026-07-17.md: record access via the existing
+      retrieval/feedback.py confirmed-use path, not on surfacing). PARKED
+      pending a real usage-signal source; gate for re-admitting M4.1.
 
 ## Investigations (subagent-sized, run alongside any milestone)
 

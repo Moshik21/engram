@@ -320,6 +320,7 @@ async def retrieve(
     stage_timings_ms: dict[str, float] | None = None,
     suppressed_cue_out: dict[str, float] | None = None,
     budget_profile: str | None = None,
+    entity_candidates_out: list[tuple[str, float]] | None = None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -2010,6 +2011,17 @@ async def retrieve(
             present.add(sr.node_id)
             reserved += 1
         return assembled
+
+    # Expose the ranked entity candidate pool (post rerank/MMR, pre budget cut)
+    # for entity->episode traversal when entity_episode_traversal_source is
+    # "candidates". The final entity budget (often 0) never truncates this.
+    if entity_candidates_out is not None:
+        for sr in scored:
+            if sr.result_type != "entity":
+                continue
+            entity_candidates_out.append((sr.node_id, float(sr.score)))
+            if len(entity_candidates_out) >= cfg.entity_episode_max_entities:
+                break
 
     # Step 6: Return top-N, mixing entities, episodes, and cue-backed episodes
     top_n = min(limit, cfg.retrieval_top_n)
