@@ -95,7 +95,14 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           before-script-linux: |
-            dnf install -y protobuf-compiler || yum install -y protobuf-compiler
+            # Native manylinux_2_28 image is AlmaLinux (dnf); the aarch64
+            # cross image is Debian-based (apt). openssl-sys additionally
+            # needs headers on the native image.
+            if command -v dnf >/dev/null 2>&1; then
+              dnf install -y protobuf-compiler openssl-devel perl-IPC-Cmd
+            elif command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y protobuf-compiler
+            fi
 
       - name: Upload helix-native wheel
         uses: actions/upload-artifact@v4
