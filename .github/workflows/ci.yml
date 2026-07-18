@@ -260,7 +260,7 @@ jobs:
           curl -s http://127.0.0.1:8100/openapi.json -o /tmp/oa.json
           python3 -c "import json; paths=json.load(open('/tmp/oa.json'))['paths']; print(len(paths),'routes'); missing=[p for p in ('/api/storage','/api/knowledge/observe','/api/knowledge/recall') if p not in paths]; print('missing:',missing); raise SystemExit(1 if missing else 0)" || fail=1
           probe POST /api/knowledge/observe '{"content": "Full-mode CI smoke: Engram ships a Docker compat lane.", "source": "ci-smoke"}'
-          probe POST /api/knowledge/recall '{"query": "Docker compat lane", "limit": 3}'
+          probe GET "/api/knowledge/recall?q=Docker%20compat%20lane&limit=3"
           exit $fail
 
       - name: Dump route table on failure
@@ -325,7 +325,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run Linux installer smoke test
-        run: bash scripts/test_installer_smoke.sh full
+        # --skip-runtime until the first release publishes images: the full
+        # -runtime variant exercises the ghcr pull path, which cannot succeed
+        # before ghcr.io/moshik21/engram-server:latest exists (2026-07-17).
+        # The Full Mode Docker job covers the compose runtime from source.
+        run: bash scripts/test_installer_smoke.sh --skip-runtime full
 
   installer-macos:
     name: Installer Smoke macOS
