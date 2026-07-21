@@ -291,3 +291,39 @@ async def test_latency_guard_topic_path_adds_no_extra_scans():
     )
     assert graph.exact_calls == 0
     assert graph.candidate_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_derived_project_topic_keeps_identity_fast_path(monkeypatch):
+    """Retro-verify minor: the DEFAULT no-topic-with-project call must not
+    auto-enter topic mode via the derived project-name hint — topic mode's
+    probes + rescue can blow the durable budget on large brains."""
+    import engram.retrieval.context_builder as cb
+
+    captured = {}
+
+    async def spy_durable(manager, *, group_id, topic_hint, **kwargs):
+        captured["topic_hint"] = topic_hint
+        return None  # fall through; we only care what the durable pack saw
+
+    monkeypatch.setattr(cb, "_durable_context_payload_from_manager", spy_durable)
+
+    class _StubManager:
+        async def get_memory_context(self, **kwargs):
+            return {"context": "", "packets": []}
+
+        def latest_agent_adoption_surface(self, *a, **k):
+            return None
+
+    try:
+        await cb.build_mcp_context_surface(
+            _StubManager(),
+            group_id="g1",
+            topic_hint=None,
+            project_path="/Users/someone/projects/engram",
+            format="structured",
+        )
+    except Exception:
+        pass  # downstream stub gaps are fine; the spy already captured
+
+    assert captured.get("topic_hint") is None

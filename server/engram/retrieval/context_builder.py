@@ -225,7 +225,11 @@ async def build_mcp_context_surface(
     durable_payload = await _durable_context_payload_from_manager(
         manager,
         group_id=group_id,
-        topic_hint=topic_hint or cache_topic_hint,
+        # Only an EXPLICIT topic engages the durable pack's topic mode (typed
+        # probes + name rescue). The derived project-name hint must keep the
+        # identity-listing fast path — on large brains topic mode can blow the
+        # 2s durable budget and regress the c7e5feb cold-start fix.
+        topic_hint=topic_hint,
         project_path=project_path,
         format=format,
         budget=budget,

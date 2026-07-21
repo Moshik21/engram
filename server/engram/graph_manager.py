@@ -2771,8 +2771,11 @@ class GraphManager:
 
         Mirrors the remember()/observe commit invalidation: manager packet
         cache, briefing cache, and the process-level durable context pack.
+        Unlike ordinary mutations, forget must NOT preserve session_recent
+        packets — the raw remembered content lives there with a 300s TTL and
+        would keep serving the forgotten fact.
         """
-        self.invalidate_memory_packet_cache(group_id)
+        self.invalidate_memory_packet_cache(group_id, preserve_scopes=())
         self.invalidate_briefing_cache(group_id)
         try:
             from engram.retrieval.context_builder import invalidate_durable_context_cache

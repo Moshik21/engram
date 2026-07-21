@@ -262,3 +262,29 @@ def _clean_durable_cache():
     invalidate_durable_context_cache()
     yield
     invalidate_durable_context_cache()
+
+
+@pytest.mark.asyncio
+async def test_forget_clears_session_recent_packets():
+    """Retro-verify blocker: forget must NOT preserve session_recent packets —
+    the raw remembered content lives there (300s TTL) and would keep serving
+    the forgotten fact."""
+    from unittest.mock import MagicMock
+
+    from engram.graph_manager import GraphManager
+
+    manager = GraphManager.__new__(GraphManager)
+    calls = {}
+
+    def fake_invalidate(group_id=None, **kwargs):
+        calls["group_id"] = group_id
+        calls["kwargs"] = kwargs
+        return 1
+
+    manager.invalidate_memory_packet_cache = fake_invalidate
+    manager.invalidate_briefing_cache = MagicMock()
+
+    manager._invalidate_context_caches_after_forget("g1")
+
+    assert calls["group_id"] == "g1"
+    assert calls["kwargs"].get("preserve_scopes") == ()
