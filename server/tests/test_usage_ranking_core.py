@@ -196,9 +196,7 @@ class TestReaderNeutralization:
         graph_store.get_active_neighbors_with_weights = AsyncMock(return_value=[])
 
         activation_store = AsyncMock()
-        activation_store.get_activation = AsyncMock(
-            return_value=_accessed_state("g1")
-        )
+        activation_store.get_activation = AsyncMock(return_value=_accessed_state("g1"))
 
         cfg = ActivationConfig(goal_priming_enabled=True, usage_ranking_enabled=True)
         goals = await identify_active_goals(graph_store, activation_store, "default", cfg)

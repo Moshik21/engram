@@ -269,4 +269,3 @@ class TestScorerStateBoost:
             state_biases=None,
         )
         assert results[0].state_boost == 0.0
-

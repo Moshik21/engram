@@ -33,7 +33,7 @@ class ActivationState:
     # (ts_alpha/ts_beta Thompson-Sampling posteriors deleted per M5.3/F4 KILL;
     # snapshot/journal loaders tolerate and drop the old fields.)
     # Ranking-side usage store (M1.1): (ts, weight) events from nonzero tiers.
-    # Inert until M2 — nothing on the ranking path reads usage_events yet.
+    # Read by compute_u/get_top_used only under usage_ranking_enabled (default off).
     usage_events: list[tuple[float, float]] = field(default_factory=list)
     usage_weight_sum: float = 0.0  # cached Σ weight so n_eff is an O(1) read
     usage_last_ts: float = 0.0  # cached max event ts so Δ_last is an O(1) read

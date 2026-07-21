@@ -254,4 +254,3 @@ class TestScorerStateBias:
             state_biases=state_biases,
         )
         assert results[0].state_boost == pytest.approx(0.05)
-

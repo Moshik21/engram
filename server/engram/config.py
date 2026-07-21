@@ -2122,8 +2122,7 @@ class ActivationConfig(BaseModel):
         ge=0.0,
         lt=1.0,
         description=(
-            "Recency floor in r' = r_floor + (1-r_floor)*r: keeps "
-            "old-but-frequent items alive in u"
+            "Recency floor in r' = r_floor + (1-r_floor)*r: keeps old-but-frequent items alive in u"
         ),
     )
     usage_ranking_enabled: bool = Field(

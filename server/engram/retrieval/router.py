@@ -144,9 +144,7 @@ def apply_route(query_type: QueryType, cfg: ActivationConfig) -> ActivationConfi
         enabled_total = sum(p for p, b in zip(profile3, base3) if b != 0.0)
         if enabled_total > 0.0:
             scale = sum(profile3) / enabled_total
-            sem, spread, edge = (
-                p * scale if b != 0.0 else 0.0 for p, b in zip(profile3, base3)
-            )
+            sem, spread, edge = (p * scale if b != 0.0 else 0.0 for p, b in zip(profile3, base3))
         else:
             sem = spread = edge = 0.0
         routed.weight_semantic = sem
