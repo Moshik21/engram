@@ -343,3 +343,41 @@ def test_lite_sqlite_index_has_no_breaker_surface():
 
     assert not hasattr(HybridSearchIndex, "bm25_fallback_degraded")
     assert not hasattr(HybridSearchIndex, "_guarded_bm25_query")
+
+
+@pytest.mark.asyncio
+async def test_graph_candidate_search_joins_open_breaker(tmp_path):
+    """The graph store's entity candidate search (projection/capture lanes)
+    runs on the same native pool as recall — with the breaker OPEN it must
+    skip its BM25 phase instead of feeding the zombie pool; with no breaker
+    constructed (peek returns None) it behaves as before."""
+    from engram.storage.helix.graph import HelixGraphStore
+    from engram.storage.helix.search import _get_bm25_breaker
+
+    data_dir = str(tmp_path / "native-brain")
+    store = HelixGraphStore(
+        HelixDBConfig(transport="native", data_dir=data_dir),
+    )
+    called: list[str] = []
+
+    async def fake_query(endpoint, payload, *a, **k):
+        called.append(endpoint)
+        return []
+
+    store._query = fake_query
+
+    # No breaker constructed yet: BM25 phase runs.
+    await store.find_entity_candidates("Melanie", "g1", limit=3)
+    assert "search_entities_bm25_filtered" in called
+
+    # Open the shared breaker for this data_dir: BM25 phase must be skipped.
+    breaker = _get_bm25_breaker(data_dir)
+    breaker.record_call(9_000.0)
+    breaker.record_call(9_000.0)
+    assert breaker.is_open
+    called.clear()
+    await store.find_entity_candidates("Melanie", "g1", limit=3)
+    assert "search_entities_bm25_filtered" not in called
+    assert "search_entities_bm25" not in called
+    # Non-BM25 candidate phases still ran.
+    assert called

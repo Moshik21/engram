@@ -319,6 +319,13 @@ class HelixGraphStore:
         self._entity_id_cache: dict[str, Any] = {}
         # (group_id, entity_id) -> Helix internal node ID for tenant-safe lookups
         self._entity_group_id_cache: dict[tuple[str, str], Any] = {}
+        # Shared BM25 breaker key (native only) — same derivation as
+        # HelixSearchIndex; breaker existence/enablement is decided there.
+        self._bm25_breaker_key: str | None = None
+        if getattr(config, "transport", "http") == "native":
+            self._bm25_breaker_key = str(getattr(config, "data_dir", "") or "") or (
+                f"port:{getattr(config, 'port', 0)}"
+            )
         # Helix internal node ID -> entity_id for relationship edge conversion
         self._entity_helix_id_cache: dict[str, str] = {}
         # episode_id (our UUID) -> Helix internal node ID when known to be unique
@@ -1230,6 +1237,19 @@ class HelixGraphStore:
             results.append(entity)
         return results
 
+    def _bm25_breaker(self):
+        """The shared per-data-dir BM25 breaker, if the search index built one.
+
+        Lazy import + peek-only: enablement (config flag, native transport)
+        is decided by HelixSearchIndex; this store merely joins the existing
+        breaker so candidate searches stop feeding the zombie pool too.
+        """
+        if self._bm25_breaker_key is None:
+            return None
+        from engram.storage.helix.search import peek_bm25_breaker
+
+        return peek_bm25_breaker(self._bm25_breaker_key)
+
     async def find_entity_candidates(
         self,
         name: str,
@@ -1280,17 +1300,31 @@ class HelixGraphStore:
         # Phase 2: BM25 token search, matching SQLite's FTS-first candidate path.
         # Use the filtered endpoint when deployed; fall back to the legacy
         # unfiltered endpoint so older Helix schemas degrade by recall, not by
-        # throwing away the whole candidate path.
-        bm25_limit = max(limit * 3, 30)
-        bm25_results = await self._query(
-            "search_entities_bm25_filtered",
-            {"query": stripped_name, "k": bm25_limit, "gid": group_id},
-        )
-        if not bm25_results:
-            bm25_results = await self._query(
-                "search_entities_bm25",
-                {"query": stripped_name, "k": bm25_limit},
-            )
+        # throwing away the whole candidate path. Guarded by the shared BM25
+        # breaker: this runs on the same 4-thread native pool as the recall
+        # lanes, and projection/capture-lane candidate searches were measured
+        # spawning the same uncancellable 20s BM25 zombies that starve it.
+        breaker = self._bm25_breaker()
+        bm25_results: list[Any] = []
+        if breaker is None or breaker.allow_call():
+            bm25_limit = max(limit * 3, 30)
+            bm25_started = time.monotonic()
+            try:
+                bm25_results = await self._query(
+                    "search_entities_bm25_filtered",
+                    {"query": stripped_name, "k": bm25_limit, "gid": group_id},
+                )
+                if not bm25_results:
+                    bm25_results = await self._query(
+                        "search_entities_bm25",
+                        {"query": stripped_name, "k": bm25_limit},
+                    )
+            except Exception:
+                if breaker is not None:
+                    breaker.record_call((time.monotonic() - bm25_started) * 1000.0, cancelled=True)
+                raise
+            if breaker is not None:
+                breaker.record_call((time.monotonic() - bm25_started) * 1000.0)
         append_rows(bm25_results)
 
         if len(results) >= limit:

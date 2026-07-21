@@ -267,6 +267,18 @@ def get_bm25_breaker_stats() -> dict[str, dict[str, Any]]:
         return {key: breaker.snapshot() for key, breaker in _BM25_BREAKERS.items()}
 
 
+def peek_bm25_breaker(key: str) -> Bm25CircuitBreaker | None:
+    """Existing breaker for ``key`` or None — never creates one.
+
+    Non-search-index BM25 callers (the graph store's candidate search runs on
+    the same native pool) consult this so breaker enablement stays decided in
+    one place: the search index constructs the breaker; everyone else only
+    joins in when it exists.
+    """
+    with _BM25_BREAKERS_LOCK:
+        return _BM25_BREAKERS.get(key)
+
+
 def _prepare_fast_bm25_query(query: str) -> str:
     """Compact high-fanout operator queries for bounded fallback BM25 paths."""
     specific_tokens: list[str] = []
