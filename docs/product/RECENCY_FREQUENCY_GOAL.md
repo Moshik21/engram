@@ -276,10 +276,25 @@ byte-identical until the six flip gates pass.
       `_WEIGHT_PROFILES` rows + `weight_activation=0` behind `usage_ranking_enabled=False`;
       default behavior byte-identical (arm B0 proves inertness). DoD: M4.1 arms A/A2/C
       byte-identical pre/post. **EVAL-GATED: G1.**
-- [ ] **M2.6 Real-corpus rerun — the flip gate.** M4.1 arms A/B/E on a real-corpus brain
+- [x] **M2.6 Real-corpus rerun — the flip gate.** M4.1 arms A/B/E on a real-corpus brain
       (live-copy read-only or organic capture) + `engram continuity --against-live --organic`.
       DoD: report committed under experiments/; **only then may M2.5's switch flip default**,
       and only after **G7** (M1.4) has passed. **EVAL-GATED: G2, G6, G7.**
+      EXECUTED 2026-07-21, adversarially verified — report:
+      `experiments/M2_6_real_corpus_gate.md`. G1 real-corpus PASS (E==A
+      byte-identical: 42/42 deep lane, 36/42 shipped lane with all 6 mismatches
+      proven flag-independent timeout jitter; flip is a no-op today). Arm-B churn:
+      zero inversions, zero 1.30x-band violations (vacuous — see finding).
+      **GATE OUTCOME: DO NOT FLIP** (default stays False, dated 2026-07-21):
+      G6 fails twice over (organic usage-event yield = 0; organic continuity gate
+      FAILS live, flag-independent, ~6.5s recall / 0 Decision hits) and G2's
+      arm-A parity floor (>=23) is unmeasurable at reach 4/42. ROOT FINDING: the
+      deep recall pipeline returns 0/42 on the real brain — every live result
+      comes from the timeout-degrade fallback; prime suspect is the Jul-13
+      FastEmbed vector-less backlog (entity vectors only 3/10, 33/40
+      recoverable). Flip prerequisites (parked, tracked in the report): backlog
+      reindex + continuity PASS restored -> organic used-event capture window ->
+      arm-B churn rerun + explicit G2 adjudication.
 
 ## M3 — Importance prior calibration + flip (D6 importance lane) [EVAL-GATED; needs M0.6]
 
@@ -303,6 +318,13 @@ byte-identical until the six flip gates pass.
       order + exact-tie boundary, and the 0.08 rescue-lane ceiling (+0.2).
 - [ ] **M3.2 Flip `importance_prior_enabled` default.** Only after M0.6 + M3.1 + no regression
       on M4.1/oracle rigs. DoD: eval report committed. **EVAL-GATED: continuity gate + M4.1/oracle.**
+      PARKED 2026-07-21: M3.1 is landed, but the continuity gate is failing live
+      flag-independently (see M2.6 root finding — deep-recall emptiness /
+      vector-less backlog), so the eval this flip requires cannot produce a
+      meaningful PASS. Additionally M3.1's verify pass amended F6: the live
+      importance mechanism is the reserved durable lane, not a bounded
+      multiplicative band — the flip decision must be re-reasoned from the lane
+      model. Revisit together with the M2.6 flip prerequisites.
 
 ## M4 — Durability + store unification (D6)
 
@@ -513,3 +535,27 @@ G1/G5 before any ranking flip; M2–M5 rows landed behind their named gates with
 committed or explicitly parked with dated reasons; G1–G7 plus the mechanism gates green on the
 final stack; and the R/F knob census (cartography §10) contains zero rows whose status is
 "illusory" or "accidentally vacuous."
+
+### Completion record — 2026-07-21
+
+DONE. Commits f9e64b6 (M0) → 7bf30e3 (M1) → 5ca08d2 (M2+M5.3) → 9428c03
+(M3.1/M4/M5.1/M5.2/pre-flip closure) → the M2.6 gate report commit. Final
+stack: 4789 backend tests passing, 0 failed; ruff check+format clean; CI
+green. Every row landed except M3.2 (parked, dated, reasons on the row).
+
+Gate ledger on the final stack: **G1** PASS (rig 8/8 + real-corpus E==A
+byte-identity), **G3** PASS (used-wins-ties 16/16 after the pre-flip
+closure), **G4** PASS (determinism, all rigs), **G5** PASS (budget-0
+hygiene), **G7** PASS (committed report, 1.00/1.00/0 fires). **G2/G6:
+adjudicated FAIL at the M2.6 gate** — they are flip gates, and their failure
+is the recorded reason the `usage_ranking_enabled` default stays False (DO
+NOT FLIP, see `experiments/M2_6_real_corpus_gate.md`): organic usage yield
+is zero and the organic continuity gate fails live, flag-independently
+(deep-recall emptiness / Jul-13 vector-less backlog — pre-existing, outside
+this goal). Knob census: zero illusory/vacuous rows (cartography §10
+updated with dated resolutions).
+
+The mechanism is built, proven inert by default, safe to flip mechanically,
+and blocked from flipping only by real-world gates that must be earned:
+recall-stack repair → organic used-event accumulation → arm-B churn rerun +
+G2 adjudication.

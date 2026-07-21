@@ -217,14 +217,14 @@ Default install = quiet profile + recall wave2 + `passage_first_entity_budget=0`
 | `min_age_seconds` 158 | 1.0 | LIVE (age floor — with epoch-seconds this makes 1 fresh access contribute up to 1.0 to the ln-sum) |
 | `max_history_size` 159 | 200 | LIVE |
 | `B_mid` 160 / `B_scale` 161 | −4.0 / 1.7 | LIVE, saturating; NOT respected by `_activation_pool` (fresh cfg, candidate_pool.py:140) |
-| `weight_activation` 168 | 0.25 | **ILLUSORY for routed queries** — router overwrites (router.py:100-108); effective value = profile row |
-| `weight_semantic/spreading/edge_proximity` 167-170 | .40/.15/.15 | same illusion |
+| `weight_activation` 168 | 0.25 | RESOLVED 2026-07-21 (was ILLUSORY): router override is now explicit-zero on both table shapes (M0.5); flag-ON uses `_USAGE_WEIGHT_PROFILES` with activation ≡ 0 (M2.5/F5); flag-off legacy table frozen + documented. Routed override is by-design and stated, not silent |
+| `weight_semantic/spreading/edge_proximity` 167-170 | .40/.15/.15 | RESOLVED with the row above (explicit tables, both flag states) |
 | `weight_name_match` 171 | 0.15 | LIVE (not router-overwritten) |
 | `seed_threshold` 182 | 0.3 | LIVE but rank-cutoff-not-relevance vs RRF scores (review §3) |
 | `activation_ttl_days` 183 | 90 | DEAD except Redis mode (redis/activation.py:29) — memory store never expires |
-| `exploration_weight` 184 | 0.05 | DEAD when `ts_enabled=True` (TS scorer replaces the exploration term; scorer.py:264-268) — live only in the non-TS scorer |
-| `rediscovery_weight/halflife` 185-186 | 0.02/30d | LIVE in both scorers (271-280) but ≈0 forever on installs where nothing records access |
-| `ts_enabled/ts_weight/ts_±increment` 366-369 | True/0.08/1/1 | draw LIVE (jitter), learning DEAD at budget 0 (M1.2 guard) — "doubly inert" M4.3 |
+| `exploration_weight` 184 | 0.05 | LIVE always (2026-07-21: TS deleted per M5.3/F4, the aliasing is gone; flag-ON it is the flat `w_expl·sem` term — usage-view novelty is the u multiplier itself, pre-flip closure) |
+| `rediscovery_weight/halflife` 185-186 | 0.02/30d | LIVE flag-off (unchanged); flag-ON ZEROED by design (pre-flip closure 2026-07-21: a dormancy bonus would double-read `usage_last_ts` against u's r′ decay; r_floor=0.25 covers old-but-frequent) |
+| `ts_enabled/ts_weight/ts_±increment` 366-369 | — | DELETED 2026-07-21 (M5.3/F4 KILL: knobs, posteriors, scorer branch all removed; byte-identity + repeat-stability 36/36 proven) |
 | `pool_activation_limit` 393 | 20 | LIVE (pool membership) — harmless without the score term (arm E/F) |
 | `working_memory_*` 523-526 | on/20/300s/0.3 | LIVE (WM writes happen on every recall) |
 | `episode_retrieval_weight` 530 | 0.8 | LIVE (episode channel scale) |
@@ -270,18 +270,27 @@ Default install = quiet profile + recall wave2 + `passage_first_entity_budget=0`
 7. **Snapshot under-count semantics** (§9): brain-side and crash-window accesses
    are lost by design; prune protections are only as fresh as the last clean
    shell/MCP exit. Any "activation matters" redesign needs a durability story.
+   [RESOLVED 2026-07-21: M4.1 periodic saves bound loss to ≤ interval (600s/50
+   dirty); confirmed/corrected tiers are journal-durable (M1.3).]
 8. **Graph-row access fields are cosmetic** (§1): prune's SQL pre-filter runs on
    stale zeros — it works only because zero ≤ threshold, i.e. the filter is
    accidentally vacuous rather than correct. Either wire `snapshot_to_graph` or
    delete the columns.
+   [RESOLVED 2026-07-21: WIRED into the hygiene mop (M4.2, budget 5000/window,
+   counts documented approximate, ranking-never-reads pinned by test).]
 9. **Confirmed-use plumbing already exists and is orphaned on the agent path**
    (P4): `apply_memory_interaction("used")` + response-mention partitioning are
    production code consumed only by the dashboard chat. M4.4 is a wiring
    problem (public feedback tool / harness citation), not a build problem.
+   [RESOLVED 2026-07-21: the echo-guarded ingestion-time citation scan (M1.4,
+   G7 PASS) wires used-tier events on the agent path with zero new tools.]
 10. **Episode channel has no frequency state at all** (§2/§6): cue hit_count is
     the only per-episode usage counter, and it exists only when the cue layer is
     on and only for cue-surfaced episodes. A frequency prior for episodes is
     greenfield.
+    [RESOLVED 2026-07-21: built (M5.1) — tier-weighted `usage_used_count` +
+    `usage_last_used_at` on cue records, same-pass echo-guarded scan,
+    `u_episode` composition behind the flag.]
 11. **Session-state mutation-on-read** (§5): WM + conv-context writes happen on
     every recall regardless of `record_access` — the proven determinism/
     cross-persona pollution source (M4.3 finding 2, ticket-worthy). Any eval
@@ -290,3 +299,6 @@ Default install = quiet profile + recall wave2 + `passage_first_entity_budget=0`
     the slot; only one runs depending on `ts_enabled`. Flipping TS off
     (M4.3 recommendation) silently re-enables the deterministic 0.05 exploration
     term — the A/B is not "TS vs nothing".
+    [RESOLVED 2026-07-21: TS deleted outright (M5.3/F4); the exploration term is
+    the only occupant of the slot and its re-enablement was measured as part of
+    the byte-identity proof.]
