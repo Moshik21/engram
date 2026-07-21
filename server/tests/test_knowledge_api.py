@@ -603,7 +603,11 @@ class TestEpistemicEndpoints:
     ):
         resp = await empty_knowledge_client.get(
             "/api/knowledge/runtime",
-            params={"project_path": str(tmp_path)},
+            # live=true pins the deep inspection path (unbounded budget): the
+            # default budgeted path legitimately degrades to the fast packet
+            # (status="startup_probe") on slow CI runners, which is covered by
+            # its own test below — this test asserts the DEEP path's guidance.
+            params={"project_path": str(tmp_path), "live": "true"},
         )
         assert resp.status_code == 200
         data = resp.json()
