@@ -537,7 +537,40 @@ async def store_observation(
         kwargs["attachments"] = attachments
     if capture_store_timeout_ms is not None:
         kwargs["capture_store_timeout_ms"] = capture_store_timeout_ms
-    return await manager.store_episode(**kwargs)
+    episode_id = await manager.store_episode(**kwargs)
+    await _record_observed_usage_events(manager, group_id=group_id, content=content)
+    return episode_id
+
+
+async def _record_observed_usage_events(manager: Any, *, group_id: str, content: str) -> None:
+    """M1.4: echo-guarded citation scan on the Capture fast path.
+
+    A surfaced entity mentioned in novel tokens of the next observed turn
+    records a used-tier access event. Requires
+    ``recall_usage_feedback_enabled=True`` (default False — the scan is fully
+    inert otherwise) and short-circuits with one dict lookup when no recall
+    has surfaced entities for the group, so the no-LLM store path pays ~0.
+    """
+    from engram.retrieval.feedback import get_usage_buffer, record_observed_usage_events
+
+    activation_store = getattr(manager, "_activation", None)
+    cfg = getattr(manager, "_cfg", None)
+    if activation_store is None or cfg is None:
+        return
+    if not getattr(cfg, "recall_usage_feedback_enabled", False):
+        return
+    if get_usage_buffer().is_empty(group_id):
+        return
+    try:
+        await record_observed_usage_events(
+            activation_store=activation_store,
+            cfg=cfg,
+            group_id=group_id,
+            content=content,
+        )
+    except Exception:
+        # silent-ok: usage-signal capture must never fail the observe write path.
+        logger.debug("Observed-usage citation scan failed", exc_info=True)
 
 
 async def ingest_projecting_memory(

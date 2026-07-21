@@ -289,6 +289,9 @@ class RecallPrimaryResultMaterializer:
             fallback=[],
         )
         if record_access:
+            # M1.5: surfacing is ranker output, not an environmental signal —
+            # record at the surfaced tier (hygiene weight 1.0, ranking weight 0)
+            # so recall delivery never feeds ranking-u back into itself.
             await _bounded_materialize_call(
                 self._entity_access_recorder.record_entity_access(
                     entity,
@@ -296,6 +299,7 @@ class RecallPrimaryResultMaterializer:
                     query=query,
                     source=interaction_source,
                     timestamp=now,
+                    tier="surfaced",
                 ),
                 timeout_seconds=side_effect_timeout_seconds,
                 stage_timings_ms=stage_timings_ms,

@@ -151,8 +151,15 @@ class RedisActivationStore:
         entity_id: str,
         timestamp: float,
         group_id: str | None = None,
+        tier: str = "surfaced",
     ) -> None:
-        """Record an access event, creating state if needed."""
+        """Record an access event, creating state if needed.
+
+        The Redis store accepts the M1 tier parameter for call-site
+        compatibility but records hygiene history only: the usage-event
+        mechanism (usage_events/journal) is inert in the Docker full-mode
+        compat lane pending M4.3 parity (RECENCY_FREQUENCY_GOAL.md).
+        """
         from engram.activation.engine import record_access as _record_access
 
         state = await self.get_activation(entity_id)

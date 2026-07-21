@@ -626,7 +626,7 @@ class TestRecallFeedback:
         assert payload["source"] == "chat_tool_select"
         assert payload["recordedAccess"] is False
 
-    async def test_corrected_interaction_applies_negative_feedback_without_access(
+    async def test_corrected_interaction_applies_negative_feedback_with_corrected_access(
         self,
         graph_store,
         activation_store,
@@ -680,16 +680,21 @@ class TestRecallFeedback:
             events.append(await queue.get())
 
         assert after is not None
-        assert after.access_count == before_count
+        # M1.2: corrected feedback records a corrected-tier access event —
+        # access_history still gets the event (prune/mature inputs whole) and
+        # usage_events gains a corrected-weight entry.
+        assert after.access_count == before_count + 1
+        assert after.usage_events
+        assert after.usage_events[-1][1] == pytest.approx(0.5)
         assert after.ts_beta > before_beta
-        assert not [e for e in events if e["type"] == "activation.access"]
+        assert [e for e in events if e["type"] == "activation.access"]
 
         interaction_events = [e for e in events if e["type"] == "recall.interaction"]
         assert len(interaction_events) == 1
         payload = interaction_events[0]["payload"]
         assert payload["interactionType"] == "corrected"
         assert payload["source"] == "test_correction"
-        assert payload["recordedAccess"] is False
+        assert payload["recordedAccess"] is True
 
     async def test_dismissed_interaction_is_neutral_without_access(
         self,

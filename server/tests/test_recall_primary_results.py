@@ -104,6 +104,8 @@ async def test_materializes_entity_result_with_access_feedback_and_working_memor
         query="React",
         source="chat_tool_use",
         timestamp=123.0,
+        # M1.5: recall surfacing records at the surfaced tier (ranking w=0).
+        tier="surfaced",
     )
     deps["interaction_recorder"].record_entity_interaction.assert_called_once_with(
         group_id="default",

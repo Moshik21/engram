@@ -182,19 +182,19 @@ byte-identical until the six flip gates pass.
 *Sequencing invariant: writers and durability land here, ranking stays byte-identical
 (inert by G1/G5). Nothing in M1 changes the benchmark regime.*
 
-- [ ] **M1.1 `usage_events` store + tiered `record_access(tier=)` + snapshot v2.** Add
+- [x] **M1.1 `usage_events` store + tiered `record_access(tier=)` + snapshot v2.** Add
       `usage_events: list[tuple[float, float]]` beside `access_history` (which stays whole
       for prune); `record_access` grows a `tier` param, default `"surfaced"` (w_ranking=0)
       keeps every caller hygiene-correct. Snapshot bumps to v2 (`"version":2`); v1 loads as
       legacy/empty usage (forward-compat via `.get()`). Files: models/activation.py,
       storage/memory/activation.py, config.py. DoD: v1↔v2 round-trip test; `n_eff`/`Δ_last`
       computed O(1); no ranking read of `usage_events` yet.
-- [ ] **M1.2 Confirmed/corrected tier tagging via existing feedback path.** Tier-tag events
+- [x] **M1.2 Confirmed/corrected tier tagging via existing feedback path.** Tier-tag events
       from the MCP `feedback` tool (`"confirmed"`→1.0, `"corrected"`→0.5, marks labile) and
       treat cue-hit promotion as a confirmed-tier signal (feedback.py:458-459,263-315). Files:
       retrieval/feedback.py. DoD: confirmed/corrected feedback appends a weighted
       `usage_events` entry (test); prune/mature inputs unchanged (their tests green).
-- [ ] **M1.3 Confirmed-event JSONL journal — fold-then-compact ownership protocol.**
+- [x] **M1.3 Confirmed-event JSONL journal — fold-then-compact ownership protocol.**
       *(Judge-2 blocker 1 — data-loss race across shell + MCP-stdio + brain.)* Append-only
       journal for confirmed/corrected, replayed on `load_from_file`, exempt from the 14-day
       age-out. On save the **owning** process (a) re-reads and replays the whole current
@@ -205,7 +205,7 @@ byte-identical until the six flip gates pass.
       storage/memory/activation.py, mcp/server.py. DoD: **an event written by a second process
       is still present after the first process saves+truncates** (test); TOCTOU test — a line
       appended between replay-at-load and truncate-at-save survives.
-- [ ] **M1.4 Agent-used citation scan WITH echo guard + dedup** *(Judge-1 blocker — the
+- [x] **M1.4 Agent-used citation scan WITH echo guard + dedup** *(Judge-1 blocker — the
       self-referential access loop).* Recall keeps a **bounded** per-group ring buffer
       (cap ~20-50, short-circuit when empty so the CQRS no-LLM `store_episode` path pays ~0)
       of surfaced `(entity_id, name, ts)`; `store_episode` scans the next observed turn with
@@ -220,12 +220,12 @@ byte-identical until the six flip gates pass.
       ranker's own top-k back as the synthetic next turn yields used-event count ~0; planted-
       reliance transcript yields events above floor; adversarial common-word ("Python" surfaced
       but not relied upon) does **not** fire. **EVAL-GATED: G7.**
-- [ ] **M1.5 Demote surfacing writers to `surfaced` tier.** P1 (primary_results.py:285-299)
+- [x] **M1.5 Demote surfacing writers to `surfaced` tier.** P1 (primary_results.py:285-299)
       and P9 (context_builder.py:1203-1216 — after sibling merge) record a `surfaced`-tier
       event (hygiene weight 1.0, ranking weight 0) instead of a ranking prior. Files:
       retrieval/primary_results.py, retrieval/context_builder.py. DoD: recall + get_context
       record zero ranking-eligible events (store-spy); prune/mature inputs unchanged.
-- [ ] **M1.6 Environmental mention-frequency: tier or documented exclusion (F10).**
+- [x] **M1.6 Environmental mention-frequency: tier or documented exclusion (F10).**
       *(Judge-2 blocker 3 — P5 ingestion mentions silently map to w=0, leaving ranking-
       frequency dependent entirely on the unproven scan.)* Per **F10**, either (a) give
       ingestion mentions a loop-free `w_mentioned≈0.1-0.2` tier (user-content-driven, not

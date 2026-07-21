@@ -26,6 +26,7 @@ from engram.retrieval.context_builder import (
     project_file_fallback_packet_payloads,
 )
 from engram.retrieval.control import resolve_manager_recall_need_thresholds
+from engram.retrieval.feedback import note_surfaced_texts_from_response
 from engram.retrieval.memory_operations import (
     MemoryOperationSample,
     record_manager_memory_operation,
@@ -367,6 +368,7 @@ async def build_mcp_recall_surface(
             response,
             group_id=group_id,
         )
+        note_surfaced_texts_from_response(group_id, response, cfg)
         return response
     project_file_fallback_path = (
         project_path or _default_project_path_for_recall() if not cache_packets else None
@@ -552,6 +554,7 @@ async def build_mcp_recall_surface(
         response,
         group_id=group_id,
     )
+    note_surfaced_texts_from_response(group_id, response, cfg)
     return response
 
 

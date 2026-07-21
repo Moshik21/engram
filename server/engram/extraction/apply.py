@@ -639,6 +639,15 @@ class ApplyEngine:
         session_entities: dict[str, Entity] = {}
         now = time.time()
         content = recall_content or episode.content
+        # M1.6 (F10): an entity committed from user content is an environmental
+        # mention (tier="mentioned", w_ranking=0.1). Bootstrap-artifact episodes
+        # are documentation, not user mentions — they record at the surfaced
+        # (hygiene-only) tier. mentioned_ids guards at most one mentioned event
+        # per (entity, episode) within this call; re-commits of the same episode
+        # are caught by the source_episode_ids idempotency check at the record
+        # site (episode.id already present ⇒ not a first mention).
+        is_bootstrap = episode.source == "auto:bootstrap"
+        mentioned_ids: set[str] = set()
 
         async def _get_candidates(name: str, gid: str) -> list[Entity]:
             return await self._graph.find_entity_candidates(name, gid)
@@ -844,7 +853,15 @@ class ApplyEngine:
 
             outcome.entity_map[name] = entity_id
             await self._graph.link_episode_entity(episode.id, entity_id, group_id=group_id)
-            await self._activation.record_access(entity_id, now, group_id=group_id)
+            already_evidenced = existing_entity is not None and episode.id in (
+                existing_entity.source_episode_ids or []
+            )
+            if is_bootstrap or already_evidenced or entity_id in mentioned_ids:
+                tier = "surfaced"
+            else:
+                tier = "mentioned"
+                mentioned_ids.add(entity_id)
+            await self._activation.record_access(entity_id, now, group_id=group_id, tier=tier)
             if self._cfg.importance_prior_enabled:
                 await self._seed_importance_prior(
                     entity_id,

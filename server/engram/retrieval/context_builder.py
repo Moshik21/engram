@@ -1211,7 +1211,15 @@ class MemoryContextBuilder:
             if truncated and not _entity_delivered(context_text, entity_data):
                 # Cut by the char budget: never delivered, so never strengthened.
                 continue
-            await self._activation.record_access(entity_data["id"], now, group_id=group_id)
+            # M1.5: context delivery is ranker output — surfaced tier only
+            # (hygiene weight 1.0, ranking weight 0), so get_context cannot
+            # feed ranking-u back into itself.
+            await self._activation.record_access(
+                entity_data["id"],
+                now,
+                group_id=group_id,
+                tier="surfaced",
+            )
             await self._publish_access_event(
                 entity_data["id"],
                 entity_data["name"],

@@ -101,6 +101,11 @@ from engram.storage.bootstrap import (
 )
 from engram.storage.factory import create_stores
 from engram.storage.memory.activation import activation_snapshot_path
+from engram.storage.native_lock import (
+    _acquire_native_shell_lock,
+    _native_backend_selected,
+    _native_data_dir,
+)
 from engram.storage.resolver import EngineMode, resolve_mode
 from engram.utils.dates import utc_now
 
@@ -209,6 +214,8 @@ _redis_publisher: Any | None = None
 _cue_index_outbox_task: asyncio.Task[int] | None = None
 _background_runtime_managed_externally = False
 _external_runtime_attached = False
+# I3: open file handles holding the per-data-dir advisory shell flock, keyed
+# by lock-file path. Held for process lifetime — flock auto-releases on death.
 
 
 def set_background_runtime_managed_externally(enabled: bool = True) -> None:
@@ -311,6 +318,10 @@ async def _init() -> None:
     stage = time.perf_counter()
     config = EngramConfig()
     mode = await resolve_mode(config.mode)
+    # I3: refuse a second concurrent open of one native data dir BEFORE any
+    # store touches LMDB. Fails startup fast, naming the holder PID.
+    if _native_backend_selected(config, mode):
+        _acquire_native_shell_lock(_native_data_dir(config))
     graph_store, activation_store, search_index = create_stores(mode, config)
     _runtime_config = config
     _runtime_mode = mode

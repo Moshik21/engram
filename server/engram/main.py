@@ -128,6 +128,20 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     await _wait_for_brain_window(config)
     mode = await resolve_mode(config.mode)
 
+    # I3: the native LMDB env must have a single local owner. The MCP stdio
+    # path takes the same advisory flock; whichever process starts second is
+    # refused fast with the holder's PID instead of silently sharing the env
+    # (macOS LMDB's writer lock is a non-robust semaphore — see
+    # docs/product/investigations/I3_mcp_concurrent_open.md).
+    from engram.storage.native_lock import (
+        _acquire_native_shell_lock,
+        _native_backend_selected,
+        _native_data_dir,
+    )
+
+    if _native_backend_selected(config, mode):
+        _acquire_native_shell_lock(_native_data_dir(config))
+
     graph_store, activation_store, search_index = create_stores(mode, config)
 
     # ACT-R access history lives in the in-memory activation store; restore

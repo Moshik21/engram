@@ -297,6 +297,8 @@ class GraphManager:
             projection_policy=self._projection_policy,
             recall_need_controller=self._recall_need_controller,
             event_bus=self._event_bus,
+            # M1.2: cue-hit promotion records confirmed-tier usage events.
+            activation_store=self._activation,
         )
         self._recall_near_miss_materializer = RecallNearMissMaterializer(
             near_miss_builder=self._recall_near_miss_builder,

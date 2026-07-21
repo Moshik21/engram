@@ -9,6 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from engram.models.activation import DEFAULT_USAGE_TIER_WEIGHTS
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_ENV_FILES = (
     str(Path.home() / ".engram" / ".env"),  # global config
@@ -2095,6 +2097,15 @@ class ActivationConfig(BaseModel):
     recall_usage_feedback_enabled: bool = Field(
         default=False,
         description="Enable surfaced/selected/used feedback semantics for recall",
+    )
+    usage_tier_weights: dict[str, float] = Field(
+        default_factory=lambda: dict(DEFAULT_USAGE_TIER_WEIGHTS),
+        description=(
+            "Tier -> event weight for the ranking-side usage store (RF M1.1). "
+            "surfaced stays 0.0 (hygiene-only access_history); nonzero tiers "
+            "also append (ts, weight) to usage_events. Ranking does not read "
+            "usage_events until M2 flips it on."
+        ),
     )
     recall_planner_enabled: bool = Field(
         default=False,

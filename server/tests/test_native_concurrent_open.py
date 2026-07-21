@@ -1,9 +1,10 @@
 """I3: concurrent open of one native Helix data dir (two processes / one process).
 
-The MCP stdio path (engram/mcp/server.py::_init) builds stores directly with no
-lock; the brain flock (engram/brain_runtime.py) only serializes brain-vs-shell.
-These tests pin what ACTUALLY happens when a second opener targets the same
-``--helix-data-dir``:
+The MCP stdio path (engram/mcp/server.py::_init) now takes an exclusive
+advisory flock on ``<data_dir>/engram-shell.lock`` before opening the native
+backend, so a second PROCESS going through the MCP init path FAILS STARTUP
+FAST, naming the holder PID (test below). Direct (non-MCP) ``HelixEngine`` /
+``HelixGraphStore`` opens are unchanged and keep LMDB's own semantics:
 
 - Cross-process: helix-db opens LMDB via heed3 with default flags (no NOLOCK —
   native/helix-repo/helix-db/src/helix_engine/storage_core/mod.rs:84-90), so
@@ -31,7 +32,7 @@ import pytest
 from engram.config import HelixDBConfig
 from engram.storage.helix.graph import HelixGraphStore
 
-pytestmark = pytest.mark.skipif(
+requires_helix_native = pytest.mark.skipif(
     importlib.util.find_spec("helix_native") is None,
     reason="helix_native PyO3 extension is not installed",
 )
@@ -108,11 +109,13 @@ def _evidence(evidence_id: str) -> dict:
     }
 
 
+@requires_helix_native
 @pytest.mark.asyncio
 async def test_second_process_open_succeeds_and_shares_committed_state(
     tmp_path,
 ) -> None:
-    """Two processes on one native dir: second open works, writes interleave."""
+    """Direct (non-MCP) opens keep LMDB semantics: second open works, writes
+    interleave. The MCP init path refuses instead — see the flock test below."""
     data_dir = tmp_path / "native-concurrent-open"
     result_path = tmp_path / "child-result.json"
     fake_home = tmp_path / "fakehome"
@@ -156,6 +159,7 @@ async def test_second_process_open_succeeds_and_shares_committed_state(
         await store.close()
 
 
+@requires_helix_native
 @pytest.mark.asyncio
 async def test_same_process_second_open_fails_cleanly(tmp_path) -> None:
     """Same-process double open is rejected by heed3's env registry."""
@@ -173,3 +177,74 @@ async def test_same_process_second_open_fails_cleanly(tmp_path) -> None:
             helix_native.HelixEngine(data_dir=str(data_dir))
     finally:
         await store.close()
+
+
+_FLOCK_CHILD_SCRIPT = textwrap.dedent(
+    """
+    import json
+    import sys
+    from pathlib import Path
+
+    from engram.storage import native_lock as mcp_server
+
+    data_dir, result_path = sys.argv[1], sys.argv[2]
+    try:
+        mcp_server._acquire_native_shell_lock(Path(data_dir))
+        payload = {"acquired": True, "error": ""}
+    except RuntimeError as exc:
+        payload = {"acquired": False, "error": str(exc)}
+    Path(result_path).write_text(json.dumps(payload), encoding="utf-8")
+    """
+)
+
+
+def test_mcp_init_path_second_process_open_refused_naming_holder(tmp_path) -> None:
+    """I3 fix: the MCP native init path holds <data_dir>/engram-shell.lock; a
+    second PROCESS going through the same init path fails fast, naming the
+    holder PID. flock auto-releases on process death, so a killed session
+    never wedges the next one."""
+    from engram.storage import native_lock as mcp_server
+
+    data_dir = tmp_path / "native-flock"
+    result_path = tmp_path / "flock-child-result.json"
+    fake_home = tmp_path / "fakehome"
+    fake_home.mkdir()
+
+    mcp_server._acquire_native_shell_lock(data_dir)
+    try:
+        lock_file = data_dir / mcp_server.NATIVE_SHELL_LOCK_FILENAME
+        assert f"pid={os.getpid()}" in lock_file.read_text(encoding="utf-8")
+        # Re-acquiring in the SAME process is a no-op (lock held for lifetime).
+        mcp_server._acquire_native_shell_lock(data_dir)
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        proc = subprocess.run(
+            [sys.executable, "-c", _FLOCK_CHILD_SCRIPT, str(data_dir), str(result_path)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert proc.returncode == 0, (
+            f"flock child crashed\nstdout: {proc.stdout}\nstderr: {proc.stderr}"
+        )
+        child = json.loads(result_path.read_text(encoding="utf-8"))
+        assert child["acquired"] is False
+        # The refusal names the holder PID and the contested lock file.
+        assert f"pid={os.getpid()}" in child["error"]
+        assert "engram-shell.lock" in child["error"]
+    finally:
+        mcp_server._release_native_shell_lock(data_dir)
+
+    # Once the holder releases (process exit in production), the dir is free.
+    proc = subprocess.run(
+        [sys.executable, "-c", _FLOCK_CHILD_SCRIPT, str(data_dir), str(result_path)],
+        env={**os.environ, "HOME": str(fake_home)},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert proc.returncode == 0, proc.stderr
+    child = json.loads(result_path.read_text(encoding="utf-8"))
+    assert child["acquired"] is True

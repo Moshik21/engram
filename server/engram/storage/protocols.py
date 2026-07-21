@@ -420,6 +420,7 @@ class ActivationStore(Protocol):
         entity_id: str,
         timestamp: float,
         group_id: str | None = None,
+        tier: str = "surfaced",
     ) -> None: ...
     async def clear_activation(self, entity_id: str) -> None: ...
     async def get_top_activated(
