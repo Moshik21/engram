@@ -98,8 +98,26 @@ async def classify_query(
 
 
 def apply_route(query_type: QueryType, cfg: ActivationConfig) -> ActivationConfig:
-    """Return a copy of cfg with weights overridden for the given query type."""
-    sem, act, spread, edge = _WEIGHT_PROFILES[query_type]
+    """Return a copy of cfg with weights overridden for the given query type.
+
+    Explicit-zero kill-switch: any core weight the base cfg sets to exactly
+    0.0 stays 0.0 (zero = term disabled). The disabled term's profile share
+    is redistributed proportionally among the enabled terms so the routed
+    weights still sum to the profile total.
+    """
+    profile = _WEIGHT_PROFILES[query_type]
+    base = (
+        cfg.weight_semantic,
+        cfg.weight_activation,
+        cfg.weight_spreading,
+        cfg.weight_edge_proximity,
+    )
+    enabled_total = sum(p for p, b in zip(profile, base) if b != 0.0)
+    if enabled_total > 0.0:
+        scale = sum(profile) / enabled_total
+        sem, act, spread, edge = (p * scale if b != 0.0 else 0.0 for p, b in zip(profile, base))
+    else:
+        sem = act = spread = edge = 0.0
     routed = deepcopy(cfg)
     routed.weight_semantic = sem
     routed.weight_activation = act

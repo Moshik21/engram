@@ -30,6 +30,10 @@ HIGH_SIGNAL_ENTITY_TYPES: frozenset[str] = frozenset(
 # Client-proposed relationships must use high-signal predicates only.
 # Free-form predicates (WORKS_AT, RELATED_TO spam, etc.) still allowed only when
 # on the allowlist — everything else is rejected at proposal conversion time.
+# The set is closed under PredicateCanonicalizer (canonicalize.py): every
+# canonicalization image of an allowed predicate is itself allowed, so the
+# gate and the stored edge vocabulary agree (LIVES_IN passes AND LOCATED_IN,
+# the form actually written to the graph, passes too).
 ALLOWED_CLIENT_PREDICATES: frozenset[str] = frozenset(
     {
         "DECIDED",
@@ -52,6 +56,17 @@ ALLOWED_CLIENT_PREDICATES: frozenset[str] = frozenset(
         "BLOCKED_BY",
         "SUPERSEDES",
         "CONTRADICTS",
+        # Canonical targets (closure under canonicalization + named additions).
+        "LOCATED_IN",
+        "REQUIRES",
+        "HAS_ROLE",
+        "CREATED",
+        "LIKES",
+        "DISLIKES",
+        "AIMS_FOR",
+        "EXPERT_IN",
+        "COLLABORATES_WITH",
+        "LEADS",
     }
 )
 

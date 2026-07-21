@@ -364,6 +364,118 @@ async def test_evidence_projection_executor_commits_and_defers_evidence():
 
 
 @pytest.mark.asyncio
+async def test_evidence_projection_executor_persists_rejected_proposal_rows():
+    """M0.8 loud reject: rejected client-proposal rows persist with per-row reasons."""
+    plan = _plan()
+    episode = _episode()
+    committed_ev = EvidenceCandidate(
+        evidence_id="evi_commit",
+        episode_id=episode.id,
+        group_id="default",
+        fact_class="entity",
+        confidence=0.9,
+        source_type="client_proposal",
+        payload={"name": "Alice"},
+    )
+    rejected_ev = EvidenceCandidate(
+        evidence_id="evi_reject",
+        episode_id=episode.id,
+        group_id="default",
+        fact_class="relationship",
+        confidence=0.40,
+        source_type="client_proposal",
+        payload={"subject": "User", "predicate": "INTERESTED_IN", "object": "Jazz"},
+        corroborating_signals=["client_proposal", "predicate_not_allowed"],
+    )
+    evidence_bundle = EvidenceBundle(
+        episode_id=episode.id,
+        group_id="default",
+        candidates=[committed_ev, rejected_ev],
+        extractor_stats={"extraction_path": "client_proposals"},
+    )
+    projection_bundle = ProjectionBundle(
+        episode_id=episode.id,
+        plan=plan,
+        entities=[EntityCandidate(name="Alice", entity_type="Person")],
+        claims=[],
+    )
+    graph = AsyncMock()
+    graph.get_entity_count = AsyncMock(return_value=12)
+    graph.store_evidence = AsyncMock()
+    commit_policy = SimpleNamespace(
+        evaluate=lambda bundle, _entity_count: [
+            CommitDecision(evidence_id=bundle.candidates[0].evidence_id, action="commit"),
+            CommitDecision(
+                evidence_id=bundle.candidates[1].evidence_id,
+                action="reject",
+                reason="predicate_not_allowed",
+            ),
+        ],
+    )
+    materialize_evidence = AsyncMock(
+        return_value=SimpleNamespace(
+            apply_outcome=ApplyOutcome(entity_map={"Alice": "ent_alice"}),
+            committed_ids={"evi_commit": "ent_alice"},
+            bundle=projection_bundle,
+        ),
+    )
+
+    def serialize_evidence_records(pairs, *, status, commit_reason=None):
+        return [
+            {
+                "evidence_id": evidence.evidence_id,
+                "status": status,
+                "commit_reason": commit_reason,
+            }
+            for evidence, _decision in pairs
+        ]
+
+    def apply_committed_ids(rows, committed_ids):
+        committed_rows = []
+        unresolved_rows = []
+        for row in rows:
+            committed_id = committed_ids.get(row["evidence_id"])
+            if committed_id:
+                committed_rows.append({**row, "committed_id": committed_id})
+            else:
+                unresolved_rows.append(row)
+        return committed_rows, unresolved_rows
+
+    executor = EvidenceProjectionExecutor(
+        graph_store=graph,
+        cfg=ActivationConfig(evidence_store_deferred=True),
+        build_evidence_bundle=MagicMock(return_value=evidence_bundle),
+        build_adjudication_requests=lambda *_args: [],
+        serialize_candidate_records=lambda *_args, **_kwargs: [],
+        serialize_evidence_records=serialize_evidence_records,
+        materialize_evidence=materialize_evidence,
+        apply_committed_ids=apply_committed_ids,
+        update_episode_status=AsyncMock(),
+        commit_policy=commit_policy,
+    )
+
+    await executor.execute(
+        episode=episode,
+        plan=plan,
+        group_id="default",
+    )
+
+    rejected_calls = [
+        call
+        for call in graph.store_evidence.await_args_list
+        if call.kwargs.get("default_status") == "rejected"
+    ]
+    assert len(rejected_calls) == 1
+    assert rejected_calls[0].args[0] == [
+        {
+            "evidence_id": "evi_reject",
+            "status": "rejected",
+            "commit_reason": "predicate_not_allowed",
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_evidence_projection_executor_requires_commit_policy():
     plan = _plan()
     episode = _episode()

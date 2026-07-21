@@ -70,7 +70,7 @@ class TestDreamLtdSweepFailClosed:
         graph = AsyncMock()
         activation = AsyncMock()
 
-        state = SimpleNamespace(access_history=[])
+        state = SimpleNamespace(access_history=[], consolidated_strength=0.0)
         activation.get_top_activated = AsyncMock(return_value=[("low_ent", state)])
         graph.get_identity_core_entities = AsyncMock(side_effect=RuntimeError("store down"))
         graph.get_active_neighbors_with_weights = AsyncMock(
@@ -102,7 +102,7 @@ class TestDreamLtdSweepFailClosed:
         activation = AsyncMock()
         search = AsyncMock()
 
-        state = SimpleNamespace(access_history=[])
+        state = SimpleNamespace(access_history=[], consolidated_strength=0.0)
         activation.get_top_activated = AsyncMock(return_value=[("low_ent", state)])
         graph.get_identity_core_entities = AsyncMock(side_effect=RuntimeError("store down"))
         graph.get_active_neighbors_with_weights = AsyncMock(

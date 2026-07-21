@@ -122,6 +122,7 @@ async def _activation_pool(
     activation_store: ActivationStore,
     limit: int,
     now: float,
+    cfg: ActivationConfig,
 ) -> list[tuple[str, float]]:
     """Pool 2: top activated entities by ACT-R base-level activation.
 
@@ -130,17 +131,20 @@ async def _activation_pool(
     """
     try:
         from engram.activation.engine import compute_activation
-        from engram.config import ActivationConfig
 
         top = await activation_store.get_top_activated(
             group_id=group_id,
             limit=limit,
             now=now,
         )
-        cfg = ActivationConfig()
         results: list[tuple[str, float]] = []
         for eid, state in top:
-            act = compute_activation(state.access_history, now, cfg)
+            act = compute_activation(
+                state.access_history,
+                now,
+                cfg,
+                state.consolidated_strength,
+            )
             results.append((eid, act))
         return results
     except Exception as e:
@@ -192,7 +196,13 @@ async def _working_memory_pool(
 ) -> list[tuple[str, float]]:
     """Pool 4: working memory entities + dampened 1-hop neighbors."""
     try:
-        wm_candidates = working_memory.get_candidates(now)
+        # Episode-typed WM entries stay in the buffer but never enter the
+        # entity candidate pool (session-pollution fix; RF_session_pollution.md).
+        wm_candidates = [
+            (item_id, recency_score, item_type)
+            for item_id, recency_score, item_type in working_memory.get_candidates(now)
+            if item_type != "episode"
+        ]
         if not wm_candidates:
             return []
 
@@ -722,6 +732,7 @@ async def generate_candidates(
                 activation_store,
                 limits["pool_activation_limit"],
                 now,
+                cfg,
             ),
             timeout_seconds=_stage_timeout_seconds(
                 cfg,

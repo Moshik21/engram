@@ -383,7 +383,9 @@ class MicrogliaPhase(ConsolidationPhase):
                         for eid in (src_id, tgt_id):
                             state = await activation_store.get_activation(eid)
                             if state:
-                                act = compute_activation(state.access_history, now, cfg)
+                                act = compute_activation(
+                                    state.access_history, now, cfg, state.consolidated_strength
+                                )
                                 if act > 0.3:
                                     should_clear = True
                                     reason = f"high_activation_{act:.2f}"

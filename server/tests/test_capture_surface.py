@@ -376,6 +376,103 @@ async def test_build_mcp_remember_write_surface_runs_capture_project_side_effect
     assert sample.result_count == 1
 
 
+def _remember_manager_with_evidence(evidence_rows: list[dict[str, Any]]) -> MagicMock:
+    manager = MagicMock()
+    manager.ingest_episode = AsyncMock(return_value="ep_reject")
+    manager._graph.get_episode_entities = MagicMock(return_value=[])
+    manager._graph.get_episode_evidence = MagicMock(return_value=evidence_rows)
+    return manager
+
+
+_REJECTED_EVIDENCE_ROW = {
+    "status": "rejected",
+    "fact_class": "relationship",
+    "commit_reason": "predicate_not_allowed",
+    "payload": {"subject": "User", "predicate": "INTERESTED_IN", "object": "Jazz"},
+}
+
+
+@pytest.mark.asyncio
+async def test_mcp_remember_partial_commit_surfaces_rejected_edges_and_allowlist() -> None:
+    """M0.8 loud reject: partial commits carry per-edge reasons + the allowlist."""
+    manager = _remember_manager_with_evidence(
+        [
+            {
+                "status": "committed",
+                "committed_id": "rel_1",
+                "fact_class": "relationship",
+                "payload": {"subject": "Alice", "predicate": "LOCATED_IN", "object": "Berlin"},
+            },
+            dict(_REJECTED_EVIDENCE_ROW),
+        ]
+    )
+    session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
+
+    response = await build_mcp_remember_write_surface(
+        manager,
+        content="Alice is in Berlin. User is interested in Jazz.",
+        group_id="default",
+        session=session,
+        source="mcp",
+        proposed_entities=[{"name": "Alice", "entity_type": "Person"}],
+        proposed_relationships=[
+            {"subject": "Alice", "predicate": "LOCATED_IN", "object": "Berlin"},
+            {"subject": "User", "predicate": "INTERESTED_IN", "object": "Jazz"},
+        ],
+        model_tier="opus",
+        ingest_live_turn=AsyncMock(),
+        recall_middleware=AsyncMock(),
+    )
+
+    extractor = response["harness_extractor"]
+    assert extractor["committed_relationship_count"] == 1
+    assert extractor["rejected_relationship_count"] == 1
+    assert extractor["rejected_relationships"] == [
+        {
+            "subject": "User",
+            "predicate": "INTERESTED_IN",
+            "object": "Jazz",
+            "reason": "predicate_not_allowed",
+        },
+    ]
+    assert "LOCATED_IN" in extractor["allowed_predicates"]
+    assert "INTERESTED_IN" not in extractor["allowed_predicates"]
+    # Partial commit is not an error — but the rejection is still loud.
+    assert "error" not in response
+
+
+@pytest.mark.asyncio
+async def test_mcp_remember_zero_commit_error_carries_rejected_edges_and_allowlist() -> None:
+    manager = _remember_manager_with_evidence([dict(_REJECTED_EVIDENCE_ROW)])
+    session = SimpleNamespace(session_id="sess_1", episode_count=0, last_activity=None)
+
+    response = await build_mcp_remember_write_surface(
+        manager,
+        content="User is interested in Jazz.",
+        group_id="default",
+        session=session,
+        source="mcp",
+        proposed_relationships=[
+            {"subject": "User", "predicate": "INTERESTED_IN", "object": "Jazz"},
+        ],
+        model_tier="opus",
+        ingest_live_turn=AsyncMock(),
+        recall_middleware=AsyncMock(),
+    )
+
+    assert response["status"] == "deferred"
+    assert response["error"]["code"] == "proposals_deferred"
+    assert response["error"]["rejected_relationships"] == [
+        {
+            "subject": "User",
+            "predicate": "INTERESTED_IN",
+            "object": "Jazz",
+            "reason": "predicate_not_allowed",
+        },
+    ]
+    assert "PREFERS" in response["error"]["allowed_predicates"]
+
+
 @pytest.mark.asyncio
 async def test_build_mcp_observe_write_surface_runs_capture_side_effects() -> None:
     manager = MagicMock()

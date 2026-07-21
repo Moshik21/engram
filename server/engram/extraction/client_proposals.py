@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.evidence import EvidenceCandidate
 from engram.extraction.promotion import (
     is_allowed_client_predicate,
@@ -11,6 +12,13 @@ from engram.extraction.promotion import (
     normalize_client_predicate,
 )
 from engram.extraction.temporal import resolve_temporal_hint
+
+# Canonicalize the client-proposed predicate BEFORE the allowlist check so the
+# gate sees the same form the graph will store (apply.py canonicalizes at commit).
+# Otherwise LIVES_IN passes the gate but stores as LOCATED_IN, while proposing
+# LOCATED_IN — the vocabulary actually in the graph — is rejected. See M0.8.
+# ALLOWED_CLIENT_PREDICATES is closed under this mapping.
+_PREDICATE_CANONICALIZER = PredicateCanonicalizer()
 
 # Confidence by calling model tier
 MODEL_TIER_CONFIDENCE: dict[str, float] = {
@@ -240,11 +248,23 @@ def proposals_to_evidence(
         if not subject or not predicate:
             continue
         normalized_predicate = normalize_client_predicate(predicate)
+        # Canonicalize BEFORE the allowlist check so the gate and the stored
+        # edge agree: LIVES_IN passes as LOCATED_IN (what apply writes), and
+        # proposing the canonical form directly is equally allowed. Apply-time
+        # canonicalization is idempotent on the canonical form.
+        canonical_predicate = _PREDICATE_CANONICALIZER.canonicalize(
+            normalized_predicate or predicate
+        )
         payload = {
             "subject": subject,
-            "predicate": normalized_predicate or predicate,
+            "predicate": canonical_predicate,
             "object": obj,
             "polarity": rel.get("polarity", "positive"),
+            **(
+                {"proposed_predicate": normalized_predicate}
+                if normalized_predicate and normalized_predicate != canonical_predicate
+                else {}
+            ),
             **({"temporal_hint": rel["temporal_hint"]} if rel.get("temporal_hint") else {}),
             **({"valid_from": rel["valid_from"]} if rel.get("valid_from") else {}),
             **({"valid_to": rel["valid_to"]} if rel.get("valid_to") else {}),
@@ -252,7 +272,7 @@ def proposals_to_evidence(
         candidate = _build_candidate(fact_class="relationship", payload=payload, claim=rel)
         # Hard reject free-form predicates on the client-proposal path.
         if source_type == "client_proposal" and not is_allowed_client_predicate(
-            normalized_predicate or predicate
+            canonical_predicate
         ):
             signals = list(candidate.corroborating_signals or [])
             if "predicate_not_allowed" not in signals:

@@ -219,7 +219,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         candidates: list[tuple[str, float, float]] = []  # (id, activation, distance)
         for entity_id, state in all_entities:
-            act = compute_activation(state.access_history, now, cfg)
+            act = compute_activation(state.access_history, now, cfg, state.consolidated_strength)
             if floor <= act <= ceiling:
                 distance = abs(act - midpoint)
                 candidates.append((entity_id, act, distance))
@@ -381,7 +381,7 @@ class DreamSpreadingPhase(ConsolidationPhase):
 
         low_act_ids: list[str] = []
         for entity_id, state in all_entities:
-            act = compute_activation(state.access_history, now, cfg)
+            act = compute_activation(state.access_history, now, cfg, state.consolidated_strength)
             if act < floor:
                 low_act_ids.append(entity_id)
 

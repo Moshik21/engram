@@ -650,3 +650,127 @@ class TestScoreCandidates:
             cfg=cfg,
         )
         assert scored[0].exploration_bonus == 0.0
+
+
+class TestExplorationAliasing:
+    """M0.7 — cfg.exploration_weight is live only on the deterministic path.
+
+    The pipeline routes scoring to score_candidates_thompson when
+    cfg.ts_enabled=True (config default), which replaces the exploration
+    term with cfg.ts_weight * Beta-sample and ignores exploration_weight;
+    ts_enabled=False re-enables the deterministic term tested here. These
+    tests exercise score_candidates only (the TS-absent path), so they
+    survive a TS removal (M5.3).
+    """
+
+    def test_exploration_weight_drives_bonus_for_unseen_entity(self):
+        """Unseen entity: novelty = 1.0, so bonus = exploration_weight * sem."""
+        cfg = ActivationConfig(
+            exploration_weight=0.05,
+            rediscovery_weight=0.0,  # isolate novelty signal
+        )
+        now = time.time()
+        scored = score_candidates(
+            candidates=[("ent_new", 0.8)],
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states={},
+            now=now,
+            cfg=cfg,
+        )
+        assert abs(scored[0].exploration_bonus - 0.05 * 0.8) < 1e-9
+
+    def test_exploration_novelty_decays_with_access_count(self):
+        """bonus = exploration_weight * sem / (1 + log1p(access_count))."""
+        cfg = ActivationConfig(
+            exploration_weight=0.05,
+            rediscovery_weight=0.0,
+        )
+        now = time.time()
+        states = {
+            "ent_seen": ActivationState(
+                node_id="ent_seen",
+                access_history=[now - 10],
+                access_count=9,
+            ),
+        }
+        scored = score_candidates(
+            candidates=[("ent_seen", 0.8)],
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states=states,
+            now=now,
+            cfg=cfg,
+        )
+        expected = 0.05 * 0.8 / (1.0 + math.log1p(9))
+        assert abs(scored[0].exploration_bonus - expected) < 1e-9
+
+    def test_exploration_weight_zero_disables_bonus(self):
+        cfg = ActivationConfig(
+            exploration_weight=0.0,
+            rediscovery_weight=0.0,
+        )
+        scored = score_candidates(
+            candidates=[("ent_new", 0.8)],
+            spreading_bonuses={},
+            hop_distances={},
+            seed_node_ids=set(),
+            activation_states={},
+            now=time.time(),
+            cfg=cfg,
+        )
+        assert scored[0].exploration_bonus == 0.0
+
+    def test_ts_weight_is_inert_on_deterministic_path(self):
+        """Pin the aliasing: only exploration_weight owns the term here.
+
+        (If M5.3 deletes the TS machinery and its ts_weight knob, delete
+        this test — the aliasing it pins no longer exists.)
+        """
+        now = time.time()
+        results = []
+        for ts_weight in (0.0, 0.5):
+            cfg = ActivationConfig(
+                exploration_weight=0.05,
+                rediscovery_weight=0.0,
+                ts_weight=ts_weight,
+            )
+            scored = score_candidates(
+                candidates=[("ent_a", 0.8), ("ent_b", 0.4)],
+                spreading_bonuses={},
+                hop_distances={},
+                seed_node_ids=set(),
+                activation_states={},
+                now=now,
+                cfg=cfg,
+            )
+            results.append([(r.node_id, r.score, r.exploration_bonus) for r in scored])
+        assert results[0] == results[1]
+
+    def test_repeat_scoring_is_byte_stable(self):
+        """Identical inputs → identical (id, score) lists, exact equality."""
+        cfg = ActivationConfig(exploration_weight=0.05)
+        now = 1_700_000_000.0
+        states = {
+            "ent_a": ActivationState(
+                node_id="ent_a",
+                access_history=[now - 3600],
+                access_count=2,
+            ),
+        }
+
+        def run():
+            scored = score_candidates(
+                candidates=[("ent_a", 0.8), ("ent_b", 0.4)],
+                spreading_bonuses={"ent_b": 0.2},
+                hop_distances={"ent_b": 1},
+                seed_node_ids={"ent_a"},
+                activation_states=states,
+                now=now,
+                cfg=cfg,
+            )
+            return [(r.node_id, r.score) for r in scored]
+
+        assert run() == run()

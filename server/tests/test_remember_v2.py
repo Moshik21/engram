@@ -272,3 +272,123 @@ class TestGraphManagerEvidencePath:
         assert {row["status"] for row in evidence} == {"committed"}
         assert all(row["committed_id"] for row in evidence)
         assert any(rel.id == relationship_row["committed_id"] for rel in rels)
+
+    def _manager(self, graph_store, activation_store, search_index, **cfg_overrides):
+        from engram.graph_manager import GraphManager
+
+        cfg = ActivationConfig(
+            evidence_extraction_enabled=True,
+            evidence_client_proposals_enabled=True,
+            evidence_store_deferred=True,
+            edge_adjudication_enabled=False,
+            **cfg_overrides,
+        )
+        return GraphManager(
+            graph_store=graph_store,
+            activation_store=activation_store,
+            search_index=search_index,
+            extractor=MockExtractor(),
+            cfg=cfg,
+        )
+
+    @pytest.mark.asyncio
+    async def test_located_in_commits_end_to_end(
+        self,
+        graph_store,
+        activation_store,
+        search_index,
+    ):
+        """M0.8: the canonical target itself must commit (pre-fix it was rejected)."""
+        manager = self._manager(graph_store, activation_store, search_index)
+
+        episode_id = await manager.ingest_episode(
+            content="Alice is located in Berlin.",
+            source="test",
+            proposed_entities=[
+                {"name": "Alice", "entity_type": "Person"},
+                {"name": "Berlin", "entity_type": "Concept"},
+            ],
+            proposed_relationships=[
+                {"subject": "Alice", "predicate": "LOCATED_IN", "object": "Berlin"},
+            ],
+            model_tier="opus",
+        )
+
+        evidence = await graph_store.get_episode_evidence(episode_id, group_id="default")
+        relationship_row = next(row for row in evidence if row["fact_class"] == "relationship")
+        assert relationship_row["status"] == "committed"
+        assert relationship_row["payload"]["predicate"] == "LOCATED_IN"
+        alice_row = next(row for row in evidence if row["payload"].get("name") == "Alice")
+        rels = await graph_store.get_relationships(
+            alice_row["committed_id"],
+            direction="outgoing",
+            group_id="default",
+        )
+        stored = next(rel for rel in rels if rel.id == relationship_row["committed_id"])
+        assert stored.predicate == "LOCATED_IN"
+
+    @pytest.mark.asyncio
+    async def test_lives_in_proposal_and_stored_predicate_agree(
+        self,
+        graph_store,
+        activation_store,
+        search_index,
+    ):
+        """M0.8: gate canonicalizes first, so evidence and graph carry LOCATED_IN."""
+        manager = self._manager(graph_store, activation_store, search_index)
+
+        episode_id = await manager.ingest_episode(
+            content="Alice lives in Berlin.",
+            source="test",
+            proposed_entities=[
+                {"name": "Alice", "entity_type": "Person"},
+                {"name": "Berlin", "entity_type": "Concept"},
+            ],
+            proposed_relationships=[
+                {"subject": "Alice", "predicate": "LIVES_IN", "object": "Berlin"},
+            ],
+            model_tier="opus",
+        )
+
+        evidence = await graph_store.get_episode_evidence(episode_id, group_id="default")
+        relationship_row = next(row for row in evidence if row["fact_class"] == "relationship")
+        assert relationship_row["status"] == "committed"
+        assert relationship_row["payload"]["predicate"] == "LOCATED_IN"
+        alice_row = next(row for row in evidence if row["payload"].get("name") == "Alice")
+        rels = await graph_store.get_relationships(
+            alice_row["committed_id"],
+            direction="outgoing",
+            group_id="default",
+        )
+        stored = next(rel for rel in rels if rel.id == relationship_row["committed_id"])
+        assert stored.predicate == relationship_row["payload"]["predicate"] == "LOCATED_IN"
+
+    @pytest.mark.asyncio
+    async def test_disallowed_predicate_persists_rejected_row(
+        self,
+        graph_store,
+        activation_store,
+        search_index,
+    ):
+        """M0.8 loud reject: INTERESTED_IN stays rejected but the row is inspectable."""
+        manager = self._manager(graph_store, activation_store, search_index)
+
+        episode_id = await manager.ingest_episode(
+            content="User is interested in Jazz.",
+            source="test",
+            proposed_entities=[
+                {"name": "User", "entity_type": "Person"},
+                {"name": "Jazz", "entity_type": "Concept"},
+            ],
+            proposed_relationships=[
+                {"subject": "User", "predicate": "INTERESTED_IN", "object": "Jazz"},
+            ],
+            model_tier="opus",
+        )
+
+        evidence = await graph_store.get_episode_evidence(episode_id, group_id="default")
+        rejected = [row for row in evidence if row["status"] == "rejected"]
+        assert len(rejected) == 1
+        assert rejected[0]["fact_class"] == "relationship"
+        assert rejected[0]["commit_reason"] == "predicate_not_allowed"
+        assert rejected[0]["payload"]["predicate"] == "INTERESTED_IN"

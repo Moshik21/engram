@@ -108,7 +108,7 @@ class TestActivationPool:
             access_count=1,
         )
         store = _mock_activation_store(top_activated=[("a1", state)])
-        results = await _activation_pool("default", store, 20, now)
+        results = await _activation_pool("default", store, 20, now, ActivationConfig())
         assert len(results) == 1
         assert results[0][0] == "a1"
         assert results[0][1] > 0  # Has some activation
@@ -116,8 +116,55 @@ class TestActivationPool:
     @pytest.mark.asyncio
     async def test_empty_activation_returns_empty(self):
         store = _mock_activation_store(top_activated=[])
-        results = await _activation_pool("default", store, 20, 1000.0)
+        results = await _activation_pool("default", store, 20, 1000.0, ActivationConfig())
         assert results == []
+
+    @pytest.mark.asyncio
+    async def test_live_cfg_override_reaches_pool_ranking(self):
+        """A cfg-level B_mid override must change pool activation scores.
+
+        Guards against the fresh-ActivationConfig() clone that silently
+        ignored live overrides (M0.4 / Judge-3 anti-vacuous-arm).
+        """
+        import time
+
+        now = time.time()
+        state = ActivationState(
+            node_id="a1",
+            access_history=[now - 10],
+            access_count=1,
+        )
+        store = _mock_activation_store(top_activated=[("a1", state)])
+        base = await _activation_pool("default", store, 20, now, ActivationConfig())
+        shifted = await _activation_pool(
+            "default",
+            store,
+            20,
+            now,
+            ActivationConfig(B_mid=5.0),
+        )
+        assert base[0][0] == shifted[0][0] == "a1"
+        assert base[0][1] != shifted[0][1]
+
+    @pytest.mark.asyncio
+    async def test_consolidated_strength_reaches_pool_ranking(self):
+        """A zero-access entity with consolidated_strength scores above floor."""
+        state = ActivationState(
+            node_id="cs1",
+            access_history=[],
+            access_count=0,
+            consolidated_strength=2.0,
+        )
+        store = _mock_activation_store(top_activated=[("cs1", state)])
+        cfg = ActivationConfig()
+        results = await _activation_pool("default", store, 20, 1000.0, cfg)
+
+        from engram.activation.engine import compute_activation
+
+        floor = compute_activation([], 1000.0, cfg)
+        expected = compute_activation([], 1000.0, cfg, 2.0)
+        assert results[0][1] == pytest.approx(expected)
+        assert results[0][1] > floor
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +283,31 @@ class TestWorkingMemoryPool:
         nb1_score = result_map["nb1"]
         assert nb1_score < wm1_recency
         assert nb1_score == pytest.approx(wm1_recency * 0.5, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_episode_entries_never_enter_entity_pool(self):
+        """Episode-typed WM entries stay in the buffer but are skipped at
+        consumption (session-pollution fix, M0.1)."""
+        import time
+
+        now = time.time()
+        wm = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
+        wm.add("ep1", "episode", 1.0, "query", now - 5)
+        wm.add("wm1", "entity", 0.9, "query", now - 10)
+        store = _mock_graph_store()
+        results = await _working_memory_pool(wm, "default", store, now, 5, 15)
+        ids = [eid for eid, _ in results]
+        assert "ep1" not in ids
+        assert "wm1" in ids
+        # Buffer itself keeps the episode entry (only consumption filters)
+        buffer_ids = {item_id for item_id, _, _ in wm.get_candidates(now)}
+        assert "ep1" in buffer_ids
+        # Episode entries are not neighbor-expansion sources either
+        called_ids = {
+            call.kwargs.get("entity_id", call.args[0] if call.args else None)
+            for call in store.get_active_neighbors_with_weights.await_args_list
+        }
+        assert "ep1" not in called_ids
 
 
 # ---------------------------------------------------------------------------
@@ -744,6 +816,41 @@ class TestPipelineMultiPoolIntegration:
         assert "recall_graph_pool" in stage_timings
         assert "recall_graph_pool_timeout" not in stage_timings
         assert stage_timings["recall_graph_pool"] >= graph_delay_seconds * 1000
+
+    @pytest.mark.asyncio
+    async def test_wm_episode_entries_never_reach_results(self):
+        """The single-pool WM injection skips episode-typed entries while
+        entity-typed priming stays live (session-pollution fix, M0.1)."""
+        import time
+
+        from engram.retrieval.pipeline import retrieve
+
+        now = time.time()
+        wm = WorkingMemoryBuffer(capacity=20, ttl_seconds=300.0)
+        wm.add("ep_phantom", "episode", 1.0, "query", now - 5)
+        wm.add("wm_ent", "entity", 0.9, "query", now - 10)
+
+        search_idx = _mock_search_index()
+        search_idx.search_episodes = AsyncMock(return_value=[])
+        act_store = _mock_activation_store()
+        graph = _mock_graph_store()
+
+        cfg = ActivationConfig(
+            multi_pool_enabled=False,
+            episode_retrieval_enabled=False,
+        )
+        results = await retrieve(
+            query="test",
+            group_id="default",
+            graph_store=graph,
+            activation_store=act_store,
+            search_index=search_idx,
+            cfg=cfg,
+            working_memory=wm,
+        )
+        node_ids = [r.node_id for r in results]
+        assert "ep_phantom" not in node_ids
+        assert "wm_ent" in node_ids
 
     @pytest.mark.asyncio
     async def test_multi_pool_disabled_original_path(self):

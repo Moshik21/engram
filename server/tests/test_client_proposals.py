@@ -1,9 +1,11 @@
 """Tests for client_proposals module."""
 
+from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.client_proposals import (
     MODEL_TIER_CONFIDENCE,
     proposals_to_evidence,
 )
+from engram.extraction.promotion import ALLOWED_CLIENT_PREDICATES
 
 
 class TestProposalsToEvidence:
@@ -84,3 +86,46 @@ class TestProposalsToEvidence:
         ]
         results = proposals_to_evidence(None, rels, "ep1", "default")
         assert results[0].payload["polarity"] == "negative"
+
+
+class TestPredicateCanonicalization:
+    """M0.8: allowlist gate canonicalizes first and is closed under the mapping."""
+
+    def test_allowlist_closed_under_canonicalization(self):
+        canonicalizer = PredicateCanonicalizer()
+        for predicate in ALLOWED_CLIENT_PREDICATES:
+            assert canonicalizer.canonicalize(predicate) in ALLOWED_CLIENT_PREDICATES, (
+                f"{predicate} canonicalizes out of the allowlist"
+            )
+
+    def test_lives_in_canonicalizes_and_passes(self):
+        rels = [{"subject": "Alice", "predicate": "LIVES_IN", "object": "Berlin"}]
+        results = proposals_to_evidence(None, rels, "ep1", "default", "opus")
+        assert results[0].payload["predicate"] == "LOCATED_IN"
+        assert results[0].payload["proposed_predicate"] == "LIVES_IN"
+        assert "predicate_not_allowed" not in results[0].corroborating_signals
+
+    def test_located_in_direct_proposal_allowed(self):
+        # The canonical target itself (the vocabulary actually in the graph)
+        # must not be rejected (pre-M0.8 trap).
+        rels = [{"subject": "Alice", "predicate": "LOCATED_IN", "object": "Berlin"}]
+        results = proposals_to_evidence(None, rels, "ep1", "default", "opus")
+        assert results[0].payload["predicate"] == "LOCATED_IN"
+        assert "proposed_predicate" not in results[0].payload
+        assert "predicate_not_allowed" not in results[0].corroborating_signals
+
+    def test_depends_on_and_requires_both_allowed(self):
+        for predicate in ("DEPENDS_ON", "BLOCKED_BY", "REQUIRES"):
+            rels = [{"subject": "A", "predicate": predicate, "object": "B"}]
+            results = proposals_to_evidence(None, rels, "ep1", "default")
+            assert results[0].payload["predicate"] == "REQUIRES"
+            assert "predicate_not_allowed" not in results[0].corroborating_signals
+
+    def test_interested_in_rejected_visibly(self):
+        # No invented synonyms: INTERESTED_IN is not canonical-mapped and stays
+        # rejected — with the signal visible so the surface can explain why.
+        rels = [{"subject": "User", "predicate": "INTERESTED_IN", "object": "Jazz"}]
+        results = proposals_to_evidence(None, rels, "ep1", "default", "opus")
+        assert results[0].payload["predicate"] == "INTERESTED_IN"
+        assert "predicate_not_allowed" in results[0].corroborating_signals
+        assert results[0].confidence <= 0.40

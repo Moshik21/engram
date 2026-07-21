@@ -547,7 +547,7 @@ class TestLtdSweep:
         activation = AsyncMock()
 
         # Entity with very low activation
-        state = SimpleNamespace(access_history=[])
+        state = SimpleNamespace(access_history=[], consolidated_strength=0.0)
         activation.get_top_activated = AsyncMock(return_value=[("low_ent", state)])
 
         graph.get_identity_core_entities = AsyncMock(return_value=[])
@@ -584,7 +584,7 @@ class TestLtdSweep:
         graph = AsyncMock()
         activation = AsyncMock()
 
-        state = SimpleNamespace(access_history=[])
+        state = SimpleNamespace(access_history=[], consolidated_strength=0.0)
         activation.get_top_activated = AsyncMock(return_value=[("core_ent", state)])
 
         core = _entity("core_ent", "Person", "Alex", identity_core=True)
@@ -622,7 +622,7 @@ class TestLtdSweep:
         graph = AsyncMock()
         activation = AsyncMock()
 
-        state = SimpleNamespace(access_history=[])
+        state = SimpleNamespace(access_history=[], consolidated_strength=0.0)
         activation.get_top_activated = AsyncMock(return_value=[("low_ent", state)])
 
         graph.get_identity_core_entities = AsyncMock(return_value=[])

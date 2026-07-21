@@ -44,8 +44,10 @@ def identify_seeds(
     for node_id, sem_sim in candidates:
         if sem_sim >= threshold or temporal_mode:
             state = activation_states.get(node_id)
-            if state and state.access_history:
-                act = compute_activation(state.access_history, now, cfg)
+            if state and (state.access_history or state.consolidated_strength > 0.0):
+                act = compute_activation(
+                    state.access_history, now, cfg, state.consolidated_strength
+                )
             else:
                 act = 0.0
             if temporal_mode:
@@ -60,8 +62,10 @@ def identify_seeds(
             if node_id in seeded or name_score <= 0.0:
                 continue
             state = activation_states.get(node_id)
-            if state and state.access_history:
-                act = compute_activation(state.access_history, now, cfg)
+            if state and (state.access_history or state.consolidated_strength > 0.0):
+                act = compute_activation(
+                    state.access_history, now, cfg, state.consolidated_strength
+                )
             else:
                 act = 0.0
             energy = name_score * max(act, 0.15)

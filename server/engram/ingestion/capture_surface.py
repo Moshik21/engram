@@ -15,6 +15,7 @@ from typing import Any
 from engram.config import ActivationConfig
 from engram.extraction.client_proposals import events_to_proposals, proposals_to_evidence
 from engram.extraction.promotion import (
+    ALLOWED_CLIENT_PREDICATES,
     DEFAULT_PROMOTE_CAP_PER_WINDOW,
     filter_promotion_proposals,
     is_session_recap,
@@ -918,6 +919,54 @@ async def load_remember_committed_facts(
     return entity_rows, relationship_rows
 
 
+async def load_remember_rejected_relationships(
+    manager: Any,
+    *,
+    episode_id: str,
+    group_id: str,
+) -> list[dict[str, Any]]:
+    """Load relationship proposals rejected during a remember projection.
+
+    Loud-reject contract: the agent sees per-edge rejection reasons instead of
+    silently losing edges (the M3.1 zero-edge-graph trap), on partial commits
+    too — not just when nothing committed.
+    """
+    graph = getattr(manager, "_graph", None)
+    if graph is None:
+        return []
+    get_episode_evidence = getattr(graph, "get_episode_evidence", None)
+    if not callable(get_episode_evidence):
+        return []
+    rejected_rows: list[dict[str, Any]] = []
+    try:
+        evidence = get_episode_evidence(episode_id, group_id=group_id)
+        if inspect.isawaitable(evidence):
+            evidence = await evidence
+        if isinstance(evidence, list):
+            for row in evidence:
+                if not isinstance(row, Mapping):
+                    continue
+                if str(row.get("status") or "") != "rejected":
+                    continue
+                if str(row.get("fact_class") or "") != "relationship":
+                    continue
+                payload = row.get("payload") if isinstance(row.get("payload"), Mapping) else {}
+                rejected_rows.append(
+                    {
+                        "subject": payload.get("subject") or payload.get("source"),
+                        "predicate": payload.get("predicate") or payload.get("relation"),
+                        "object": payload.get("object") or payload.get("target"),
+                        "reason": row.get("commit_reason") or "rejected",
+                    }
+                )
+    except Exception:
+        logger.debug(
+            "get_episode_evidence failed for rejected relationship rows",
+            exc_info=True,
+        )
+    return rejected_rows
+
+
 def _invalidate_durable_context_after_remember(group_id: str) -> None:
     """Fresh remember commits must not be hidden behind stale durable packs."""
     try:
@@ -1290,6 +1339,11 @@ async def build_mcp_remember_write_surface(
     # Hard path surface: extraction_path + proposal outcome summary for agents.
     response["extraction_path"] = "client_proposals" if has_proposals else "narrow_or_legacy"
     if has_proposals:
+        rejected_relationships = await load_remember_rejected_relationships(
+            manager,
+            episode_id=episode_id,
+            group_id=group_id,
+        )
         response["harness_extractor"] = {
             "path": "client_proposals",
             "external_extractor": False,
@@ -1297,7 +1351,13 @@ async def build_mcp_remember_write_surface(
             "proposed_relationship_count": len(proposed_relationships or []),
             "committed_entity_count": len(committed_entities),
             "committed_relationship_count": len(committed_relationships),
+            "rejected_relationship_count": len(rejected_relationships),
         }
+        # Loud reject: per-edge reasons + the allowlist, on partial commits too —
+        # never let edges vanish silently (the M3.1 zero-edge-graph trap).
+        if rejected_relationships:
+            response["harness_extractor"]["rejected_relationships"] = rejected_relationships
+            response["harness_extractor"]["allowed_predicates"] = sorted(ALLOWED_CLIENT_PREDICATES)
         # Structured defer hint when nothing committed (span fail / allowlist).
         if not committed_entities and not committed_relationships:
             response["status"] = "deferred"
@@ -1310,6 +1370,9 @@ async def build_mcp_remember_write_surface(
                     "expect an external LLM extractor to upgrade the claim."
                 ),
             }
+            if rejected_relationships:
+                response["error"]["rejected_relationships"] = rejected_relationships
+                response["error"]["allowed_predicates"] = sorted(ALLOWED_CLIENT_PREDICATES)
     await _run_mcp_write_side_effect(
         "recall_middleware",
         recall_middleware(content, response, tool_name="remember"),

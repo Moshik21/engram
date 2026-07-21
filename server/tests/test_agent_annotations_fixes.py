@@ -157,6 +157,52 @@ async def test_remember_proposals_persist_entities_and_edge(proposal_manager):
 
 
 @pytest.mark.asyncio
+async def test_located_in_commits_end_to_end_and_predicate_agrees(proposal_manager):
+    """M0.8: LIVES_IN commits and stores as its canonical form LOCATED_IN, and the
+    canonical form proposed directly (the graph vocabulary) also commits — the
+    pre-M0.8 trap where proposing LOCATED_IN was rejected."""
+    manager, graph_store = proposal_manager
+    for subject, predicate, obj, content in [
+        ("Alice", "LIVES_IN", "Berlin", "Alice lives in Berlin."),
+        ("Bob", "LOCATED_IN", "Paris", "Bob is located in Paris."),
+    ]:
+        await manager.ingest_episode(
+            content=content,
+            group_id="default",
+            source="test",
+            proposed_entities=[
+                {"name": subject, "entity_type": "Person", "source_span": content},
+                {"name": obj, "entity_type": "Location", "source_span": content},
+            ],
+            proposed_relationships=[
+                {
+                    "subject": subject,
+                    "predicate": predicate,
+                    "object": obj,
+                    "source_span": content,
+                },
+            ],
+            model_tier="default",
+        )
+        subj_ent = [
+            e
+            for e in await graph_store.find_entity_candidates(subject, "default")
+            if e.name == subject
+        ]
+        assert subj_ent, f"proposed subject must persist for {predicate}"
+        rels = await graph_store.get_relationships(
+            subj_ent[0].id,
+            direction="outgoing",
+            group_id="default",
+        )
+        # Proposal and stored predicate agree: both LIVES_IN and LOCATED_IN land
+        # as the canonical LOCATED_IN edge actually written to the graph.
+        assert [r.predicate for r in rels] == ["LOCATED_IN"], (
+            f"proposed {predicate} must commit as canonical LOCATED_IN"
+        )
+
+
+@pytest.mark.asyncio
 async def test_unverified_proposal_does_not_first_sight_commit(proposal_manager):
     manager, graph_store = proposal_manager
     # opus tier (0.92) would normally exceed every commit threshold; the cited

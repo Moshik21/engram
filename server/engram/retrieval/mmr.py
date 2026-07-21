@@ -49,13 +49,21 @@ def apply_mmr(
     if not embeddings:
         return results[:top_n]
 
-    # Normalize relevance scores to [0, 1]
-    max_score = max(r.score for r in results)
-    min_score = min(r.score for r in results)
+    # Candidates without an embedding (phantom ids, episode ids, coverage
+    # gaps) are excluded from the greedy selection: a zero max_sim would be a
+    # free pass on the diversity penalty, letting them displace scored
+    # entities. They fill leftover slots in original relevance order instead.
+    embedded = [r for r in results if r.node_id in embeddings]
+    unembedded = [r for r in results if r.node_id not in embeddings]
+
+    # Normalize relevance scores to [0, 1] over the competing (embedded) set
+    # so phantom scores cannot rescale the relevance/diversity trade-off.
+    max_score = max(r.score for r in embedded)
+    min_score = min(r.score for r in embedded)
     score_range = max_score - min_score if max_score > min_score else 1.0
 
     selected: list[ScoredResult] = []
-    remaining = list(results)
+    remaining = embedded
 
     for _ in range(top_n):
         if not remaining:
@@ -70,12 +78,10 @@ def apply_mmr(
 
             # Diversity component: max similarity to any selected result
             max_sim = 0.0
-            if selected and candidate.node_id in embeddings:
-                cand_vec = embeddings[candidate.node_id]
-                for sel in selected:
-                    if sel.node_id in embeddings:
-                        sim = float(np.dot(cand_vec, embeddings[sel.node_id]))
-                        max_sim = max(max_sim, sim)
+            cand_vec = embeddings[candidate.node_id]
+            for sel in selected:
+                sim = float(np.dot(cand_vec, embeddings[sel.node_id]))
+                max_sim = max(max_sim, sim)
 
             mmr_score = lambda_param * rel - (1.0 - lambda_param) * max_sim
 
@@ -84,5 +90,8 @@ def apply_mmr(
                 best_idx = i
 
         selected.append(remaining.pop(best_idx))
+
+    if len(selected) < top_n:
+        selected.extend(unembedded[: top_n - len(selected)])
 
     return selected

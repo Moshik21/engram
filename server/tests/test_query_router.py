@@ -179,7 +179,6 @@ class TestApplyRoute:
         cfg = ActivationConfig(
             weight_semantic=0.50,
             weight_activation=0.50,
-            weight_edge_proximity=0.00,
         )
         routed = apply_route(QueryType.TEMPORAL, cfg)
         assert cfg.weight_semantic == 0.50  # original unchanged

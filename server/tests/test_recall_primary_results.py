@@ -146,13 +146,74 @@ async def test_materializes_cue_episode_and_records_cue_feedback() -> None:
     assert result.results[0]["result_type"] == "cue_episode"
     assert result.results[0]["episode"]["id"] == episode.id
     assert result.seen_episode_ids == {episode.id}
-    assert working_memory.size == 1
+    # record_access=False is a read-only recall: no working-memory write (M0.2).
+    assert working_memory.size == 0
     deps["cue_feedback"].record_cue_feedback.assert_awaited_once()
     call = deps["cue_feedback"].record_cue_feedback.await_args
     assert call.args[0] == episode
     assert call.args[1] == 0.8
     assert call.args[2] == "React"
     assert call.kwargs.get("interaction_type") == "surfaced"
+
+
+@pytest.mark.asyncio
+async def test_record_access_false_skips_all_working_memory_writes() -> None:
+    """Read-only recalls (record_access=False) must not mutate session state (M0.2)."""
+    graph = AsyncMock()
+    entity = Entity(id="ent_react", name="React", entity_type="Technology")
+    episode = _episode("ep_plain")
+    graph.get_entity = AsyncMock(return_value=entity)
+    graph.get_relationships = AsyncMock(return_value=[])
+    graph.get_episode_by_id = AsyncMock(return_value=episode)
+    graph.get_episode_entities = AsyncMock(return_value=[])
+    materializer, deps = _materializer(graph)
+    working_memory = WorkingMemoryBuffer()
+
+    result = await materializer.materialize(
+        [
+            _score(episode.id, result_type="episode"),
+            _score(entity.id, result_type="entity"),
+        ],
+        group_id="default",
+        query="React",
+        record_access=False,
+        interaction_type=None,
+        interaction_source="recall",
+        now=123.0,
+        working_memory=working_memory,
+    )
+
+    assert len(result.results) == 2
+    assert working_memory.size == 0
+    deps["access_recorder"].record_entity_access.assert_not_awaited()
+    deps["interaction_recorder"].record_entity_interaction.assert_called_once()
+    assert (
+        deps["interaction_recorder"].record_entity_interaction.call_args.kwargs["recorded_access"]
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_access_true_writes_episode_to_working_memory() -> None:
+    graph = AsyncMock()
+    episode = _episode("ep_plain")
+    graph.get_episode_by_id = AsyncMock(return_value=episode)
+    graph.get_episode_entities = AsyncMock(return_value=[])
+    materializer, _deps = _materializer(graph)
+    working_memory = WorkingMemoryBuffer()
+
+    await materializer.materialize(
+        [_score(episode.id, result_type="episode")],
+        group_id="default",
+        query="React",
+        record_access=True,
+        interaction_type=None,
+        interaction_source="recall",
+        now=123.0,
+        working_memory=working_memory,
+    )
+
+    assert working_memory.size == 1
 
 
 @pytest.mark.asyncio

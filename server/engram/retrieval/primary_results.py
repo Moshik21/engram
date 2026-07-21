@@ -114,6 +114,7 @@ class RecallPrimaryResultMaterializer:
                     seen_episode_ids=seen_episode_ids,
                     group_id=group_id,
                     query=query,
+                    record_access=record_access,
                     interaction_type=interaction_type,
                     now=now,
                     working_memory=working_memory,
@@ -151,6 +152,7 @@ class RecallPrimaryResultMaterializer:
         seen_episode_ids: set[str],
         group_id: str,
         query: str,
+        record_access: bool,
         interaction_type: str | None,
         now: float,
         working_memory: WorkingMemoryBuffer | None,
@@ -184,14 +186,18 @@ class RecallPrimaryResultMaterializer:
             timeout_key="recall_materialize_episode_entities_timeout",
             fallback=[],
         )
-        self._working_memory_updater.add_result(
-            working_memory,
-            item_id=scored_result.node_id,
-            item_type="episode",
-            score=scored_result.score,
-            query=query,
-            now=now,
-        )
+        # Session-state writes honor record_access: a read-only recall
+        # (record_access=False) must not mutate working memory, or consecutive
+        # identical recalls drift (M0.2, RF_session_pollution).
+        if record_access:
+            self._working_memory_updater.add_result(
+                working_memory,
+                item_id=scored_result.node_id,
+                item_type="episode",
+                score=scored_result.score,
+                query=query,
+                now=now,
+            )
 
         if scored_result.result_type == "cue_episode":
             cue = await _bounded_materialize_call(
@@ -298,14 +304,16 @@ class RecallPrimaryResultMaterializer:
                 fallback=None,
             )
 
-        self._working_memory_updater.add_result(
-            working_memory,
-            item_id=scored_result.node_id,
-            item_type="entity",
-            score=scored_result.score,
-            query=query,
-            now=now,
-        )
+        # Session-state writes honor record_access (M0.2) — see episode path.
+        if record_access:
+            self._working_memory_updater.add_result(
+                working_memory,
+                item_id=scored_result.node_id,
+                item_type="entity",
+                score=scored_result.score,
+                query=query,
+                now=now,
+            )
         results.append(
             self._result_builder.entity_result(
                 entity,

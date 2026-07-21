@@ -104,6 +104,11 @@ def score_candidates(
             edge_prox = 0.0
 
         # Exploration bonus: smooth novelty (no hard threshold gate)
+        # ALIASING (M0.7): this deterministic term is live only when the
+        # pipeline selects this scorer, i.e. cfg.ts_enabled=False. With
+        # ts_enabled=True (config default) score_candidates_thompson runs
+        # instead and replaces it with cfg.ts_weight * Beta-sample, leaving
+        # cfg.exploration_weight inert. Rigs/arms must pin BOTH knobs.
         access_count = state.access_count if state else 0
         if sem_sim > 0:
             novelty = 1.0 / (1.0 + math.log1p(access_count))
@@ -227,6 +232,9 @@ def score_candidates_thompson(
 
     Same as score_candidates but replaces the deterministic exploration
     bonus with a sample from Beta(ts_alpha, ts_beta) per entity.
+    ALIASING (M0.7): cfg.exploration_weight is ignored on this path — the
+    exploration slot is cfg.ts_weight * sample here; setting
+    ts_enabled=False re-enables the deterministic exploration_weight term.
     """
     rng = random.Random(rng_seed)
     results = []

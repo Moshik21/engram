@@ -126,3 +126,29 @@ class TestMMR:
         embeddings = {f"e{i}": [float(i == j) for j in range(10)] for i in range(10)}
         reranked = apply_mmr(results, embeddings, lambda_param=0.7, top_n=3)
         assert len(reranked) == 3
+
+    def test_phantom_ids_do_not_change_selection_among_entities(self):
+        """Injecting N phantom ids (no embeddings) must not displace or
+        reorder the embedded entity selection (M0.3, RF_session_pollution)."""
+        entities = [_make_result(f"e{i}", 0.9 - i * 0.1) for i in range(6)]
+        embeddings = {f"e{i}": [float(i == j) for j in range(6)] for i in range(6)}
+        baseline = apply_mmr(list(entities), embeddings, lambda_param=0.7, top_n=4)
+
+        # Phantoms outscore every entity and are interleaved into the list
+        phantoms = [_make_result(f"ep{i}", 1.5 - i * 0.05) for i in range(3)]
+        polluted = phantoms[:1] + entities[:3] + phantoms[1:] + entities[3:]
+        reranked = apply_mmr(polluted, embeddings, lambda_param=0.7, top_n=4)
+
+        assert [r.node_id for r in reranked] == [r.node_id for r in baseline]
+
+    def test_unembedded_fill_leftover_slots_in_order(self):
+        """Candidates without embeddings fill leftover slots after embedded
+        selection, preserving their original relevance order."""
+        results = [
+            _make_result("e1", 1.0),
+            _make_result("p1", 0.9),
+            _make_result("p2", 0.8),
+        ]
+        embeddings = {"e1": [1.0, 0.0]}
+        reranked = apply_mmr(results, embeddings, lambda_param=0.7, top_n=3)
+        assert [r.node_id for r in reranked] == ["e1", "p1", "p2"]

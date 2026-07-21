@@ -96,10 +96,12 @@ async def identify_active_goals(
 
             # Check activation level
             state = await activation_store.get_activation(entity.id)
-            if state and state.access_history:
+            if state and (state.access_history or state.consolidated_strength > 0.0):
                 from engram.activation.engine import compute_activation
 
-                act_level = compute_activation(state.access_history, now, cfg)
+                act_level = compute_activation(
+                    state.access_history, now, cfg, state.consolidated_strength
+                )
             else:
                 act_level = 0.0
 

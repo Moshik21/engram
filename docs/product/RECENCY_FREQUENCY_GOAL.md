@@ -123,46 +123,51 @@ byte-identical until the six flip gates pass.
 
 ## M0 — FIX-NOW gear triage (wrong under ANY design; each independently landable)
 
-- [ ] **M0.1 WM episode-ID type filter (the session-pollution fix).** Skip
+- [x] **M0.1 WM episode-ID type filter (the session-pollution fix).** Skip
       `item_type=="episode"` WM entries in `_working_memory_pool`
       (candidate_pool.py:203-205), the single-pool injection (pipeline.py:543-548),
       and the WM seed step (pipeline.py:1190-1197); keep episode entries in the buffer.
       Files: retrieval/candidate_pool.py, retrieval/pipeline.py (AFTER sibling merge).
       DoD: `run_bisect.py` S_BASE reach@10 15→≥32, FRESH unchanged 21/32; unit test a
       WM episode entry never appears in the entity pool. **Gate: session-pollution rig.**
-- [ ] **M0.2 Gate session-state writes on `record_access`** (or explicit
+- [x] **M0.2 Gate session-state writes on `record_access`** (or explicit
       `session_state=False` recall kwarg) (primary_results.py:187-194, 301-308). Files:
       retrieval/primary_results.py. DoD: drift probe — consecutive identical recalls
       with `record_access=False` are byte-stable (ids AND scores; today pool 36→42,
       scores drift). **Precondition for G4;** verification: session-rig drift probe +
       M4.3 fresh-AB 12/12.
-- [ ] **M0.3 MMR embedding-coverage hardening.** Fetch embeddings for all MMR
+- [x] **M0.3 MMR embedding-coverage hardening.** Fetch embeddings for all MMR
       candidates, or penalize missing-embedding candidates, or exclude non-entity ids
       before the top-20 window cut (pipeline.py:1917-1922; mmr.py:73-80). Files:
       retrieval/mmr.py, retrieval/pipeline.py (after sibling merge). DoD: injecting N
       phantom ids does not change MMR selection among scored entities; diag_mmr q1 shows
       sourdough (0.4674) no longer demoted below lower-scored unpenalized entities.
-      **Gate: session rig; oracle rig unchanged (22/36 @5).**
-- [ ] **M0.4 Fresh-cfg clone in `_activation_pool` + permanent test.** Pass the live cfg
+      **Gate: session rig; oracle rig.** MEASURED 2026-07-21: the MMR coverage
+      fix IMPROVED the oracle candidates arm 22 -> 35/36 @5 (36/36 @10,
+      via_traversal 34/36) — the same missing-embedding defect was
+      suppressing traversal episodes there; baseline arm unchanged 2/36.
+      Session rig: S_BASE 15 -> 35/36 reach@10 (gate >=32 PASS), all arms at
+      state-clean parity, drift probe byte-stable 36/36/36.
+- [x] **M0.4 Fresh-cfg clone in `_activation_pool` + permanent test.** Pass the live cfg
       instead of constructing `ActivationConfig()` (candidate_pool.py:140). DoD: a
       permanent test asserts a cfg-level `B_mid`/`weight_*` override reaches pool ranking
       (Judge-3: prevents the next accidentally-vacuous arm).
-- [ ] **M0.5 Router explicit-zero kill-switch + permanent test.** In `apply_route`, any
+- [x] **M0.5 Router explicit-zero kill-switch + permanent test.** In `apply_route`, any
       weight the base cfg sets to exactly `0.0` stays `0.0` (zero = term disabled;
       profiles redistribute only among enabled terms); behavior-preserving for every
       shipped config (router.py:100-108). DoD: `cfg.weight_activation=0` + TEMPORAL query
       ⇒ `routed.weight_activation==0`; default cfg ⇒ profiles byte-identical. Permanent
       test asserting `_WEIGHT_PROFILES` is the single tuning point.
-- [ ] **M0.6 `compute_activation` signature drift.** Thread `consolidated_strength`
+- [x] **M0.6 `compute_activation` signature drift.** Thread `consolidated_strength`
       through the ~10 omitting ranking-path call sites (spreading.py:48,64; goals.py:102;
       dream.py:222,384; microglia.py:386; candidate_pool.py:143). DoD: **grep gate** — zero
       remaining 3-arg `compute_activation(state.access_history, now, cfg)` ranking-path
       calls; unit test a cs-seeded zero-access entity is visible to goals. **Precondition
       for any M3.2 flip and for M2.2's reader enumeration.**
-- [ ] **M0.7 Exploration/TS aliasing recorded.** Document + test that `ts_enabled=False`
+- [x] **M0.7 Exploration/TS aliasing recorded.** Document + test that `ts_enabled=False`
       re-enables the deterministic `exploration_weight` term (scorer.py:264-268;
       config.py:184,366); TS rigs pin both knobs explicitly. DoD: rig configs name both knobs.
-- [ ] **M0.8 Predicate allowlist closed under canonicalization + loud reject.** (a)
+- [x] **M0.8 Predicate allowlist closed under canonicalization + loud reject.** (a)
       Canonicalize before the allowlist check (client_proposals.py:242); (b) make
       `ALLOWED_CLIENT_PREDICATES` canonical-closed (add LOCATED_IN, REQUIRES, HAS_ROLE,
       CREATED, LIKES, DISLIKES, AIMS_FOR, EXPERT_IN, COLLABORATES_WITH, LEADS); (c) serialize

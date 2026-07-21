@@ -553,7 +553,11 @@ async def retrieve(
         if working_memory is not None and cfg.working_memory_enabled:
             wm_candidates = working_memory.get_candidates(now)
             existing_ids = {eid for eid, _ in candidates}
-            for item_id, recency_score, _item_type in wm_candidates:
+            for item_id, recency_score, item_type in wm_candidates:
+                # Episode-typed WM entries stay in the buffer but never enter
+                # the entity pool (session-pollution fix).
+                if item_type == "episode":
+                    continue
                 if item_id not in existing_ids:
                     candidates.append((item_id, 0.1 * recency_score))
                     existing_ids.add(item_id)
@@ -1162,7 +1166,10 @@ async def retrieve(
         # Step 3.5: Add working memory entities as additional seeds
         if working_memory is not None and cfg.working_memory_enabled:
             wm_candidates = working_memory.get_candidates(now)
-            for item_id, recency_score, _item_type in wm_candidates:
+            for item_id, recency_score, item_type in wm_candidates:
+                # Episode ids are not spreading seeds (session-pollution fix).
+                if item_type == "episode":
+                    continue
                 if item_id not in seed_node_ids:
                     energy = cfg.working_memory_seed_energy * recency_score
                     if energy > 0.0:
@@ -1914,7 +1921,11 @@ async def retrieve(
             async def _apply_mmr() -> list[ScoredResult]:
                 nonlocal mmr_entity_embeddings
                 entity_embeddings: dict[str, list[float]] = {}
-                mmr_ids = [sr.node_id for sr in scored[: cfg.retrieval_top_n * 2]]
+                # Fetch embeddings for ALL entity-typed candidates: a
+                # positional window lets phantom/non-entity ids evict real
+                # entities from embedding coverage and thus from the MMR
+                # diversity penalty (RF_session_pollution.md, M0.3).
+                mmr_ids = [sr.node_id for sr in scored if sr.result_type == "entity"]
                 if mmr_ids and hasattr(search_index, "get_entity_embeddings"):
                     entity_embeddings = await search_index.get_entity_embeddings(
                         mmr_ids,

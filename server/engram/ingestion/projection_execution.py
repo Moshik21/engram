@@ -255,9 +255,10 @@ class EvidenceProjectionExecutor:
             (ev, d) for ev, d in zip(evidence_bundle.candidates, decisions) if d.action == "reject"
         ]
         # Harness scoreboard: count client-proposal outcomes (no external extract).
-        if (evidence_bundle.extractor_stats or {}).get("extraction_path") == "client_proposals" or (
-            proposed_entities or proposed_relationships
-        ):
+        is_proposal_path = (evidence_bundle.extractor_stats or {}).get(
+            "extraction_path"
+        ) == "client_proposals" or bool(proposed_entities or proposed_relationships)
+        if is_proposal_path:
             from engram.extraction.harness_metrics import record_client_proposal_outcomes
 
             span_defers = sum(1 for _ev, d in deferred if d.reason == "span_unverified")
@@ -271,6 +272,17 @@ class EvidenceProjectionExecutor:
                 predicate_rejects=pred_rejects,
                 identity_conflicts=id_conflicts,
             )
+        # Loud reject: persist rejected proposal rows (status="rejected") so the
+        # agent surface can report per-edge reasons instead of silently dropping
+        # edges (the M3.1 zero-edge-graph trap). Non-proposal extractor junk is
+        # intentionally NOT persisted (junk gate exists to avoid storing scrap).
+        rejected_dicts = (
+            self._serialize_evidence_records(rejected, status="rejected")
+            if is_proposal_path and rejected
+            else []
+        )
+        for row, (_ev, decision) in zip(rejected_dicts, rejected):
+            row["commit_reason"] = decision.reason
         deferred_dicts = (
             self._serialize_evidence_records(deferred, status="deferred")
             if self._cfg.evidence_store_deferred and deferred
@@ -320,6 +332,12 @@ class EvidenceProjectionExecutor:
                 deferred_dicts,
                 group_id=group_id,
                 default_status="deferred",
+            )
+        if rejected_dicts:
+            await self._graph.store_evidence(
+                rejected_dicts,
+                group_id=group_id,
+                default_status="rejected",
             )
         if committed_dicts:
             await self._graph.store_evidence(
