@@ -31,6 +31,17 @@ def _native_query_failures() -> dict[str, dict[str, int]]:
         return {}
 
 
+def _bm25_breaker_stats() -> dict[str, dict[str, Any]]:
+    """Per-backend native BM25 circuit-breaker counters (empty when none/unavailable)."""
+    try:
+        from engram.storage.helix.search import get_bm25_breaker_stats
+
+        return get_bm25_breaker_stats()
+    except Exception:
+        # silent-ok: helix search module absent means no breaker stats to report.
+        return {}
+
+
 def default_helix_native_data_dir() -> Path:
     """Return the default path used by the bundled PyO3 Helix runtime."""
     return Path.home() / ".helix" / "engram-native"
@@ -231,6 +242,10 @@ class StorageDiagnostics:
                 # counted per endpoint so a query that "returns nothing on the
                 # big brain" shows up here instead of masquerading as empty.
                 "queryFailures": _native_query_failures(),
+                # Native BM25 circuit breaker: opens after consecutive
+                # over-budget BM25 calls so zombie native queries stop starving
+                # the vector lanes. Skips/opens are counted here per backend.
+                "bm25Breaker": _bm25_breaker_stats(),
                 "stageTimingsMs": {
                     "storage_counts": count_ms,
                     "storage_paths": path_ms,

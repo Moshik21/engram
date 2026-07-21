@@ -19,6 +19,16 @@ logger = logging.getLogger(__name__)
 # RF M4.2: per-window budget for syncing activation counters onto graph rows.
 _ACTIVATION_SNAPSHOT_SYNC_MAX = 5000
 
+# Per-window budgets for the durable vector-debt drain. Episode vectors are
+# written only at projection and cue capture-indexing is best-effort, so
+# shell+quiet installs regrow vector debt forever without this drain (deep
+# recall autopsy 2026-07: 1/8876 episode vectors brain-wide). index_episode
+# measured ~0.21 eps/s on real dogfood episodes (full-content embed + chunk
+# embeds), so 50 episodes ≈ 4 min of the 2h window — capacity ~600/day
+# against ~50/day organic inflow. Cues index at ~5/s; 400 ≈ 80s.
+_VECTOR_BACKFILL_EPISODES_MAX = 50
+_VECTOR_BACKFILL_CUES_MAX = 400
+
 
 def _hygiene_state_path() -> Path:
     home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
@@ -381,6 +391,106 @@ async def execute_hygiene_mop(
             "skipped": True,
             "reason": "dry_run" if dry_run else "store lacks snapshot_to_graph",
         }
+
+    # Durable vector-debt drain: backfill missing episode + cue vectors under
+    # a per-window budget. Provider breakage is loud but never fails the mop
+    # (the M2.6 disaster was a broken provider staying invisible).
+    from engram.storage.index_completeness import (
+        EmbeddingProviderUnavailableError,
+        backfill_missing_cue_vectors,
+        backfill_missing_episode_vectors,
+    )
+
+    embeddings_enabled = getattr(search_index, "_embeddings_enabled", None)
+    if dry_run:
+        mop["vector_backfill"] = {"skipped": True, "reason": "dry_run"}
+    elif embeddings_enabled is not True:
+        mop["vector_backfill"] = {
+            "skipped": True,
+            "reason": (
+                "search index has no embedding support"
+                if embeddings_enabled is None
+                else "embeddings disabled"
+            ),
+        }
+    else:
+        # Durable progression: ANN census presence is inexact on helix-native
+        # (a single-probe sweep surfaces only a small reachable subset), so the
+        # drain keeps a per-group (created_ts, id) cursor in the hygiene state
+        # file — without it every window would re-embed the same first budget
+        # of items and grow duplicate vectors.
+        state = _read_hygiene_state()
+        cursors_all = state.get("vector_backfill_cursors")
+        cursors_all = dict(cursors_all) if isinstance(cursors_all, dict) else {}
+        group_cursors = cursors_all.get(group_id)
+        group_cursors = dict(group_cursors) if isinstance(group_cursors, dict) else {}
+
+        def _cursor(value: Any) -> tuple[float, str] | None:
+            if isinstance(value, (list, tuple)) and len(value) == 2:
+                try:
+                    return (float(value[0]), str(value[1]))
+                except (TypeError, ValueError):
+                    return None
+            return None
+
+        def _persist_cursor(kind: str, cursor_next: Any) -> None:
+            # Persisted per-drain, immediately: losing an advanced cursor
+            # re-embeds the same window next mop and duplicate-inserts vectors
+            # on helix-native (AddV appends, no upsert).
+            if cursor_next is None:
+                return
+            group_cursors[kind] = list(cursor_next)
+            cursors_all[group_id] = group_cursors
+            state["vector_backfill_cursors"] = cursors_all
+            _write_hygiene_state(state)
+
+        ep_backfill = cue_backfill = None
+        try:
+            ep_backfill = await backfill_missing_episode_vectors(
+                graph_store,
+                search_index,
+                group_id,
+                max_episodes=_VECTOR_BACKFILL_EPISODES_MAX,
+                cursor=_cursor(group_cursors.get("episodes")),
+            )
+            _persist_cursor("episodes", ep_backfill.cursor_next)
+            cue_backfill = await backfill_missing_cue_vectors(
+                graph_store,
+                search_index,
+                group_id,
+                max_cues=_VECTOR_BACKFILL_CUES_MAX,
+                cursor=_cursor(group_cursors.get("cues")),
+            )
+            _persist_cursor("cues", cue_backfill.cursor_next)
+            mop["vector_backfill"] = {
+                "episodes": ep_backfill.indexed,
+                "cues": cue_backfill.indexed,
+                "failed": ep_backfill.failed + cue_backfill.failed,
+                "missing_before": {
+                    "episodes": ep_backfill.missing_before,
+                    "cues": cue_backfill.missing_before,
+                },
+                "budgets": {
+                    "episodes": _VECTOR_BACKFILL_EPISODES_MAX,
+                    "cues": _VECTOR_BACKFILL_CUES_MAX,
+                },
+            }
+        except EmbeddingProviderUnavailableError:
+            logger.warning(
+                "mop vector backfill: embedding provider unavailable — "
+                "vector debt NOT drained this window",
+                exc_info=True,
+            )
+            mop["vector_backfill"] = {
+                "status": "provider_unavailable",
+                "episodes": ep_backfill.indexed if ep_backfill else 0,
+            }
+        except Exception:
+            logger.exception("mop vector backfill failed")
+            mop["vector_backfill"] = {
+                "status": "error",
+                "episodes": ep_backfill.indexed if ep_backfill else 0,
+            }
 
     after = await collect_hygiene_debt_from_store(graph_store, group_id)
     try:

@@ -224,6 +224,7 @@ def create_stores(
                 client=helix_client,
                 topic_segmentation=config.activation.chunk_topic_segmentation,
                 topic_threshold=config.activation.chunk_topic_threshold,
+                bm25_breaker_enabled=config.activation.retrieval_bm25_breaker_enabled,
             ),
         )
 

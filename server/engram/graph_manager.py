@@ -2268,7 +2268,15 @@ class GraphManager:
                 (1, "search_episode_records_fast", "episode", fetch_limit),
             ),
         )
-        if len(results) >= max_results or record_stage_complete:
+        # Fast-lane inversion: when native BM25 is degraded (circuit breaker
+        # engaged) the BM25-only record stage returns nothing useful — fall
+        # through to the hybrid stage, which is vector-first while BM25 is
+        # skipped, instead of returning empty.
+        degraded_probe = getattr(self._search, "bm25_fallback_degraded", None)
+        bm25_degraded = callable(degraded_probe) and degraded_probe() is True
+        if len(results) >= max_results or (
+            record_stage_complete and (results or not bm25_degraded)
+        ):
             return results
         await run_legacy_stage(
             (

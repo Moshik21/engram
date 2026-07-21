@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from engram.models.entity import Entity
@@ -25,6 +26,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_ENTITY_SCAN_LIMIT = 50_000
 DEFAULT_EMBEDDING_PROBE_CHUNK = 64
 DEFAULT_BACKFILL_BATCH = 32
+# Safety caps when listing episodes/cues for vector-debt drains.
+DEFAULT_EPISODE_SCAN_LIMIT = 50_000
+DEFAULT_CUE_SCAN_LIMIT = 50_000
+# ANN census sweep size when the index has no by-id embedding probe.
+VECTOR_CENSUS_K = 50_000
+
+
+class EmbeddingProviderUnavailableError(RuntimeError):
+    """The backfill has work to do but the embedding provider cannot embed.
+
+    Raised LOUDLY instead of silently producing a vector-less "success" —
+    the M2.6 outage happened because a broken provider was invisible.
+    """
 
 
 @dataclass
@@ -75,6 +89,10 @@ class BackfillResult:
     coverage_before: float = 0.0
     coverage_after: float | None = None
     indexed_ids: list[str] = field(default_factory=list)
+    # Episode/cue drains: durable progression cursor (created_ts, item_id) of
+    # the newest successfully indexed item, set only when vector presence was
+    # measured inexactly (ANN census / no probe). Not part of to_dict().
+    cursor_next: tuple[float, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -301,4 +319,300 @@ async def backfill_missing_entity_vectors(
         )
         result.coverage_after = after.coverage
 
+    return result
+
+
+async def ensure_embedding_provider_healthy(search_index: Any) -> None:
+    """Raise :class:`EmbeddingProviderUnavailableError` when embedding cannot work.
+
+    Probes the search index's provider with a single embed call. When the
+    index exposes no probe surface the check is skipped and per-item failure
+    accounting takes over.
+    """
+    if getattr(search_index, "_embeddings_enabled", None) is False:
+        raise EmbeddingProviderUnavailableError("embeddings disabled on search index")
+    embed = getattr(search_index, "_embed_texts", None)
+    if not callable(embed):
+        return
+    try:
+        vecs = await embed(["engram vector backfill provider probe"])
+    except Exception as exc:
+        raise EmbeddingProviderUnavailableError(f"embedding probe raised: {exc}") from exc
+    if not vecs or not vecs[0]:
+        raise EmbeddingProviderUnavailableError("embedding probe returned empty")
+
+
+def _created_ts(value: Any) -> float:
+    """Best-effort epoch seconds from a created_at datetime/ISO string/number."""
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, datetime):
+        try:
+            return value.timestamp()
+        except (OverflowError, OSError, ValueError):  # silent-ok: cursor key fallback, epoch 0
+            return 0.0
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:  # silent-ok: cursor key fallback, epoch 0
+        return 0.0
+
+
+async def _ids_with_vectors(
+    search_index: Any,
+    ids: list[str],
+    group_id: str,
+    *,
+    probe_attr: str,
+    census_attr: str,
+    probe_chunk: int = DEFAULT_EMBEDDING_PROBE_CHUNK,
+) -> tuple[set[str] | None, bool]:
+    """Return (ids that already hold vectors, presence_is_exact).
+
+    Prefers a by-id embedding probe (``probe_attr``, exact), falls back to a
+    single ANN census sweep (``census_attr``, one embed call — INEXACT: on
+    helix-native HNSW a single-probe sweep surfaces only a small reachable
+    subset regardless of k, measured 39 visible of 3000 written). Returns
+    ``(None, False)`` when the index exposes neither.
+    """
+    probe = getattr(search_index, probe_attr, None)
+    if callable(probe):
+        present: set[str] = set()
+        chunk = max(1, int(probe_chunk))
+        for i in range(0, len(ids), chunk):
+            batch = ids[i : i + chunk]
+            try:
+                found = await probe(batch, group_id=group_id)
+            except TypeError:
+                # Some fakes/impls only accept the id list.
+                found = await probe(batch)
+            except Exception:
+                logger.warning("%s failed for chunk starting at %d", probe_attr, i, exc_info=True)
+                found = {}
+            if isinstance(found, dict):
+                present.update(str(k) for k, v in found.items() if v)
+        return present, True
+
+    embed_one = getattr(search_index, "_embed_text", None)
+    census = getattr(search_index, census_attr, None)
+    if callable(embed_one) and callable(census):
+        try:
+            vec = await embed_one("engram vector census probe")
+        except Exception as exc:
+            raise EmbeddingProviderUnavailableError(f"census embed raised: {exc}") from exc
+        if not vec:
+            raise EmbeddingProviderUnavailableError("census embed returned empty vector")
+        scored, _rows, _filtered = await census(vec, VECTOR_CENSUS_K, group_id)
+        return {str(i) for i, _score in scored}, False
+
+    return None, False
+
+
+async def backfill_missing_episode_vectors(
+    graph_store: Any,
+    search_index: Any,
+    group_id: str,
+    *,
+    max_episodes: int = 400,
+    dry_run: bool = False,
+    cursor: tuple[float, str] | None = None,
+    limit: int = DEFAULT_EPISODE_SCAN_LIMIT,
+    probe_chunk: int = DEFAULT_EMBEDDING_PROBE_CHUNK,
+) -> BackfillResult:
+    """Embed and index episodes that lack EpisodeVec vectors.
+
+    Episode vectors are otherwise written ONLY at projection, so shell/quiet
+    installs (which never project) regrow episode-vector debt forever. This is
+    the durable drain: list missing under budget, embed via the provider
+    (through ``search_index.index_episode``), write vectors, return counts.
+
+    When presence is measured inexactly (ANN census undercounts on
+    helix-native), *cursor* — a persisted ``(created_ts, episode_id)`` high
+    water mark — guarantees progression: items are drained oldest-first,
+    strictly after the cursor, and ``result.cursor_next`` reports the new mark
+    (only successful indexing advances it). Without the cursor the drain would
+    re-embed the same first budget-window forever and grow duplicate vectors.
+    """
+    result = BackfillResult(group_id=group_id)
+    get_episodes = getattr(graph_store, "get_episodes", None)
+    if not callable(get_episodes):
+        return result
+
+    episodes = await get_episodes(group_id=group_id, limit=max(1, int(limit))) or []
+    indexable = [
+        ep
+        for ep in episodes
+        if getattr(ep, "deleted_at", None) is None
+        and str(getattr(ep, "id", "") or "")
+        and str(getattr(ep, "content", "") or "").strip()
+    ]
+    if not indexable:
+        return result
+
+    ids = [str(ep.id) for ep in indexable]
+    present, presence_exact = await _ids_with_vectors(
+        search_index,
+        ids,
+        group_id,
+        probe_attr="get_episode_embeddings",
+        census_attr="_vector_search_episodes",
+        probe_chunk=probe_chunk,
+    )
+    if present is None:
+        # No presence probe at all: treat everything as missing so the drain
+        # still has a deterministic plan (mirrors the entity backfill).
+        missing = list(indexable)
+    else:
+        missing = [ep for ep in indexable if str(ep.id) not in present]
+    result.missing_before = len(missing)
+
+    keyed = sorted(
+        ((_created_ts(getattr(ep, "created_at", None)), str(ep.id)), ep) for ep in missing
+    )
+    if not presence_exact and cursor is not None:
+        keyed = [(key, ep) for key, ep in keyed if key > cursor]
+    keyed = keyed[: max(0, int(max_episodes))]
+    result.attempted = len(keyed)
+    if not keyed or dry_run:
+        return result
+
+    await ensure_embedding_provider_healthy(search_index)
+
+    # index_episode implementations swallow embed failures internally (log +
+    # stat instead of raise); track the index's own failure counter so a
+    # half-broken provider can never report a clean drain.
+    stats = getattr(search_index, "_embed_stats", None)
+    stat_failed_before = int(stats.get("episodes_failed", 0)) if isinstance(stats, dict) else None
+
+    indexed_ids: list[str] = []
+    indexed_keys: list[tuple[float, str]] = []
+    failed = 0
+    for key, ep in keyed:
+        try:
+            await search_index.index_episode(ep)
+            indexed_ids.append(str(ep.id))
+            indexed_keys.append(key)
+        except Exception:
+            failed += 1
+            logger.warning(
+                "index_episode failed for %s",
+                getattr(ep, "id", "?"),
+                exc_info=True,
+            )
+
+    if stat_failed_before is not None and isinstance(stats, dict):
+        swallowed = max(0, int(stats.get("episodes_failed", 0)) - stat_failed_before)
+        swallowed = min(swallowed, len(indexed_ids))
+        if swallowed:
+            # Best-effort: which ids failed is unknown; drop trailing ones.
+            failed += swallowed
+            indexed_ids = indexed_ids[: len(indexed_ids) - swallowed]
+            indexed_keys = indexed_keys[: len(indexed_ids)]
+
+    result.indexed = len(indexed_ids)
+    result.failed = failed
+    result.indexed_ids = indexed_ids
+    if not presence_exact and indexed_keys:
+        result.cursor_next = max(indexed_keys)
+    return result
+
+
+async def backfill_missing_cue_vectors(
+    graph_store: Any,
+    search_index: Any,
+    group_id: str,
+    *,
+    max_cues: int = 400,
+    dry_run: bool = False,
+    cursor: tuple[float, str] | None = None,
+    probe_chunk: int = DEFAULT_EMBEDDING_PROBE_CHUNK,
+) -> BackfillResult:
+    """Embed and index episode cues that lack CueVec vectors.
+
+    Cue indexing at capture is best-effort (outbox replay only covers shell
+    uptime), so coverage decays without a drain. Same structure and cursor
+    semantics as :func:`backfill_missing_episode_vectors`; vectors are keyed
+    by episode_id.
+    """
+    result = BackfillResult(group_id=group_id)
+    fetch = getattr(graph_store, "_fetch_episode_cues_bulk", None)
+    if not callable(fetch):
+        return result
+
+    rows = await fetch(group_id) or []
+
+    def _field(row: Any, name: str) -> Any:
+        if isinstance(row, dict):
+            return row.get(name)
+        return getattr(row, name, None)
+
+    # (episode_id, cue_group, cue_text, created_at)
+    indexable: list[tuple[str, str, str, Any]] = []
+    seen: set[str] = set()
+    for row in rows[: max(1, int(DEFAULT_CUE_SCAN_LIMIT))]:
+        episode_id = str(_field(row, "episode_id") or "")
+        cue_text = str(_field(row, "cue_text") or "").strip()
+        if not episode_id or not cue_text or episode_id in seen:
+            continue
+        seen.add(episode_id)
+        indexable.append(
+            (
+                episode_id,
+                str(_field(row, "group_id") or group_id),
+                cue_text,
+                _field(row, "created_at"),
+            )
+        )
+    if not indexable:
+        return result
+
+    ids = [episode_id for episode_id, _g, _t, _c in indexable]
+    present, presence_exact = await _ids_with_vectors(
+        search_index,
+        ids,
+        group_id,
+        probe_attr="get_cue_embeddings",
+        census_attr="_vector_search_cues",
+        probe_chunk=probe_chunk,
+    )
+    if present is None:
+        missing = list(indexable)
+    else:
+        missing = [row for row in indexable if row[0] not in present]
+    result.missing_before = len(missing)
+
+    keyed = sorted(((_created_ts(row[3]), row[0]), row) for row in missing)
+    if not presence_exact and cursor is not None:
+        keyed = [(key, row) for key, row in keyed if key > cursor]
+    keyed = keyed[: max(0, int(max_cues))]
+    result.attempted = len(keyed)
+    if not keyed or dry_run:
+        return result
+
+    await ensure_embedding_provider_healthy(search_index)
+
+    from engram.models.episode_cue import EpisodeCue
+
+    indexed_ids: list[str] = []
+    indexed_keys: list[tuple[float, str]] = []
+    failed = 0
+    for key, (episode_id, cue_group, cue_text, _created) in keyed:
+        cue = EpisodeCue(episode_id=episode_id, group_id=cue_group, cue_text=cue_text)
+        try:
+            await search_index.index_episode_cue(cue)
+            indexed_ids.append(episode_id)
+            indexed_keys.append(key)
+        except Exception:
+            failed += 1
+            logger.warning("index_episode_cue failed for %s", episode_id, exc_info=True)
+
+    result.indexed = len(indexed_ids)
+    result.failed = failed
+    result.indexed_ids = indexed_ids
+    if not presence_exact and indexed_keys:
+        result.cursor_next = max(indexed_keys)
     return result

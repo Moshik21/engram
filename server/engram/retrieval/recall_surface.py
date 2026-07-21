@@ -37,6 +37,7 @@ from engram.retrieval.presenter import (
     present_api_recall_response,
     present_mcp_recall_items,
     present_mcp_recall_response,
+    recall_contract_item,
 )
 
 PacketSerializer = Callable[[MemoryPacket], dict[str, Any]]
@@ -141,6 +142,14 @@ async def build_api_recall_surface(
             packets=cache_packets,
         )
         _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
+        # The REST payload presents camelCase `items` the citation scan cannot
+        # read, so the mask/cue register is fed the surface-neutral contract
+        # shape here (mirrors the MCP surface; mask-only, byte-safe on output).
+        note_surfaced_texts_from_response(
+            group_id,
+            {"results": [], "packets": list(cache_packets)},
+            cfg,
+        )
         return response
     project_file_fallback_path = (
         project_path or _default_project_path_for_recall() if not cache_packets else None
@@ -303,6 +312,14 @@ async def build_api_recall_surface(
         packets = [_diagnostic_recall_packet(query=query, metadata=recall_metadata)]
     response = present_api_recall_response(query=query, results=results, packets=packets)
     _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
+    note_surfaced_texts_from_response(
+        group_id,
+        {
+            "results": [recall_contract_item(result) for result in results],
+            "packets": list(packets),
+        },
+        cfg,
+    )
     return response
 
 

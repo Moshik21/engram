@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from functools import partial
+from threading import Lock
 from typing import Any
 
 import numpy as np
@@ -106,6 +108,165 @@ def _rrf_fusion(
     return merged
 
 
+# ---------------------------------------------------------------------------
+# Native BM25 circuit breaker
+# ---------------------------------------------------------------------------
+
+# A completed native BM25 call slower than this is pathological: healthy native
+# BM25 answers in single-digit ms, the broken mode measured 1.85-2.1s warm and
+# 20s cold on an 8.8k-episode brain.
+_BM25_BREAKER_BUDGET_MS = 500.0
+# A BM25 call cancelled mid-flight after this long counts as over-budget too:
+# the caller's lane budget blew, and on the native transport the call cannot be
+# cancelled — it keeps running as a zombie on the small native thread pool.
+_BM25_BREAKER_CANCEL_STRIKE_MS = 100.0
+_BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
+_BM25_BREAKER_RETRY_AFTER_SECONDS = 300.0  # half-open probe interval
+
+
+class Bm25CircuitBreaker:
+    """Process-level breaker that stops launch-and-abandon native BM25 calls.
+
+    Cancelled/capped native BM25 queries keep running on the native thread
+    pool and starve the fast vector lanes on subsequent queries. Once the
+    breaker opens, BM25 lanes are SKIPPED (return empty) instead of launched;
+    vector + graph lanes carry retrieval. A half-open probe is allowed after
+    ``retry_after_seconds`` — one healthy call closes the breaker.
+    """
+
+    def __init__(
+        self,
+        key: str,
+        *,
+        budget_ms: float = _BM25_BREAKER_BUDGET_MS,
+        cancel_strike_ms: float = _BM25_BREAKER_CANCEL_STRIKE_MS,
+        open_after: int = _BM25_BREAKER_OPEN_AFTER,
+        retry_after_seconds: float = _BM25_BREAKER_RETRY_AFTER_SECONDS,
+        clock=time.monotonic,
+    ) -> None:
+        self.key = key
+        self._budget_ms = budget_ms
+        self._cancel_strike_ms = cancel_strike_ms
+        self._open_after = open_after
+        self._retry_after_seconds = retry_after_seconds
+        self._clock = clock
+        self._consecutive_over_budget = 0
+        self._opened_at: float | None = None
+        self._half_open_probe = False
+        self._stats = {
+            "overBudgetCalls": 0,
+            "skippedCalls": 0,
+            "opens": 0,
+            "closes": 0,
+        }
+
+    @property
+    def is_open(self) -> bool:
+        return self._opened_at is not None
+
+    @property
+    def degraded(self) -> bool:
+        """True when BM25 is open or just blew its budget (>=1 strike)."""
+        return self.is_open or self._consecutive_over_budget > 0
+
+    def allow_call(self) -> bool:
+        """Return True when a BM25 call may launch; count skips otherwise."""
+        if self._opened_at is None:
+            return True
+        if not self._half_open_probe and (
+            self._clock() - self._opened_at >= self._retry_after_seconds
+        ):
+            self._half_open_probe = True
+            logger.warning(
+                "BM25 circuit breaker HALF-OPEN (key=%s): allowing one probe call",
+                self.key,
+            )
+            return True
+        self._stats["skippedCalls"] += 1
+        return False
+
+    def record_call(self, elapsed_ms: float, *, cancelled: bool = False) -> None:
+        """Observe a BM25 call's wall time (works when the call finished OR
+        was abandoned by cancellation — the native call itself cannot be
+        cancelled)."""
+        probing = self._half_open_probe
+        self._half_open_probe = False
+        threshold_ms = self._cancel_strike_ms if cancelled else self._budget_ms
+        if elapsed_ms > threshold_ms:
+            self._stats["overBudgetCalls"] += 1
+            self._consecutive_over_budget += 1
+            if probing:
+                # Failed probe: restart the open window.
+                self._opened_at = self._clock()
+                logger.warning(
+                    "BM25 circuit breaker RE-OPENED after failed probe "
+                    "(key=%s, elapsed=%.0fms, cancelled=%s): skipping native "
+                    "BM25 lanes for %.0fs — vector/graph lanes carry recall",
+                    self.key,
+                    elapsed_ms,
+                    cancelled,
+                    self._retry_after_seconds,
+                )
+            elif self._opened_at is None and self._consecutive_over_budget >= self._open_after:
+                self._opened_at = self._clock()
+                self._stats["opens"] += 1
+                logger.warning(
+                    "BM25 circuit breaker OPEN after %d consecutive over-budget "
+                    "native BM25 calls (key=%s, last=%.0fms, cancelled=%s): "
+                    "skipping native BM25 lanes for %.0fs — vector/graph lanes "
+                    "carry recall",
+                    self._consecutive_over_budget,
+                    self.key,
+                    elapsed_ms,
+                    cancelled,
+                    self._retry_after_seconds,
+                )
+            return
+        if cancelled:
+            # Cancelled young — no latency information either way.
+            return
+        self._consecutive_over_budget = 0
+        if self._opened_at is not None:
+            self._opened_at = None
+            self._stats["closes"] += 1
+            logger.warning(
+                "BM25 circuit breaker CLOSED (key=%s, probe=%.0fms): native BM25 lanes re-enabled",
+                self.key,
+                elapsed_ms,
+            )
+
+    def snapshot(self) -> dict[str, Any]:
+        """JSON-serializable counters for the storage diagnostics dict."""
+        return {
+            "open": self.is_open,
+            "consecutiveOverBudget": self._consecutive_over_budget,
+            **self._stats,
+        }
+
+
+# Breakers are keyed per backend instance (native data_dir): every
+# HelixSearchIndex on the same native engine shares its thread pool, so they
+# must share breaker state. Mirrors the queryFailures registry in
+# storage/helix/native_transport.py.
+_BM25_BREAKERS: dict[str, Bm25CircuitBreaker] = {}
+_BM25_BREAKERS_LOCK = Lock()
+
+
+def _get_bm25_breaker(key: str) -> Bm25CircuitBreaker:
+    with _BM25_BREAKERS_LOCK:
+        breaker = _BM25_BREAKERS.get(key)
+        if breaker is None:
+            breaker = Bm25CircuitBreaker(key)
+            _BM25_BREAKERS[key] = breaker
+        return breaker
+
+
+def get_bm25_breaker_stats() -> dict[str, dict[str, Any]]:
+    """Per-backend BM25 breaker counters for storage diagnostics."""
+    with _BM25_BREAKERS_LOCK:
+        return {key: breaker.snapshot() for key, breaker in _BM25_BREAKERS.items()}
+
+
 def _prepare_fast_bm25_query(query: str) -> str:
     """Compact high-fanout operator queries for bounded fallback BM25 paths."""
     specific_tokens: list[str] = []
@@ -162,6 +323,7 @@ class HelixSearchIndex:
         owns_client: bool | None = None,
         topic_segmentation: bool = True,
         topic_threshold: float = 0.5,
+        bm25_breaker_enabled: bool = True,
     ) -> None:
         self._helix_config = helix_config
         self._provider = provider
@@ -199,6 +361,16 @@ class HelixSearchIndex:
             "query_embed_failures": 0,
         }
         self._graph_embed_dim_cache: dict[tuple[str | None, str], int] = {}
+
+        # BM25 circuit breaker: native transport only. Lite/SQLite FTS5 and the
+        # HTTP transport never see pathological uncancellable BM25 calls, so the
+        # breaker must never engage there.
+        self._bm25_breaker: Bm25CircuitBreaker | None = None
+        if bm25_breaker_enabled and getattr(helix_config, "transport", "http") == "native":
+            breaker_key = str(getattr(helix_config, "data_dir", "") or "") or (
+                f"port:{getattr(helix_config, 'port', 0)}"
+            )
+            self._bm25_breaker = _get_bm25_breaker(breaker_key)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -877,13 +1049,50 @@ class HelixSearchIndex:
     # BM25 search helpers
     # ------------------------------------------------------------------
 
+    def bm25_fallback_degraded(self) -> bool:
+        """True when native BM25 is breaker-open or just blew its budget.
+
+        Degrade-path callers use this to prefer vector-first fallbacks over
+        BM25-only "fast" lanes (which are the SLOWEST path on native).
+        """
+        breaker = self._bm25_breaker
+        return breaker is not None and breaker.degraded
+
+    async def _guarded_bm25_query(self, endpoint: str, payload: dict) -> list[dict]:
+        """Run a BM25 query through the native circuit breaker.
+
+        Observes WALL TIME even when the caller's timeout cancels the awaiting
+        coroutine — the native call itself cannot be cancelled and would keep
+        running as a zombie on the native thread pool. When the breaker is
+        open the call is skipped entirely (returns no rows).
+        """
+        breaker = self._bm25_breaker
+        if breaker is None:
+            return await self._query(endpoint, payload)
+        if not breaker.allow_call():
+            return []
+        started = time.perf_counter()
+        try:
+            rows = await self._query(endpoint, payload)
+        except asyncio.CancelledError:
+            breaker.record_call(
+                (time.perf_counter() - started) * 1000.0,
+                cancelled=True,
+            )
+            raise
+        except Exception:
+            breaker.record_call((time.perf_counter() - started) * 1000.0)
+            raise
+        breaker.record_call((time.perf_counter() - started) * 1000.0)
+        return rows
+
     async def _bm25_search_entities(
         self,
         query: str,
         limit: int,
     ) -> tuple[list[tuple[str, float]], list[dict]]:
         """BM25 text search over Entity nodes. Returns (scored_results, raw_rows)."""
-        rows = await self._query(
+        rows = await self._guarded_bm25_query(
             "search_entities_bm25",
             {"query": query, "k": limit},
         )
@@ -900,7 +1109,7 @@ class HelixSearchIndex:
         limit: int,
     ) -> tuple[list[tuple[str, float]], list[dict]]:
         """BM25 text search over Episode nodes."""
-        rows = await self._query(
+        rows = await self._guarded_bm25_query(
             "search_episodes_bm25",
             {"query": query, "k": limit},
         )
@@ -917,7 +1126,7 @@ class HelixSearchIndex:
         limit: int,
     ) -> tuple[list[tuple[str, float]], list[dict]]:
         """BM25 text search over EpisodeCue nodes."""
-        rows = await self._query(
+        rows = await self._guarded_bm25_query(
             "search_cues_bm25",
             {"query": query, "k": limit},
         )
@@ -927,6 +1136,30 @@ class HelixSearchIndex:
             if eid:
                 results.append((str(eid), self._extract_score(row)))
         return results, rows
+
+    async def _vector_fallback_scores(
+        self,
+        query: str,
+        group_id: str | None,
+        limit: int,
+        vector_search,
+    ) -> list[tuple[str, float]] | None:
+        """Vector-only scores for degraded fast lanes.
+
+        Returns None when vectors cannot serve (embeddings disabled or query
+        embedding failed) so the caller can fall back to the BM25 path.
+        """
+        if not self._embeddings_enabled:
+            return None
+        query_vec = await self._embed_text(query)
+        if not query_vec:
+            return None
+        self._last_query_vec = query_vec
+        fetch_limit = limit if group_id else limit * _OVERFETCH_FACTOR
+        results, rows, filtered = await vector_search(query_vec, fetch_limit, group_id=group_id)
+        if not filtered:
+            results = self._filter_by_group(results, rows, group_id)
+        return self._normalize_scores(results[:limit])
 
     # ------------------------------------------------------------------
     # Indexing
@@ -1340,7 +1573,20 @@ class HelixSearchIndex:
         group_id: str | None = None,
         limit: int = 10,
     ) -> list[tuple[str, float]]:
-        """BM25-only episode search for bounded recall fallback paths."""
+        """Bounded episode search for recall fallback paths.
+
+        BM25-only by default; vector-first when native BM25 is degraded
+        (breaker engaged) — on native the BM25 "fast" path is the slowest.
+        """
+        if self.bm25_fallback_degraded():
+            vec_results = await self._vector_fallback_scores(
+                query,
+                group_id,
+                limit,
+                self._vector_search_episodes,
+            )
+            if vec_results is not None:
+                return vec_results
         query = _prepare_fast_bm25_query(query)
         if not query:
             return []
@@ -1431,7 +1677,20 @@ class HelixSearchIndex:
         group_id: str | None = None,
         limit: int = 10,
     ) -> list[tuple[str, float]]:
-        """BM25-only cue search for bounded recall fallback paths."""
+        """Bounded cue search for recall fallback paths.
+
+        BM25-only by default; vector-first when native BM25 is degraded
+        (breaker engaged) — on native the BM25 "fast" path is the slowest.
+        """
+        if self.bm25_fallback_degraded():
+            vec_results = await self._vector_fallback_scores(
+                query,
+                group_id,
+                limit,
+                self._vector_search_cues,
+            )
+            if vec_results is not None:
+                return vec_results
         query = _prepare_fast_bm25_query(query)
         if not query:
             return []

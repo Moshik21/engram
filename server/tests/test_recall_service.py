@@ -143,7 +143,7 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
     assert primary_kwargs["interaction_source"] == "auto_recall"
     assert primary_kwargs["now"] == 123.0
     assert primary_kwargs["working_memory"] is working_memory
-    assert primary_kwargs["graph_timeout_seconds"] == pytest.approx(0.05)
+    assert primary_kwargs["graph_timeout_seconds"] == pytest.approx(0.3)
     assert primary_kwargs["side_effect_timeout_seconds"] == pytest.approx(0.025)
     assert primary_kwargs["stage_timings_ms"] is result.stage_timings_ms
 
@@ -166,7 +166,7 @@ async def test_recall_service_orchestrates_retrieve_materialize_and_post_process
     assert result.stage_timings_ms["recall_retrieve"] >= 0
     assert result.stage_timings_ms["recall_materialize"] >= 0
     assert result.stage_timings_ms["recall_post_process"] >= 0
-    assert result.stage_timings_ms["recall_materialize_graph_effective_timeout_ms"] == 50
+    assert result.stage_timings_ms["recall_materialize_graph_effective_timeout_ms"] == 300
 
 
 @pytest.mark.asyncio

@@ -214,12 +214,30 @@ class ActivationConfig(BaseModel):
         ),
     )
     retrieval_stats_timeout_ms: int = Field(
-        default=250,
+        default=1500,
         ge=0,
         le=5000,
         description=(
             "Substage timeout for recall corpus stats used only to scale pool sizes. "
-            "0 disables the substage timeout. 25ms was too low for large native brains."
+            "0 disables the substage timeout. Measured 240-720ms per probe on an "
+            "8.8k-episode native brain, so the previous 250ms default fired on "
+            "nearly every query and its timeout marker capped downstream "
+            "materialize graph reads to an unusable adaptive budget. Small "
+            "brains finish in <10ms, so the higher ceiling costs them nothing."
+        ),
+    )
+    retrieval_bm25_breaker_enabled: bool = Field(
+        default=True,
+        description=(
+            "Circuit-break pathological native BM25 recall lanes. On the native "
+            "Helix transport a timed-out BM25 call cannot be cancelled — it "
+            "keeps running on the small native thread pool and starves the "
+            "2-30ms vector lanes (measured 1.85-2.1s warm / 20s cold per BM25 "
+            "call on an 8.8k-episode brain). After 2 consecutive over-budget "
+            "BM25 calls the breaker opens and BM25 lanes are skipped while "
+            "vector+graph lanes carry recall; half-open retry after 300s. "
+            "Never engages on lite/SQLite FTS5 or the HTTP Helix transport. "
+            "Env kill switch: ENGRAM_ACTIVATION__RETRIEVAL_BM25_BREAKER_ENABLED=0."
         ),
     )
     retrieval_activation_pool_timeout_ms: int = Field(
@@ -1930,22 +1948,28 @@ class ActivationConfig(BaseModel):
         ),
     )
     recall_primary_materialize_graph_timeout_ms: int = Field(
-        default=50,
+        default=300,
         ge=0,
         le=5000,
         description=(
             "Per-call timeout for graph reads while materializing primary recall "
-            "results. 0 disables the substage timeout."
+            "results. 0 disables the substage timeout. get_entity measured "
+            "~74ms/call on an 8.8k-episode native brain — the previous 50ms cap "
+            "failed every read, turning 100 scored candidates into 0 results. "
+            "Small brains answer in single-digit ms and finish early."
         ),
     )
     recall_primary_materialize_graph_timeout_after_probe_timeout_ms: int = Field(
-        default=15,
+        default=300,
         ge=0,
         le=5000,
         description=(
             "Per-call graph-read cap for primary result materialization after "
             "recall graph preflight probes already timed out. 0 disables this "
-            "adaptive cap."
+            "adaptive cap. The previous 15ms cap guaranteed zero materialized "
+            "results on large native brains (get_entity measured ~74ms/call, "
+            "and the stats probe at 240-720ms tripped this cap on nearly "
+            "every query)."
         ),
     )
     recall_primary_materialize_side_effect_timeout_ms: int = Field(

@@ -2539,3 +2539,54 @@ async def test_mcp_explicit_recall_tool_surface_updates_session_and_runs_middlew
     assert session.last_recall_time == 42.5
     assert session.auto_recall_primed is True
     recall_middleware.assert_awaited_once_with("Engram recall", result, tool_name="recall")
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_registers_surfaced_cues_for_citation_scan() -> None:
+    """The REST/axi lane must feed the mask/cue register like the MCP lane
+    does — otherwise cue usage can never accumulate on installs without MCP
+    (the capture-census structural-zero finding). Mask-only: response bytes
+    are untouched; the buffer learns the surfaced cue."""
+    from engram.retrieval.feedback import get_usage_buffer
+
+    buffer = get_usage_buffer()
+    buffer.reset()
+    cue_result = {
+        "result_type": "cue_episode",
+        "score": 0.7,
+        "cue": {
+            "episode_id": "ep_kiln",
+            "cue_text": "Melanie booked the kiln for the studio showcase firings",
+            "supporting_spans": ["kiln booking confirmed for the showcase"],
+        },
+        "episode": {"id": "ep_kiln", "source": "mcp_observe"},
+    }
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[cue_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: SimpleNamespace(
+            recall_usage_feedback_enabled=True,
+        ),
+        get_last_recall_stage_timings=Mock(return_value={}),
+    )
+
+    await build_api_recall_surface(
+        manager,
+        group_id="rest_cue_group",
+        query="kiln booking",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    # Novel reuse of the cue phrase fires (registration happened) ...
+    fired = buffer.scan_novel_cue_matches(
+        "rest_cue_group",
+        "Since Melanie booked the kiln already, plan the second firing early",
+        now=time.time() + 60,
+    )
+    assert [entry.episode_id for entry in fired] == ["ep_kiln"]
+    # ... while a verbatim parrot of the surfaced cue text stays masked.
+    buffer.reset()
