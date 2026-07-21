@@ -1,9 +1,14 @@
-"""Router explicit-zero kill-switch tests (M0.5).
+"""Router explicit-zero kill-switch tests (M0.5) + usage-profile shape (M2.3).
 
 A base-config weight of exactly 0.0 means "term disabled" and must survive
-routing — apply_route may not resurrect it from _WEIGHT_PROFILES. Profiles
+routing — apply_route may not resurrect it from the profile tables. Profiles
 redistribute only among enabled terms. Default configs (no zero weights)
 must remain byte-identical to the profile tuples.
+
+M2.3 (F5): with usage_ranking_enabled=True the profiles drop the activation
+column and gain beta_route — (sem, spread, edge, beta) — and apply_route
+writes exactly those four fields. Flag OFF keeps the legacy 4-weight shape
+byte-identical to the pre-M2.3 router.
 """
 
 from __future__ import annotations
@@ -102,6 +107,95 @@ class TestSingleTuningPoint:
         base_dump = cfg.model_dump()
         routed_dump = routed.model_dump()
         for field in _WEIGHT_FIELDS:
+            base_dump.pop(field)
+            routed_dump.pop(field)
+        assert routed_dump == base_dump
+
+
+# ---------------------------------------------------------------------------
+# M2.3 — flag-ON usage profiles: (sem, spread, edge, beta_route)
+# ---------------------------------------------------------------------------
+
+# Pinned literal copies of _USAGE_WEIGHT_PROFILES (D3/F5 table) —
+# intentionally NOT imported from the router, so any retune must consciously
+# update this pin. Exact renormalizations of the legacy non-activation
+# columns; the design doc renders them rounded (.44 .33 .22 etc.).
+_PINNED_USAGE_PROFILES: dict[QueryType, tuple[float, float, float, float]] = {
+    QueryType.DIRECT_LOOKUP: (0.75 / 0.90, 0.05 / 0.90, 0.10 / 0.90, 0.05),
+    QueryType.TEMPORAL: (0.20 / 0.45, 0.15 / 0.45, 0.10 / 0.45, 0.25),
+    QueryType.FREQUENCY: (0.15 / 0.40, 0.15 / 0.40, 0.10 / 0.40, 0.30),
+    QueryType.ASSOCIATIVE: (0.55 / 0.90, 0.20 / 0.90, 0.15 / 0.90, 0.10),
+    QueryType.CREATION: (0.30 / 0.85, 0.25 / 0.85, 0.30 / 0.85, 0.10),
+    QueryType.DEFAULT: (0.40 / 0.70, 0.15 / 0.70, 0.15 / 0.70, 0.10),
+}
+
+_USAGE_WEIGHT_FIELDS = (
+    "weight_semantic",
+    "weight_spreading",
+    "weight_edge_proximity",
+    "usage_beta_route",
+)
+
+
+def _usage_weights(cfg: ActivationConfig) -> tuple[float, float, float, float]:
+    return (
+        cfg.weight_semantic,
+        cfg.weight_spreading,
+        cfg.weight_edge_proximity,
+        cfg.usage_beta_route,
+    )
+
+
+class TestUsageProfiles:
+    @pytest.mark.parametrize("query_type", list(QueryType))
+    def test_flag_on_routes_to_pinned_usage_profile(self, query_type):
+        cfg = ActivationConfig(usage_ranking_enabled=True)
+        routed = apply_route(query_type, cfg)
+        assert _usage_weights(routed) == _PINNED_USAGE_PROFILES[query_type]
+
+    @pytest.mark.parametrize("query_type", list(QueryType))
+    def test_beta_route_bounded_by_beta_max(self, query_type):
+        assert _PINNED_USAGE_PROFILES[query_type][3] <= 0.30
+
+    def test_frequency_has_largest_beta(self):
+        betas = {qt: p[3] for qt, p in _PINNED_USAGE_PROFILES.items()}
+        assert betas[QueryType.FREQUENCY] == 0.30
+        assert max(betas.values()) == betas[QueryType.FREQUENCY]
+
+    @pytest.mark.parametrize(
+        "field", ("weight_semantic", "weight_spreading", "weight_edge_proximity")
+    )
+    @pytest.mark.parametrize("query_type", list(QueryType))
+    def test_explicit_zero_survives_flag_on_route(self, field, query_type):
+        """M0.5 semantics carry over to the new tuple shape."""
+        cfg = ActivationConfig(usage_ranking_enabled=True, **{field: 0.0})
+        routed = apply_route(query_type, cfg)
+
+        assert getattr(routed, field) == 0.0
+        # Enabled terms absorb the disabled share: 3-weight total preserved.
+        profile = _PINNED_USAGE_PROFILES[query_type]
+        assert sum(_usage_weights(routed)[:3]) == pytest.approx(sum(profile[:3]))
+        # beta_route is untouched by weight redistribution.
+        assert routed.usage_beta_route == profile[3]
+
+    @pytest.mark.parametrize("query_type", list(QueryType))
+    def test_flag_on_apply_route_only_changes_sem_spread_edge_beta(self, query_type):
+        """Schema-frozen (M2.3 DoD): output differs from input ONLY in
+        (sem, spread, edge, beta). weight_activation is NOT in the write-set
+        — the deep-copy trap that voided M4.1's first ablation arm cannot
+        recur because the flag-on profile has no activation column."""
+        cfg = ActivationConfig(
+            usage_ranking_enabled=True,
+            decay_exponent=0.7,
+            retrieval_top_k=100,
+            weight_activation=0.123,
+        )
+        routed = apply_route(query_type, cfg)
+
+        assert routed.weight_activation == 0.123  # untouched (dead on this path)
+        base_dump = cfg.model_dump()
+        routed_dump = routed.model_dump()
+        for field in _USAGE_WEIGHT_FIELDS:
             base_dump.pop(field)
             routed_dump.pop(field)
         assert routed_dump == base_dump

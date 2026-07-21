@@ -879,4 +879,5 @@ class TestPipelineMultiPoolIntegration:
     def test_all_methods_count(self):
         from engram.benchmark.methods import ALL_METHODS
 
-        assert len(ALL_METHODS) == 17
+        # 17 -> 16 after M5.3 deleted METHOD_THOMPSON (F4 KILL)
+        assert len(ALL_METHODS) == 16

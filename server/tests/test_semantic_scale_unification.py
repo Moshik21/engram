@@ -102,7 +102,6 @@ def _make_cfg(**overrides) -> ActivationConfig:
         rediscovery_weight=0.0,
         seed_threshold=0.3,
         mmr_enabled=False,
-        ts_enabled=False,  # Thompson sampling randomizes scores
     )
     base.update(overrides)
     return ActivationConfig(**base)

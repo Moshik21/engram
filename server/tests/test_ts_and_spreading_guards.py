@@ -1,7 +1,9 @@
-"""Tests for Thompson sampling determinism/feedback guards + spreading degrade.
+"""Read-path write guards + spreading degrade (post-M5.3 TS KILL).
 
-Covers M1.2 (seeded TS, no feedback flood at entity budget 0) and M1.5
-(spreading re-score degrades with a marker instead of killing the recall).
+Originally covered M1.2 (seeded TS, no feedback flood at entity budget 0).
+M5.3 deleted Thompson Sampling entirely (F4 resolved KILL), so the guards
+tighten: the recall read path performs ZERO activation-store writes — with
+or without surfaced entity results. M1.5 spreading degrade is unchanged.
 """
 
 from __future__ import annotations
@@ -93,12 +95,11 @@ def _entity_scores(results):
     return {r.node_id: r.score for r in results if r.result_type == "entity"}
 
 
-class TestThompsonSeededDeterminism:
+class TestRepeatRecallDeterminism:
     @pytest.mark.asyncio
     async def test_same_query_twice_identical_entity_scores(self):
-        """M1.2b: seeded TS makes identical recalls score identically."""
+        """Post-TS-kill: identical recalls score identically (no sampling)."""
         cfg = ActivationConfig(
-            ts_enabled=True,
             multi_pool_enabled=False,
             episode_retrieval_enabled=False,
         )
@@ -122,12 +123,11 @@ class TestThompsonSeededDeterminism:
         assert runs[0] == runs[1]
 
 
-class TestFeedbackFloodGuard:
+class TestReadPathWriteGuard:
     @pytest.mark.asyncio
     async def test_budget_zero_recall_performs_no_activation_writes(self):
-        """M1.2a: entity budget 0 → nothing surfaced → zero feedback writes."""
+        """Entity budget 0 → nothing surfaced → zero activation writes."""
         cfg = ActivationConfig(
-            ts_enabled=True,
             multi_pool_enabled=False,
             retrieval_strategy="passage_first",
             passage_first_entity_budget=0,
@@ -152,10 +152,10 @@ class TestFeedbackFloodGuard:
         assert spy.set_calls == []
 
     @pytest.mark.asyncio
-    async def test_surfaced_entity_recall_records_feedback(self):
-        """Feedback still runs when entity results were actually surfaced."""
+    async def test_surfaced_entity_recall_performs_no_activation_writes(self):
+        """M5.3: TS posteriors deleted — even surfaced-entity recalls write
+        nothing to the activation store from the read path."""
         cfg = ActivationConfig(
-            ts_enabled=True,
             multi_pool_enabled=False,
             episode_retrieval_enabled=False,
         )
@@ -173,10 +173,7 @@ class TestFeedbackFloodGuard:
 
         returned = {r.node_id for r in results if r.result_type == "entity"}
         assert returned == {"e1"}
-        written = dict(spy.set_calls)
-        # Positive feedback for the surfaced entity, negative for the dropped one.
-        assert written["e1"].ts_alpha > 1.0
-        assert written["e2"].ts_beta > 1.0
+        assert spy.set_calls == []
 
 
 class TestSpreadingRescoreDegrade:
@@ -184,7 +181,6 @@ class TestSpreadingRescoreDegrade:
     async def test_native_failure_degrades_spreading_and_returns_results(self):
         """M1.5: NativeQueryError in the re-score degrades, recall survives."""
         cfg = ActivationConfig(
-            ts_enabled=True,
             multi_pool_enabled=False,
             episode_retrieval_enabled=False,
         )
@@ -216,7 +212,6 @@ class TestSpreadingRescoreDegrade:
     async def test_non_native_failure_still_raises(self):
         """Only NativeQueryError is tolerated; other errors propagate."""
         cfg = ActivationConfig(
-            ts_enabled=True,
             multi_pool_enabled=False,
             episode_retrieval_enabled=False,
         )

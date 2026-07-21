@@ -157,6 +157,38 @@ class MemoryActivationStore:
         scored.sort(key=lambda x: x[2], reverse=True)
         return [(eid, state) for eid, state, _ in scored[:limit]]
 
+    async def get_top_used(
+        self,
+        group_id: str | None = None,
+        limit: int = 10,
+        now: float | None = None,
+    ) -> list[tuple[str, float]]:
+        """M2.4: top entities by ranking-side usage signal u = f*r'.
+
+        Reads ONLY the usage-event caches (n_eff / usage_last_ts, populated
+        exclusively by nonzero-tier usage_events) — never access_history and
+        never the ACT-R sigmoid — so surfaced-tier ranker output (w=0) can
+        never enter this ranking (loop-free by construction). Bounded by
+        ``limit``; entities with u == 0 are excluded. Deterministic
+        (eid tie-break).
+        """
+        import time
+
+        from engram.activation.engine import compute_u
+
+        now = now if now is not None else time.time()
+        scored: list[tuple[str, float]] = []
+        for eid, state in self._states.items():
+            if group_id and self._group_map.get(eid) != group_id:
+                continue
+            if state.n_eff <= 0.0:
+                continue
+            u = compute_u(state, now, self._cfg)
+            if u > 0.0:
+                scored.append((eid, u))
+        scored.sort(key=lambda x: (-x[1], x[0]))
+        return scored[: max(0, limit)]
+
     # ── Confirmed-event journal (M1.3) ──────────────────────────────
 
     def _journal_append(
@@ -352,8 +384,8 @@ class MemoryActivationStore:
                     access_count=int(entry.get("access_count") or 0),
                     consolidated_strength=float(entry.get("consolidated_strength") or 0.0),
                     last_compacted=float(entry.get("last_compacted") or 0.0),
-                    ts_alpha=float(entry.get("ts_alpha") or 1.0),
-                    ts_beta=float(entry.get("ts_beta") or 1.0),
+                    # ts_alpha/ts_beta from pre-M5.3 snapshots are tolerated
+                    # and dropped (TS deleted per F4 KILL).
                     usage_events=usage_events,
                     usage_weight_sum=sum(weight for _, weight in usage_events),
                     usage_last_ts=max((ts for ts, _ in usage_events), default=0.0),

@@ -77,6 +77,33 @@ def seed_consolidated_strength(
     return True
 
 
+def compute_u(
+    state: ActivationState,
+    now: float,
+    cfg: ActivationConfig,
+) -> float:
+    """Ranking-side usage signal u = f * r' in [0, 1] (RF_target_design section 1).
+
+    f      = min(1, ln(1 + n_eff) / ln(1 + N_cap))   frequency, log-compressed
+    r      = 2^(-delta_last / h_seconds)             recency, half-life h
+    r'     = r_floor + (1 - r_floor) * r             floor keeps old-but-frequent alive
+    u      = f * r'                                  0 exactly when n_eff == 0
+
+    Pure and deterministic: reads only the O(1) caches state.n_eff and
+    state.usage_last_ts (M1.1). No store access.
+    """
+    n_eff = state.n_eff
+    if n_eff <= 0.0:
+        return 0.0
+
+    f = min(1.0, math.log1p(n_eff) / math.log1p(cfg.usage_n_cap))
+    h_seconds = cfg.usage_half_life_days * 86400.0
+    delta_last = max(0.0, now - state.usage_last_ts)
+    r = 2.0 ** (-delta_last / h_seconds)
+    r_prime = cfg.usage_r_floor + (1.0 - cfg.usage_r_floor) * r
+    return f * r_prime
+
+
 def record_access(
     state: ActivationState,
     now: float,

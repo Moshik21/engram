@@ -352,7 +352,6 @@ def _quiet_sqlite_recall_config() -> ActivationConfig:
     cfg.reranker_enabled = False
     cfg.mmr_enabled = False
     cfg.gc_mmr_enabled = False
-    cfg.ts_enabled = False
     cfg.working_memory_enabled = False
     cfg.goal_priming_enabled = False
     cfg.inhibitory_spreading_enabled = False

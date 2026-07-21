@@ -926,6 +926,13 @@ async def check_intention_activations(
 
     Returns:
         Sorted list of IntentionMatch (by priority then activation).
+
+    M2.2 note: this activation reader is NOT gated by usage_ranking_enabled.
+    Intention trigger checks run on the ingestion path and fire proactive
+    notifications — they never score, order, or admit recall candidates, so
+    they are not activation ranking-path readers (same rationale for the
+    warmth_ratio reader in list_intention_views, a display-only API/MCP
+    listing surface).
     """
     from engram.activation.engine import compute_activation
 

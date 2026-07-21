@@ -24,7 +24,6 @@ from engram.benchmark.methods import (
     METHOD_ROUTED,
     METHOD_RRF,
     METHOD_SEARCH_RECENCY,
-    METHOD_THOMPSON,
     RetrievalMethod,
     run_retrieval,
 )
@@ -72,7 +71,6 @@ __all__ = [
     "METHOD_ROUTED",
     "METHOD_RRF",
     "METHOD_SEARCH_RECENCY",
-    "METHOD_THOMPSON",
     "RetrievalMethod",
     "RecallEvalSample",
     "RecallEvaluationSummary",

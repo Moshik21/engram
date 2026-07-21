@@ -364,11 +364,8 @@ class ActivationConfig(BaseModel):
     ppr_epsilon: float = Field(default=1e-6, gt=0.0)
     ppr_expansion_hops: int = Field(default=3, ge=1, le=6)
 
-    # --- Thompson Sampling ---
-    ts_enabled: bool = Field(default=True)
-    ts_weight: float = Field(default=0.08, ge=0.0, le=0.5)
-    ts_positive_increment: float = Field(default=1.0, gt=0.0)
-    ts_negative_increment: float = Field(default=1.0, gt=0.0)
+    # (Thompson Sampling knobs ts_enabled/ts_weight/ts_positive_increment/
+    # ts_negative_increment deleted per M5.3 — F4 resolved KILL.)
 
     # --- Fan-based spreading (ACT-R S_ji) ---
     fan_s_max: float = Field(default=3.5, gt=0.0, le=5.0)
@@ -2105,6 +2102,62 @@ class ActivationConfig(BaseModel):
             "surfaced stays 0.0 (hygiene-only access_history); nonzero tiers "
             "also append (ts, weight) to usage_events. Ranking does not read "
             "usage_events until M2 flips it on."
+        ),
+    )
+    usage_n_cap: int = Field(
+        default=50,
+        ge=1,
+        description=(
+            "N_cap in u = f*r' (RF M2.1): n_eff at which the log-compressed "
+            "frequency factor f saturates at 1.0"
+        ),
+    )
+    usage_half_life_days: float = Field(
+        default=14.0,
+        gt=0,
+        description="Half-life h (days) of the recency factor r = 2^(-delta_last/h) in u",
+    )
+    usage_r_floor: float = Field(
+        default=0.25,
+        ge=0.0,
+        lt=1.0,
+        description=(
+            "Recency floor in r' = r_floor + (1-r_floor)*r: keeps "
+            "old-but-frequent items alive in u"
+        ),
+    )
+    usage_ranking_enabled: bool = Field(
+        default=False,
+        description=(
+            "Kill-switch for the multiplicative usage tiebreaker "
+            "final = composite_sem * (1 + beta_route*u) (RF M2.3). Off (default) "
+            "means recall is byte-identical to a store with no usage signal. "
+            "On, it also REPLACES every activation ranking-path reader (M2.2): "
+            "scorer act term out, spreading seed energy act:=0, no activation "
+            "candidate pool/backfill, no temporal activation bypass, goal "
+            "priming act:=0."
+        ),
+    )
+    usage_beta_route: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=0.30,
+        description=(
+            "beta_route for the usage tiebreaker on UNROUTED queries (matches "
+            "the DEFAULT route in the D3 table). apply_route overrides this "
+            "per route when routing runs. Live only when usage_ranking_enabled; "
+            "bounded by beta_max=0.30 (usage can never beat semantics by more "
+            "than a 30% band)."
+        ),
+    )
+    usage_top_used_limit: int = Field(
+        default=10,
+        ge=0,
+        le=50,
+        description=(
+            "M2.4 bounded top-used retriever cap for FREQUENCY-routed queries "
+            "under usage_ranking_enabled: top-u entities sourced from "
+            "usage_events only (loop-free). 0 disables the retriever."
         ),
     )
     recall_planner_enabled: bool = Field(

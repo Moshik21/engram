@@ -783,8 +783,6 @@ class RecallMemoryInteractionApplier:
             raise ValueError(f"Unknown interaction_type: {interaction_type}")
 
         access_tier = self._ACCESS_TIER_BY_INTERACTION.get(interaction_type)
-        should_record_positive = interaction_type == "confirmed" and self._cfg.ts_enabled
-        should_record_negative = interaction_type == "corrected" and self._cfg.ts_enabled
 
         seen_ids: set[str] = set()
         now = time.time()
@@ -815,8 +813,6 @@ class RecallMemoryInteractionApplier:
                 source=source,
                 interaction_type=interaction_type,
                 access_tier=access_tier,
-                should_record_positive=should_record_positive,
-                should_record_negative=should_record_negative,
                 timestamp=now,
             )
 
@@ -863,8 +859,6 @@ class RecallMemoryInteractionApplier:
         source: str,
         interaction_type: str,
         access_tier: str | None,
-        should_record_positive: bool,
-        should_record_negative: bool,
         timestamp: float,
     ) -> None:
         entity_name = metadata.get("entity_name")
@@ -888,15 +882,9 @@ class RecallMemoryInteractionApplier:
             )
             recorded_access = True
 
-        if should_record_positive:
-            from engram.activation.feedback import record_positive_feedback
-
-            await record_positive_feedback(memory_id, self._activation, self._cfg)
-
-        if should_record_negative:
-            from engram.activation.feedback import record_negative_feedback
-
-            await record_negative_feedback(memory_id, self._activation, self._cfg)
+        # Thompson Sampling posterior updates were deleted (M5.3/F4 KILL):
+        # confirmed/corrected interactions record tier-tagged access events
+        # only (the M1.2 usage tiers above).
 
         self._interaction_recorder.record_memory_interaction(
             group_id=group_id,

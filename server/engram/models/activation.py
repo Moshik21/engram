@@ -30,8 +30,8 @@ class ActivationState:
     access_count: int = 0
     consolidated_strength: float = 0.0  # Absorbed ACT-R contribution from compacted timestamps
     last_compacted: float = 0.0  # Timestamp of last compaction pass
-    ts_alpha: float = 1.0  # Beta distribution success parameter
-    ts_beta: float = 1.0  # Beta distribution failure parameter
+    # (ts_alpha/ts_beta Thompson-Sampling posteriors deleted per M5.3/F4 KILL;
+    # snapshot/journal loaders tolerate and drop the old fields.)
     # Ranking-side usage store (M1.1): (ts, weight) events from nonzero tiers.
     # Inert until M2 — nothing on the ranking path reads usage_events yet.
     usage_events: list[tuple[float, float]] = field(default_factory=list)

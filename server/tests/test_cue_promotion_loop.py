@@ -232,7 +232,6 @@ def _quiet_recall_config() -> ActivationConfig:
         reranker_enabled=False,
         mmr_enabled=False,
         gc_mmr_enabled=False,
-        ts_enabled=False,
         working_memory_enabled=False,
         goal_priming_enabled=False,
         inhibitory_spreading_enabled=False,

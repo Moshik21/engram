@@ -36,6 +36,8 @@ def _write_snapshot(home: Path, saved_at: float, entity_id: str = "ent-1") -> Pa
                 "access_count": 5,
                 "consolidated_strength": 0.2,
                 "last_compacted": 0.0,
+                # legacy TS posterior fields from pre-M5.3 snapshots; the
+                # loader must tolerate and DROP them (F4 KILL).
                 "ts_alpha": 1.0,
                 "ts_beta": 1.0,
                 "group_id": "default",

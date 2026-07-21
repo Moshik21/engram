@@ -38,18 +38,27 @@ def identify_seeds(
     are weak or unavailable. Energy mirrors the semantic path
     (name_match * max(activation, 0.15)); it does NOT affect the candidate's
     semantic score used by the scorer.
+
+    M2.2 (``cfg.usage_ranking_enabled=True``): the activation reader in the
+    seed-energy formula is REPLACED with 0.0 — energy computes exactly as it
+    would over an empty activation store (sem * 0.15 floor; temporal_mode
+    seeds a constant 0.15), so a populated store cannot steer spreading.
     """
+    usage_on = cfg.usage_ranking_enabled
     threshold = 0.0 if temporal_mode else cfg.seed_threshold
+
+    def _act(node_id: str) -> float:
+        if usage_on:
+            return 0.0
+        state = activation_states.get(node_id)
+        if state and (state.access_history or state.consolidated_strength > 0.0):
+            return compute_activation(state.access_history, now, cfg, state.consolidated_strength)
+        return 0.0
+
     seeds = []
     for node_id, sem_sim in candidates:
         if sem_sim >= threshold or temporal_mode:
-            state = activation_states.get(node_id)
-            if state and (state.access_history or state.consolidated_strength > 0.0):
-                act = compute_activation(
-                    state.access_history, now, cfg, state.consolidated_strength
-                )
-            else:
-                act = 0.0
+            act = _act(node_id)
             if temporal_mode:
                 energy = max(act, 0.15)
             else:
@@ -61,14 +70,7 @@ def identify_seeds(
         for node_id, name_score in name_match_scores.items():
             if node_id in seeded or name_score <= 0.0:
                 continue
-            state = activation_states.get(node_id)
-            if state and (state.access_history or state.consolidated_strength > 0.0):
-                act = compute_activation(
-                    state.access_history, now, cfg, state.consolidated_strength
-                )
-            else:
-                act = 0.0
-            energy = name_score * max(act, 0.15)
+            energy = name_score * max(_act(node_id), 0.15)
             if energy > 0.0:
                 seeds.append((node_id, energy))
                 seeded.add(node_id)

@@ -284,7 +284,6 @@ class TestRecallMemoryInteractionApplier:
         cfg = ActivationConfig(
             recall_telemetry_enabled=True,
             recall_usage_feedback_enabled=True,
-            ts_enabled=True,
         )
         interaction_recorder = RecallInteractionRecorder(
             cfg=cfg,
@@ -338,7 +337,10 @@ class TestRecallMemoryInteractionApplier:
 
         assert state is not None
         assert state.access_count == 1
-        assert state.ts_alpha > 1.0
+        # M5.3: TS posteriors deleted; confirmed feedback records a
+        # confirmed-tier (w=1.0) usage event instead.
+        assert state.usage_events
+        assert state.usage_events[-1][1] == pytest.approx(1.0)
         assert [event for event in events if event["type"] == "activation.access"]
         interaction_events = [event for event in events if event["type"] == "recall.interaction"]
         assert len(interaction_events) == 1
@@ -471,8 +473,6 @@ class TestRecallFeedback:
         ]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
-        before_alpha = before.ts_alpha if before else 1.0
-        before_beta = before.ts_beta if before else 1.0
         queue = bus.subscribe(test_group_id)
 
         await manager.recall(
@@ -491,8 +491,6 @@ class TestRecallFeedback:
         assert before is not None
         assert after is not None
         assert after.access_count == before_count
-        assert after.ts_alpha == before_alpha
-        assert after.ts_beta == before_beta
         assert not [e for e in events if e["type"] == "activation.access"]
 
         interaction_events = [e for e in events if e["type"] == "recall.interaction"]
@@ -534,7 +532,6 @@ class TestRecallFeedback:
         entity = (await graph_store.find_entities(name="React", group_id=test_group_id, limit=1))[0]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
-        before_alpha = before.ts_alpha if before else 1.0
         queue = bus.subscribe(test_group_id)
 
         await manager.recall(
@@ -552,7 +549,6 @@ class TestRecallFeedback:
         assert before is not None
         assert after is not None
         assert after.access_count > before_count
-        assert after.ts_alpha > before_alpha
         assert [e for e in events if e["type"] == "activation.access"]
 
         interaction_events = [e for e in events if e["type"] == "recall.interaction"]
@@ -562,7 +558,7 @@ class TestRecallFeedback:
         assert payload["source"] == "chat_tool_use"
         assert payload["recordedAccess"] is True
 
-    async def test_selected_recall_skips_access_and_ts_feedback(
+    async def test_selected_recall_skips_access_recording(
         self,
         graph_store,
         activation_store,
@@ -579,7 +575,6 @@ class TestRecallFeedback:
         cfg = ActivationConfig(
             recall_telemetry_enabled=True,
             recall_usage_feedback_enabled=True,
-            ts_enabled=True,
             # Entity recall telemetry needs entities in the top-k; opt into the
             # graph depth tier (default episode-vector core surfaces no entities).
             passage_first_entity_budget=1,
@@ -596,8 +591,6 @@ class TestRecallFeedback:
         entity = (await graph_store.find_entities(name="Redis", group_id=test_group_id, limit=1))[0]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
-        before_alpha = before.ts_alpha if before else 1.0
-        before_beta = before.ts_beta if before else 1.0
         queue = bus.subscribe(test_group_id)
 
         await manager.recall(
@@ -615,8 +608,6 @@ class TestRecallFeedback:
 
         assert after is not None
         assert after.access_count == before_count
-        assert after.ts_alpha == before_alpha
-        assert after.ts_beta == before_beta
         assert not [e for e in events if e["type"] == "activation.access"]
 
         interaction_events = [e for e in events if e["type"] == "recall.interaction"]
@@ -626,7 +617,7 @@ class TestRecallFeedback:
         assert payload["source"] == "chat_tool_select"
         assert payload["recordedAccess"] is False
 
-    async def test_corrected_interaction_applies_negative_feedback_with_corrected_access(
+    async def test_corrected_interaction_records_corrected_tier_access(
         self,
         graph_store,
         activation_store,
@@ -642,7 +633,6 @@ class TestRecallFeedback:
         cfg = ActivationConfig(
             recall_telemetry_enabled=True,
             recall_usage_feedback_enabled=True,
-            ts_enabled=True,
         )
         manager = GraphManager(
             graph_store,
@@ -656,7 +646,6 @@ class TestRecallFeedback:
         entity = (await graph_store.find_entities(name="React", group_id="default", limit=1))[0]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
-        before_beta = before.ts_beta if before else 1.0
         queue = bus.subscribe("default")
 
         await manager.apply_memory_interaction(
@@ -686,7 +675,6 @@ class TestRecallFeedback:
         assert after.access_count == before_count + 1
         assert after.usage_events
         assert after.usage_events[-1][1] == pytest.approx(0.5)
-        assert after.ts_beta > before_beta
         assert [e for e in events if e["type"] == "activation.access"]
 
         interaction_events = [e for e in events if e["type"] == "recall.interaction"]
@@ -712,7 +700,6 @@ class TestRecallFeedback:
         cfg = ActivationConfig(
             recall_telemetry_enabled=True,
             recall_usage_feedback_enabled=True,
-            ts_enabled=True,
         )
         manager = GraphManager(
             graph_store,
@@ -726,8 +713,6 @@ class TestRecallFeedback:
         entity = (await graph_store.find_entities(name="Next.js", group_id="default", limit=1))[0]
         before = await activation_store.get_activation(entity.id)
         before_count = before.access_count if before else 0
-        before_alpha = before.ts_alpha if before else 1.0
-        before_beta = before.ts_beta if before else 1.0
         queue = bus.subscribe("default")
 
         await manager.apply_memory_interaction(
@@ -752,8 +737,6 @@ class TestRecallFeedback:
 
         assert after is not None
         assert after.access_count == before_count
-        assert after.ts_alpha == before_alpha
-        assert after.ts_beta == before_beta
         assert not [e for e in events if e["type"] == "activation.access"]
 
         interaction_events = [e for e in events if e["type"] == "recall.interaction"]

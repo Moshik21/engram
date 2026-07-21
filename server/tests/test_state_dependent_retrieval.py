@@ -270,22 +270,3 @@ class TestScorerStateBoost:
         )
         assert results[0].state_boost == 0.0
 
-    def test_thompson_scorer_state_boost(self):
-        from engram.retrieval.scorer import score_candidates_thompson
-
-        cfg = ActivationConfig(state_dependent_retrieval_enabled=True)
-        candidates = [("ent1", 0.8)]
-        state_biases = {"ent1": 0.07}
-
-        results = score_candidates_thompson(
-            candidates=candidates,
-            spreading_bonuses={},
-            hop_distances={},
-            seed_node_ids=set(),
-            activation_states={},
-            now=time.time(),
-            cfg=cfg,
-            rng_seed=42,
-            state_biases=state_biases,
-        )
-        assert results[0].state_boost == pytest.approx(0.07)

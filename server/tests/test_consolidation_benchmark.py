@@ -20,11 +20,12 @@ class TestPostConsolidationMethod:
 
     def test_all_methods_count(self):
         """ALL_METHODS has 17 total methods."""
-        assert len(ALL_METHODS) == 17
+        # 17 -> 16 after M5.3 deleted METHOD_THOMPSON (F4 KILL)
+        assert len(ALL_METHODS) == 16
 
     def test_regular_methods_exclude_consolidation(self):
         """No regular method has requires_consolidation=True."""
         regular = [m for m in ALL_METHODS if not m.requires_consolidation]
-        assert len(regular) == 16
+        assert len(regular) == 15
         for m in regular:
             assert m.requires_consolidation is False

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 import math
 import time
@@ -26,7 +25,6 @@ from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
     ScoredResult,
     score_candidates,
-    score_candidates_thompson,
 )
 
 if TYPE_CHECKING:
@@ -533,21 +531,25 @@ async def retrieve(
         if enable_routing or query_type == QueryType.TEMPORAL:
             cfg = apply_route(query_type, cfg)
 
-        # Step 1.6: Temporal bypass — merge activation-based candidates
+        # Step 1.6: Temporal bypass — merge activation-based candidates.
+        # M2.2/M2.3 (usage_ranking_enabled): the bypass reader is deleted —
+        # candidates enter via semantics/spreading/graph only, identical to
+        # an empty activation store (which contributes zero candidates here).
         temporal_mode = False
         if query_type == QueryType.TEMPORAL:
             temporal_mode = True
-            act_limit = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
-            top_activated = await activation_store.get_top_activated(
-                group_id=group_id,
-                limit=act_limit,
-                now=now,
-            )
-            existing_ids = {eid for eid, _ in candidates}
-            activation_candidates = [
-                (eid, 0.0) for eid, _state in top_activated if eid not in existing_ids
-            ]
-            candidates = candidates + activation_candidates
+            if not cfg.usage_ranking_enabled:
+                act_limit = _scale_limit(cfg.retrieval_top_k, total_entities, 5, 500)
+                top_activated = await activation_store.get_top_activated(
+                    group_id=group_id,
+                    limit=act_limit,
+                    now=now,
+                )
+                existing_ids = {eid for eid, _ in candidates}
+                activation_candidates = [
+                    (eid, 0.0) for eid, _state in top_activated if eid not in existing_ids
+                ]
+                candidates = candidates + activation_candidates
 
         # Step 1.7: Inject working memory candidates
         if working_memory is not None and cfg.working_memory_enabled:
@@ -1630,48 +1632,23 @@ async def retrieve(
             except Exception:
                 preference_boosts = None
 
-    # Step 5: Score all candidates
-    if cfg.ts_enabled:
-        # Deterministic TS seed from the query + group so identical recalls
-        # draw identical Beta samples and score identically (M1.2).
-        ts_seed = int.from_bytes(
-            hashlib.blake2b(f"{group_id}\x00{query}".encode(), digest_size=8).digest(),
-            "big",
-        )
-        scored = score_candidates_thompson(
-            candidates=candidates,
-            spreading_bonuses=bonuses,
-            hop_distances=hop_distances,
-            seed_node_ids=seed_node_ids,
-            activation_states=activation_states,
-            now=now,
-            cfg=cfg,
-            rng_seed=ts_seed,
-            conv_fingerprint_sim=conv_fingerprint_sim,
-            priming_boosts=priming_boosts,
-            graph_similarities=graph_similarities,
-            entity_attributes=entity_attributes,
-            state_biases=state_biases,
-            preference_boosts=preference_boosts,
-            name_match_scores=name_match_seeds,
-        )
-    else:
-        scored = score_candidates(
-            candidates=candidates,
-            spreading_bonuses=bonuses,
-            hop_distances=hop_distances,
-            seed_node_ids=seed_node_ids,
-            activation_states=activation_states,
-            now=now,
-            cfg=cfg,
-            conv_fingerprint_sim=conv_fingerprint_sim,
-            priming_boosts=priming_boosts,
-            graph_similarities=graph_similarities,
-            entity_attributes=entity_attributes,
-            state_biases=state_biases,
-            preference_boosts=preference_boosts,
-            name_match_scores=name_match_seeds,
-        )
+    # Step 5: Score all candidates (deterministic; TS deleted per M5.3/F4)
+    scored = score_candidates(
+        candidates=candidates,
+        spreading_bonuses=bonuses,
+        hop_distances=hop_distances,
+        seed_node_ids=seed_node_ids,
+        activation_states=activation_states,
+        now=now,
+        cfg=cfg,
+        conv_fingerprint_sim=conv_fingerprint_sim,
+        priming_boosts=priming_boosts,
+        graph_similarities=graph_similarities,
+        entity_attributes=entity_attributes,
+        state_biases=state_biases,
+        preference_boosts=preference_boosts,
+        name_match_scores=name_match_seeds,
+    )
     _set_stage_metric(stage_timings_ms, "recall_scored_count", len(scored))
     _set_stage_metric(
         stage_timings_ms,
@@ -2135,24 +2112,9 @@ async def retrieve(
     if _passage_first:
         results = await _reserve_durable_entity_slots(results, top_n)
 
-    # Step 7: Record Thompson Sampling feedback only for true-usage recalls.
-    if cfg.ts_enabled and record_feedback:
-        from engram.activation.feedback import (
-            record_negative_feedback,
-            record_positive_feedback,
-        )
-
-        returned_ids = {r.node_id for r in results if r.result_type == "entity"}
-        # Feedback only runs when entity results were actually surfaced to the
-        # caller. With an entity budget of 0 (e.g. passage_first_entity_budget=0)
-        # nothing is surfaced, so recording negative feedback against every
-        # candidate would monotonically grow ts_beta and flood the read path
-        # with activation writes (M1.2).
-        if returned_ids:
-            all_candidate_id_set = {eid for eid, _ in candidates}
-            for eid in returned_ids:
-                await record_positive_feedback(eid, activation_store, cfg)
-            for eid in all_candidate_id_set - returned_ids:
-                await record_negative_feedback(eid, activation_store, cfg)
+    # Step 7 (TS feedback recording) was deleted with Thompson Sampling
+    # (M5.3/F4 KILL). The read path performs no activation-store writes;
+    # ``record_feedback`` is retained in the signature for caller
+    # compatibility but is inert.
 
     return results

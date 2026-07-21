@@ -23,7 +23,6 @@ from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
     ScoredResult,
     score_candidates,
-    score_candidates_thompson,
 )
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
 
@@ -97,7 +96,6 @@ METHOD_PURE_SEARCH = RetrievalMethod(
         weight_edge_proximity=0.00,
         exploration_weight=0.00,
         rediscovery_weight=0.00,
-        ts_enabled=False,
     ),
     spreading_enabled=False,
 )
@@ -132,23 +130,6 @@ METHOD_ROUTED = RetrievalMethod(
     ),
     spreading_enabled=True,
     routing_enabled=True,
-)
-
-METHOD_THOMPSON = RetrievalMethod(
-    name="Thompson",
-    description=(
-        "Full pipeline with Thompson Sampling exploration: "
-        "Beta-distribution posterior for adaptive per-entity exploration."
-    ),
-    config=ActivationConfig(
-        ts_enabled=True,
-        ts_weight=0.08,
-        weight_semantic=0.40,
-        weight_activation=0.25,
-        weight_spreading=0.20,
-        weight_edge_proximity=0.15,
-    ),
-    spreading_enabled=True,
 )
 
 METHOD_PPR = RetrievalMethod(
@@ -360,7 +341,6 @@ ALL_METHODS: list[RetrievalMethod] = [
     METHOD_SEARCH_RECENCY,
     METHOD_ROUTED,
     METHOD_PPR,
-    METHOD_THOMPSON,
     METHOD_FAN_SPREAD,
     METHOD_RRF,
     METHOD_MMR,
@@ -405,7 +385,7 @@ async def run_retrieval(
         3. If ``method.spreading_enabled``: identify seeds and spread
            activation through the graph.
         3.5. Add working memory entities as additional seeds.
-        4. Score all candidates (Thompson or deterministic).
+        4. Score all candidates (deterministic composite).
         5. Cross-encoder re-ranking (if enabled).
         6. MMR diversity (if enabled).
         7. Return the top *limit* results sorted by score descending.
@@ -588,27 +568,16 @@ async def run_retrieval(
                 group_id=group_id,
             )
             candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
-    # 4. Score candidates (Thompson Sampling or deterministic)
-    if cfg.ts_enabled:
-        scored = score_candidates_thompson(
-            candidates=candidates,
-            spreading_bonuses=spreading_bonuses,
-            hop_distances=hop_distances,
-            seed_node_ids=seed_node_ids,
-            activation_states=activation_states,
-            now=now,
-            cfg=cfg,
-        )
-    else:
-        scored = score_candidates(
-            candidates=candidates,
-            spreading_bonuses=spreading_bonuses,
-            hop_distances=hop_distances,
-            seed_node_ids=seed_node_ids,
-            activation_states=activation_states,
-            now=now,
-            cfg=cfg,
-        )
+    # 4. Score candidates (deterministic; TS deleted per M5.3/F4)
+    scored = score_candidates(
+        candidates=candidates,
+        spreading_bonuses=spreading_bonuses,
+        hop_distances=hop_distances,
+        seed_node_ids=seed_node_ids,
+        activation_states=activation_states,
+        now=now,
+        cfg=cfg,
+    )
 
     # 5. Cross-encoder re-ranking (if enabled)
     if cfg.reranker_enabled and reranker is not None:

@@ -338,28 +338,6 @@ class TestScorerEmotionalBoost:
         )
         assert results[0].emotional_boost == 0.0
 
-    def test_thompson_scorer_emotional_boost(self):
-        from engram.retrieval.scorer import score_candidates_thompson
-
-        cfg = ActivationConfig()
-        candidates = [("ent1", 0.8)]
-        entity_attributes = {"ent1": {"emo_composite": 0.5}}
-
-        results = score_candidates_thompson(
-            candidates=candidates,
-            spreading_bonuses={},
-            hop_distances={},
-            seed_node_ids=set(),
-            activation_states={},
-            now=time.time(),
-            cfg=cfg,
-            rng_seed=42,
-            entity_attributes=entity_attributes,
-        )
-        assert results[0].emotional_boost == pytest.approx(
-            cfg.emotional_retrieval_boost * 0.5,
-        )
-
 
 # --- Prune resistance test ---
 
@@ -388,8 +366,6 @@ class TestPruneResistance:
             access_count=0,
             access_history=[time.time() - 86400 * 60],
             consolidated_strength=0.0,
-            ts_alpha=1.0,
-            ts_beta=1.0,
         )
 
         graph_store = AsyncMock()

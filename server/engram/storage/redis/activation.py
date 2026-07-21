@@ -40,8 +40,6 @@ class RedisActivationStore:
             "access_count": str(state.access_count),
             "consolidated_strength": str(state.consolidated_strength),
             "last_compacted": str(state.last_compacted),
-            "ts_alpha": str(state.ts_alpha),
-            "ts_beta": str(state.ts_beta),
         }
 
     @staticmethod
@@ -71,8 +69,8 @@ class RedisActivationStore:
             access_count=int(data.get("access_count", "0")),
             consolidated_strength=float(data.get("consolidated_strength", "0.0")),
             last_compacted=float(data.get("last_compacted", "0.0")),
-            ts_alpha=float(data.get("ts_alpha", "1.0")),
-            ts_beta=float(data.get("ts_beta", "1.0")),
+            # Old hashes may still carry ts_alpha/ts_beta: tolerated + dropped
+            # (Thompson Sampling deleted per M5.3/F4 KILL).
         )
 
     async def get_activation(self, entity_id: str) -> ActivationState | None:

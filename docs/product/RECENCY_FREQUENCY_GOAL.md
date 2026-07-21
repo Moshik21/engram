@@ -236,7 +236,7 @@ byte-identical until the six flip gates pass.
 
 ## M2 — De-saturation + router rebalance (D1/D3) [EVAL-GATED]
 
-- [ ] **M2.1 The `u = f·r′` ranking function + u-discrimination gate.** Implement the
+- [x] **M2.1 The `u = f·r′` ranking function + u-discrimination gate.** Implement the
       picked signal (RF_target §1); **do NOT implement rank-relative/z-scored/retuned-sigmoid
       normalization — the design rejects all three** *(Judge-3 blocker 2: the committed
       REDESIGN M2.2 prose prescribed the rejected approach; this row supersedes it).* Files:
@@ -244,7 +244,7 @@ byte-identical until the six flip gates pass.
       `u(1 surfaced)=0` exactly, `u(1 used)<u(5 used)<u(50 used)` at the stated gaps
       (0.067/0.225/0.296), `u(50 confirmed recent)≥~0.9`, count/age separability; a hard-coded
       constant `u` must FAIL this test. **Gate: u-discrimination (mechanism).**
-- [ ] **M2.2 Enumerate + gate ALL activation ranking-path readers under one flag.**
+- [x] **M2.2 Enumerate + gate ALL activation ranking-path readers under one flag.**
       *(Judge-2 blocker 2 — D3 neutralized only 2 of 7; the "populated ≡ empty" gate cannot
       pass otherwise.)* Gate/neutralize under a single `activation_ranking` flag: scorer term
       (scorer.py:84-93) AND the TS twin (241-247), spreading seed energy (spreading.py:42-71,
@@ -254,7 +254,7 @@ byte-identical until the six flip gates pass.
       empty store over a rig that exercises spreading AND `temporal_mode`** (not just the
       scorer) — this is the G1 body. Note coupling to F4: if FLOOR not KILL, the TS scorer
       twin's `w_act·act` term remains and must be gated here too.
-- [ ] **M2.3 Multiplicative router tiebreaker + delete additive term + delete backfill.**
+- [x] **M2.3 Multiplicative router tiebreaker + delete additive term + delete backfill.**
       `final = composite_sem × (1 + β_route·u)`, `β_max=0.30`; delete the additive
       `w_act·act` term (scorer.py:66-120); router profiles lose the activation column, gain
       `β_route` (FREQUENCY 0.30). Delete the activation-based candidate backfill
@@ -264,7 +264,7 @@ byte-identical until the six flip gates pass.
       permanent tests — (1) `apply_route` output differs from input only in (sem, spread,
       edge, β) schema-frozen; (2) flag-off recall on a populated store byte-identical to empty
       store. **EVAL-GATED: G1, G3.**
-- [ ] **M2.4 FREQUENCY-route bounded top-used retriever (or frequency-query rig gate).**
+- [x] **M2.4 FREQUENCY-route bounded top-used retriever (or frequency-query rig gate).**
       *(Judge-2 improvement — deleting the backfill removes the FREQUENCY route's only
       "my top-used" retriever.)* Provide a bounded top-used retriever **sourced from
       `usage_events` (loop-free, unlike the old activation store)** for the FREQUENCY route,
@@ -272,7 +272,7 @@ byte-identical until the six flip gates pass.
       deletion costs no frequency-query answerability. Files: retrieval/candidate_pool.py,
       retrieval/router.py. DoD: frequency-query rig report committed; retriever (if built) is
       bounded and reads only `usage_events`. **EVAL-GATED: frequency-query rig.**
-- [ ] **M2.5 Neutralize-now (flag-ready, default unflipped).** Activation component 0 in all
+- [x] **M2.5 Neutralize-now (flag-ready, default unflipped).** Activation component 0 in all
       `_WEIGHT_PROFILES` rows + `weight_activation=0` behind `usage_ranking_enabled=False`;
       default behavior byte-identical (arm B0 proves inertness). DoD: M4.1 arms A/A2/C
       byte-identical pre/post. **EVAL-GATED: G1.**
@@ -327,7 +327,7 @@ byte-identical until the six flip gates pass.
       composition stress probe passes. **EVAL-GATED: episode G1/G3/G4 + composition probe.**
 - [ ] **M5.2 Document Step 5.05/5.06 as THE episode recency model** (docs + coverage for the
       undated-episode no-boost edge, pipeline.py:1681-1801). DoD: doc + edge test.
-- [ ] **M5.3 TS default per F4.** If KILL: delete `score_candidates_thompson`, the pipeline
+- [x] **M5.3 TS default per F4.** If KILL: delete `score_candidates_thompson`, the pipeline
       branch, `activation/feedback.py`, `ts_*` knobs, `ts_alpha/ts_beta` fields (+snapshot
       compat). If FLOOR: one-line `ts_enabled=False` + `exploration_weight` pinned. If ever
       revived: per-entity seeded draws `blake2b(group,query,entity_id)`. DoD: repeat-stability

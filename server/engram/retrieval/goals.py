@@ -94,16 +94,21 @@ async def identify_active_goals(
             if status in ("completed", "abandoned", "done", "cancelled"):
                 continue
 
-            # Check activation level
-            state = await activation_store.get_activation(entity.id)
-            if state and (state.access_history or state.consolidated_strength > 0.0):
-                from engram.activation.engine import compute_activation
-
-                act_level = compute_activation(
-                    state.access_history, now, cfg, state.consolidated_strength
-                )
-            else:
+            # Check activation level. M2.2 (usage_ranking_enabled): the
+            # activation reader on this ranking path (goal seeds feed
+            # spreading) is REPLACED with 0.0 — identical to an empty store.
+            if cfg.usage_ranking_enabled:
                 act_level = 0.0
+            else:
+                state = await activation_store.get_activation(entity.id)
+                if state and (state.access_history or state.consolidated_strength > 0.0):
+                    from engram.activation.engine import compute_activation
+
+                    act_level = compute_activation(
+                        state.access_history, now, cfg, state.consolidated_strength
+                    )
+                else:
+                    act_level = 0.0
 
             if act_level < cfg.goal_priming_activation_floor:
                 continue

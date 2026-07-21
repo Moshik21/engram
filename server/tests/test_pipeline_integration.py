@@ -200,7 +200,8 @@ class TestBenchmarkMethods:
         assert "Context-Gated" in names
         assert "Post-Consolidation" in names
         assert "ACT-R Spreading" in names
-        assert len(ALL_METHODS) == 17
+        # 17 -> 16 after M5.3 deleted METHOD_THOMPSON (F4 KILL)
+        assert len(ALL_METHODS) == 16
 
     def test_linear_merge_method_config(self):
         """Linear merge method has use_rrf=False."""

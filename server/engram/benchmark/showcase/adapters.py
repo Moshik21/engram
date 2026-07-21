@@ -2140,7 +2140,6 @@ def create_ablation_adapter(
                 prospective_graph_embedded=False,
                 exploration_weight=0.0,
                 rediscovery_weight=0.0,
-                ts_enabled=False,
             ),
             extractions,
             family="ablation",

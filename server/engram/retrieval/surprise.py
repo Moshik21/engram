@@ -39,6 +39,13 @@ async def detect_surprises(
     - Dormant (last accessed > surprise_dormancy_days ago)
 
     Score: edge_weight * (1.0 - activation)
+
+    M2.2 note: this activation reader is NOT gated by usage_ranking_enabled.
+    detect_surprises runs on the ingestion path (extraction/post_apply) and
+    feeds the proactive surprise surface — it never scores, orders, or
+    admits recall candidates, so it is not an activation ranking-path
+    reader. Gating it would change proactive-surface behavior without
+    touching the G1 "populated == empty" recall gate.
     """
     dormancy_cutoff = now - (cfg.surprise_dormancy_days * 86400.0)
     surprises: list[SurpriseConnection] = []

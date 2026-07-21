@@ -42,7 +42,6 @@ class EchoChamberResult:
     final_surfaced_to_used_ratio: float
     pass_coverage: bool  # coverage > 40%
     pass_gini: bool  # gini < 0.70
-    ts_enabled: bool = False
 
 
 async def run_echo_chamber(
@@ -142,7 +141,6 @@ async def run_echo_chamber(
         final_surfaced_to_used_ratio=final.surfaced_to_used_ratio,
         pass_coverage=final.coverage > 0.40,
         pass_gini=final.gini < 0.70,
-        ts_enabled=cfg.ts_enabled,
     )
 
 

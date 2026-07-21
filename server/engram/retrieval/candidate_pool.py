@@ -152,6 +152,38 @@ async def _activation_pool(
         return []
 
 
+async def _empty_pool() -> list[tuple[str, float]]:
+    """Placeholder pool (keeps gather positions stable when a pool is off)."""
+    return []
+
+
+async def _top_used_pool(
+    group_id: str,
+    activation_store: ActivationStore,
+    limit: int,
+    now: float,
+) -> list[tuple[str, float]]:
+    """M2.4: bounded top-used retriever for FREQUENCY-routed queries.
+
+    Sources candidates from the usage-event store ONLY (u = f*r' over
+    state.n_eff / state.usage_last_ts — never the activation sigmoid, never
+    access_history), so it is loop-free by construction: surfaced-tier
+    ranker output has weight 0 and can never feed this pool. Requires the
+    store to expose ``get_top_used`` (lite MemoryActivationStore); stores
+    without it (Redis compat lane) contribute nothing.
+    """
+    if limit <= 0:
+        return []
+    get_top_used = getattr(activation_store, "get_top_used", None)
+    if get_top_used is None:
+        return []
+    try:
+        return list(await get_top_used(group_id=group_id, limit=limit, now=now))
+    except Exception as e:
+        logger.warning("Top-used pool failed (non-fatal): %s", e)
+        return []
+
+
 async def _graph_neighborhood_pool(
     seed_ids: list[str],
     group_id: str,
@@ -716,7 +748,29 @@ async def generate_candidates(
     # Compute dynamic pool limits based on corpus size and query type
     limits = compute_dynamic_limits(total_entities, cfg, query_type)
 
-    # Step 1: Run search + activation + entity query pools concurrently
+    # Step 1: Run search + activation + entity query pools concurrently.
+    # M2.2/M2.3 (usage_ranking_enabled): the ACT-R activation pool/backfill
+    # is deleted — usage is a reranker, not a retriever. The ONE exception
+    # is M2.4: FREQUENCY-routed queries get a bounded top-used pool sourced
+    # from usage_events only (loop-free, unlike the old activation pool).
+    if cfg.usage_ranking_enabled:
+        if (query_type or QueryType.DEFAULT) == QueryType.FREQUENCY:
+            second_pool = _top_used_pool(
+                group_id,
+                activation_store,
+                min(cfg.usage_top_used_limit, limits["pool_activation_limit"]),
+                now,
+            )
+        else:
+            second_pool = _empty_pool()
+    else:
+        second_pool = _activation_pool(
+            group_id,
+            activation_store,
+            limits["pool_activation_limit"],
+            now,
+            cfg,
+        )
     gather_tasks: list = [
         _search_pool(
             query,
@@ -727,13 +781,7 @@ async def generate_candidates(
             stage_timings_ms=stage_timings_ms,
         ),
         _bounded_pool(
-            _activation_pool(
-                group_id,
-                activation_store,
-                limits["pool_activation_limit"],
-                now,
-                cfg,
-            ),
+            second_pool,
             timeout_seconds=_stage_timeout_seconds(
                 cfg,
                 "retrieval_activation_pool_timeout_ms",
@@ -773,6 +821,12 @@ async def generate_candidates(
         "recall_activation_candidate_count",
         len(activation_results),
     )
+    if cfg.usage_ranking_enabled and (query_type or QueryType.DEFAULT) == QueryType.FREQUENCY:
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_top_used_candidate_count",
+            len(activation_results),
+        )
     _set_stage_metric(
         stage_timings_ms,
         "recall_entity_query_candidate_count",

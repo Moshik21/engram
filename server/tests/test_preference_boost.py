@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from engram.config import ActivationConfig
 from engram.models.activation import ActivationState
-from engram.retrieval.scorer import ScoredResult, score_candidates, score_candidates_thompson
+from engram.retrieval.scorer import ScoredResult, score_candidates
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -133,36 +131,6 @@ class TestPreferenceBoostScoring:
         )
         for s in scored:
             assert s.preference_boost == 0.0
-
-
-class TestPreferenceBoostThompson:
-    """Thompson sampling scorer also incorporates preference boost."""
-
-    def test_thompson_preference_boost(self):
-        cfg = ActivationConfig(
-            preference_directed_enabled=True,
-            preference_retrieval_weight=0.08,
-            ts_enabled=True,
-        )
-        candidates = _make_candidates()
-        states = _make_activation_states()
-        now = time.time()
-
-        pref_boosts = {"ent_a": 1.0}
-        scored = score_candidates_thompson(
-            candidates=candidates,
-            spreading_bonuses={},
-            hop_distances={},
-            seed_node_ids=set(),
-            activation_states=states,
-            now=now,
-            cfg=cfg,
-            rng_seed=42,
-            preference_boosts=pref_boosts,
-        )
-        score_a = next(s for s in scored if s.node_id == "ent_a")
-        assert score_a.preference_boost > 0.0
-        assert score_a.preference_boost == pytest.approx(0.08 * 1.0)
 
 
 class TestScoredResultHasPreferenceField:
