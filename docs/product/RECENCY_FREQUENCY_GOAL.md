@@ -1,6 +1,7 @@
 # Recency/Frequency Goal — usage signals earn their rank, or they don't ship
 
-**Status:** DRAFT pending founder review
+**Status:** EXECUTING — approved 2026-07-20 via /goal with founder-delegated
+decisions (F1-F10 resolved below with rationale; recorded per-decision)
 **Created:** 2026-07-18
 **Sources:** `RECENCY_FREQUENCY_REDESIGN.md` (the committed design + M0 triage),
 `experiments/RF_target_design.md` (full design, §1–§7), `experiments/RF_gear_triage.md`
@@ -354,40 +355,65 @@ proves the graph channel survives the shared-pipeline R/F changes), **frequency-
 
 ## Decisions needed from founder
 
-1. **F1 — Approve the agent-used citation scan (unblocks M1.4/M2):** the ingestion-time
-   citation scan derives used events from the next `observe()` on the frozen 9-tool surface,
-   no new tool. *Judges:* Judge-1 flags it as a self-referential echo loop unless guarded →
-   **M1.4 adds the echo guard + dedup + G7**; all three make G7 a hard precondition. Decision:
-   approve the guarded scan, plus whether confirmed/corrected also gets a public feedback path
-   or stays operator-surface-only. Reject ⇒ M1 ships confirmed/corrected only (weaker but
-   echo-immune, which Judge-1 endorses as the safe fallback).
-2. **F2 — Fate of surfacing/delivery recording (P1/P9):** telemetry-only stream or removed once
-   confirmed-use lands; get_context's closed loop (P9 + layer-3 ordering) needs an explicit verdict.
-   *(M1.5 demotes to hygiene tier regardless; F2 decides whether the telemetry stream stays.)*
-3. **F3 — Graph-row access columns (M4.2):** wire `snapshot_to_graph` on cadence, or delete the
-   columns and rewrite prune's pre-filter honestly. *Judge-2:* if wired, counts are last-clean-
-   exit-stale — document as approximate.
-4. **F4 — Thompson sampling: KILL vs FLOOR** (reverses recorded "SEEDED-ON, flip parked" →
-   needs ack). *All three judges endorse KILL* (reward channel structurally absent, un-eval-
-   gateable). (a) KILL (~1 day incl. snapshot compat); (b) FLOOR one-line `ts_enabled=False`
-   (~1hr, code dormant — but **M2.2 must still gate the TS scorer twin's `w_act·act` term**);
-   (c) hold. Drives M5.3.
-5. **F5 — Router TEMPORAL/FREQUENCY posture:** zero activation in profiles (D3) vs retune to
-   small nonzero after M2.1. *(D3's β_route table is the design's recommendation.)*
-6. **F6 — Importance-prior magnitude + bounded invariant (M3.1):** accept cs cap 0.05 or
-   recalibrate against the M2.1 `u`. *Judge-1:* the 2.5× durable multiplier can dominate
-   semantics — decide whether to bound it analogously to usage or justify identity-core weak-match
-   surfacing as intended.
-7. **F7 — Episode frequency prior:** build (cue `used_count`/`last_used_at`, M5.1) or park.
-   *(This doc builds it behind the episode-u gates; F7 confirms.)*
-8. **F8 — Judge panel:** the corrected three-lens panel HAS run and its blockers are folded above;
-   decide whether a re-pass against THIS goal doc is required before build sign-off, or waived on
-   the strength of the folded blockers.
-9. **F9 — Temporal vocabulary unification (D8):** promote to a milestone or leave parked.
-10. **F10 — Environmental mention-frequency tier (M1.6, NEW — Judge-2 blocker 3):** give ingestion
-    mentions a loop-free `w_mentioned≈0.1-0.2` ranking tier, OR document + test the explicit
-    exclusion of environmental occurrence. This decides whether ranking-frequency has any signal
-    beyond the citation scan at launch.
+1. **F1 — APPROVED: the echo-guarded citation scan.** M1.4 exactly as
+   specified (echo guard + per-conversation dedup + G7 hard precondition;
+   `w_used` stays 0 in ranking until G7 passes). Confirmed/corrected stays
+   **operator-surface-only**: the frozen public surface is a standing
+   constraint, and cue-hit promotion already provides an organic
+   confirmed-tier signal with no surface change. Rationale: the guarded scan
+   answers Judge-1's blocker head-on; the confirmed-only fallback would leave
+   ranking-frequency nearly signal-less at launch (see F10), the riskier posture.
+2. **F2 — RESOLVED: KEEP surfacing recording as hygiene-tier events** (M1.5
+   demotes to `w_ranking=0`; nothing removed). Prune and maturation
+   legitimately consume these events; deleting them would make fresh installs
+   prune-naked. get_context's P9 loop is defanged by the zero ranking weight;
+   layer-3's `get_top_activated` DISPLAY ordering reads the hygiene view and
+   is documented as a display heuristic outside the ranking path (and the
+   product surface short-circuits to the durable pack anyway).
+3. **F3 — RESOLVED: WIRE `snapshot_to_graph` into the mop window** (shell
+   paused ⇒ single-writer), with the counts documented as approximate
+   (last-clean-exit-stale, per Judge-2). Rationale: the method already exists
+   with zero callers; deletion would touch prune SQL across three backends
+   (larger blast radius) and lose dashboard honesty for nothing.
+4. **F4 — RESOLVED: KILL.** All three judges endorse; the reward channel is
+   structurally absent (no agent-surface feedback signal exists), making TS
+   un-eval-gateable; at budget 0 it is doubly inert and at budget >0 it costs
+   reachability and destroys repeat-stability. This knowingly reverses the
+   recorded "SEEDED-ON, flip parked" decision — the reversal was flagged to
+   the founder twice (2026-07-18 review + this doc) before /goal delegated
+   the call. Snapshot compat: `ts_alpha/ts_beta` tolerated-and-dropped on
+   load. Side benefit: M2.2 loses the TS-twin gating complexity. Drives M5.3.
+5. **F5 — RESOLVED: zero the activation column, adopt D3's β_route table**
+   (FREQUENCY 0.30, TEMPORAL 0.25, others per design). The u-tiebreaker
+   replaces activation in ranking; small-nonzero retunes of the OLD saturated
+   signal are exactly the "tuning weights on a saturated signal" mistake
+   Judge-1 blocked.
+6. **F6 — RESOLVED: justify-and-pin now, rebalance only behind the gate.**
+   The 2.5x durable boost is LIVE shipped behavior; changing it is a default
+   change requiring eval. M3.1 therefore (a) writes the invariant test that
+   PINS the current bound (durable may dominate semantics within factor 2.5 —
+   intentional for identity-class facts, which should surface on weak
+   matches), (b) documents the asymmetry vs the usage theorem explicitly, and
+   (c) any rebalance (e.g. beta_durable) gates on the live continuity gate.
+   cs cap 0.05 accepted pending M3.1 recalibration against u.
+7. **F7 — RESOLVED: BUILD** (M5.1 as designed, behind the episode gates).
+   Episodes are the core tier; leaving them without a usage channel recreates
+   the "no principled recency model" gap this goal exists to close.
+8. **F8 — RESOLVED: WAIVED.** The corrected panel ran against the design and
+   every blocker is folded into named rows and gates; G1-G7 plus the
+   mechanism gates ARE the ongoing adversarial instrument. A third
+   documentation pass has worse marginal value than executing against the
+   gates. Per-milestone adversarial verify agents remain in force.
+9. **F9 — RESOLVED: stays PARKED.** Three independent classifiers is real
+   debt but orthogonal to this goal's collapse modes; D3 touches only the
+   router table. Revisit after M2 lands.
+10. **F10 — RESOLVED: option (a), `w_mentioned=0.1`.** Ingestion mentions are
+    user-content-driven — what the user actually talks about IS the
+    environmental statistic Anderson-Schooler ground the prior in, and it is
+    loop-free (the ranker does not write episodes). Guard: at most one
+    mention event per (entity, episode) — the commit path fires once per
+    entity per episode already. This gives ranking-frequency a real,
+    trusted signal at launch independent of the citation scan proving itself.
 
 ## Parked (dated reasons)
 
