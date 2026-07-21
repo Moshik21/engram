@@ -144,6 +144,18 @@ attribution. Revisit after the prerequisites below.)
    - repair the deep-recall emptiness — warm-window reindex of the vector-less
      backlog (missing entity vectors measured above) and re-establish the
      organic continuity PASS;
+     **STATUS 2026-07-21 (same day, post-gate): the root cause is FIXED —
+     the FastEmbed cache held an interrupted `model.onnx` download (the
+     blob's `.lock` existed, the blob didn't), latching "vector embeds
+     disabled" since Jul 13. Broken cache moved to the session scratchpad,
+     model re-downloaded, 768-dim vectors verified, shell restarted onto the
+     repaired cache. New content embeds correctly from now. The BACKLOG
+     reindex is still pending: a `brain run --tier warm` attempt on the live
+     brain blew a 480s deadline (native `find_consol_decision_traces_by_cycle`
+     timed out at 20s during dry-run) — the warm tier has its own timeout
+     pathology on the 17GB brain and the backlog needs either a longer
+     supervised window or a targeted vector backfill. Shell verified healthy
+     after the aborted window.**
    - let the G7-cleared citation scan accumulate a real capture window of
      used-tier events, then re-run this gate's arm-B churn measurement on a
      recall stack that returns results (expected: tie-break-shaped, ≤1.30×);
