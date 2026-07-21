@@ -63,6 +63,10 @@ class MemoryActivationStore:
         # Resolved lazily so tests that point ENGRAM_HOME/HOME at a scratch
         # dir after construction still journal into the scratch dir.
         self._journal_path_override = journal_path
+        # M4.1 periodic-save cadence: accesses recorded since the last
+        # successful snapshot save, and when that save (or a deferral) was.
+        self._dirty_count = 0
+        self._last_periodic_save = time.time()
 
     @property
     def journal_path(self) -> Path:
@@ -119,6 +123,7 @@ class MemoryActivationStore:
             state = ActivationState(node_id=entity_id)
             self._states[entity_id] = state
         _record_access(state, timestamp, self._cfg)
+        self._dirty_count += 1
         weight = self._tier_weight(tier)
         if weight > 0.0:
             state.record_usage_event(timestamp, weight)
@@ -300,6 +305,65 @@ class MemoryActivationStore:
             # events; it is inert (never replayed) and logged for diagnosis.
             logger.warning("Usage journal compaction failed: %s", journal, exc_info=True)
 
+    # ── Periodic snapshot cadence (M4.1) ────────────────────────────
+
+    def periodic_save_due(
+        self,
+        *,
+        interval_seconds: float,
+        dirty_min: int,
+        now: float | None = None,
+    ) -> bool:
+        """Whether a periodic save should fire: elapsed >= interval AND dirty >= min.
+
+        Cheap (no IO, no process probes) so MCP can gate its expensive
+        ownership checks behind it on every tool call. A dirty_min of 0 still
+        requires at least one recorded access — an idle store never rewrites
+        an unchanged snapshot.
+        """
+        if interval_seconds <= 0:
+            return False
+        now = now if now is not None else time.time()
+        if (now - self._last_periodic_save) < interval_seconds:
+            return False
+        return self._dirty_count >= max(1, dirty_min)
+
+    def defer_periodic_save(self, now: float | None = None) -> None:
+        """Re-arm the periodic timer without saving.
+
+        Used when a due save is refused by the ownership rules (shell alive,
+        snapshot mtime changed): dirty events stay counted, but the expensive
+        ownership probes wait a full interval before running again.
+        """
+        self._last_periodic_save = now if now is not None else time.time()
+
+    def maybe_save_periodic(
+        self,
+        path: Path,
+        *,
+        interval_seconds: float,
+        dirty_min: int,
+        now: float | None = None,
+    ) -> int:
+        """M4.1 periodic durability save: save_to_file when due, else no-op.
+
+        Bounds kill -9 / power-loss access loss to ~interval_seconds without
+        a clean shutdown. Delegates to save_to_file, so ALL ownership
+        mechanics (journal fold-then-compact) apply; process-level ownership
+        (owner-only save, mtime guard) stays with the caller. Returns entities
+        saved (0 when not due or on write failure). The timer re-arms on
+        every attempt, so a failing disk retries once per interval, not per
+        call.
+        """
+        now = now if now is not None else time.time()
+        if not self.periodic_save_due(
+            interval_seconds=interval_seconds, dirty_min=dirty_min, now=now
+        ):
+            return 0
+        saved = self.save_to_file(path)
+        self._last_periodic_save = now
+        return saved
+
     # ── Snapshot persistence ────────────────────────────────────────
 
     def save_to_file(self, path: Path) -> int:
@@ -334,6 +398,8 @@ class MemoryActivationStore:
             logger.warning("Activation snapshot write failed: %s", path, exc_info=True)
             return 0
         self._compact_journal(journal, folded_bytes)
+        self._dirty_count = 0
+        self._last_periodic_save = time.time()
         return len(states)
 
     def load_from_file(self, path: Path, max_age_days: float = 14.0) -> int:
@@ -399,9 +465,30 @@ class MemoryActivationStore:
             loaded += 1
         return loaded
 
-    async def snapshot_to_graph(self, graph_store) -> None:
-        """Persist current activation state to graph entity rows."""
-        for eid, state in self._states.items():
+    async def snapshot_to_graph(self, graph_store, limit: int | None = None) -> int:
+        """Persist current activation counters to graph entity rows (RF M4.2).
+
+        The graph-row access_count/last_accessed columns are APPROXIMATE, not
+        authoritative: they refresh at most once per cold-brain mop window
+        (hygiene_ops.execute_hygiene_mop — the shell is paused there, so the
+        mop is the single writer), and the brain loads the shell's last-clean-
+        exit snapshot read-only, so shell accesses since that save are absent.
+        Consumers are display surfaces and prune's coarse pre-filter, where
+        stale-by-one-window is acceptable. RANKING never reads these columns
+        (pinned by tests/test_mop_snapshot_sync.py); the ranking-side source
+        of truth stays this store's in-RAM states.
+
+        Most-recently-accessed states sync first so a bounded ``limit``
+        refreshes the rows that drifted most. Returns entities synced.
+        """
+        items = sorted(
+            self._states.items(),
+            key=lambda kv: (-kv[1].last_accessed, kv[0]),
+        )
+        if limit is not None:
+            items = items[: max(0, limit)]
+        synced = 0
+        for eid, state in items:
             group_id = self._group_map.get(eid, "default")
             last_accessed = (
                 datetime.fromtimestamp(state.last_accessed, tz=timezone.utc).replace(tzinfo=None)
@@ -416,3 +503,5 @@ class MemoryActivationStore:
                 },
                 group_id=group_id,
             )
+            synced += 1
+        return synced

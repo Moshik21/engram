@@ -7,6 +7,7 @@ import re
 import time
 from collections import deque
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol
 
 from engram.config import ActivationConfig
@@ -149,6 +150,11 @@ _USAGE_CONTEXT_MIN_TOKEN_LEN = 4
 _USAGE_PROMOTION_ENTITY_CAP = 32
 
 
+_CUE_USAGE_MIN_PHRASE_TOKENS = 2
+_CUE_USAGE_MAX_PHRASE_TOKENS = 5
+_CUE_USAGE_MIN_PHRASE_CHARS = 10
+
+
 @dataclass(frozen=True)
 class SurfacedEntry:
     """One surfaced recall payload remembered for the citation scan."""
@@ -157,6 +163,15 @@ class SurfacedEntry:
     name: str
     ts: float
     snippet_tokens: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SurfacedCueEntry:
+    """One surfaced cue-backed episode remembered for the citation scan (M5.1)."""
+
+    episode_id: str
+    ts: float
+    phrase_token_lists: tuple[tuple[str, ...], ...]
 
 
 class SurfacedUsageBuffer:
@@ -171,6 +186,9 @@ class SurfacedUsageBuffer:
         self._cap = cap
         self._dedup_window = dedup_window_seconds
         self._entries: dict[str, deque[SurfacedEntry]] = {}
+        # M5.1: surfaced cue-backed episodes, scanned in the SAME pass with the
+        # same echo mask; dedup shares _last_used_event under a "cue::" key.
+        self._cue_entries: dict[str, deque[SurfacedCueEntry]] = {}
         self._last_used_event: dict[tuple[str, str], float] = {}
         # Mask-only ring: shingle sources for ALL surfaced text (episode
         # content, packet summaries) — not entity-bound. Without this, an
@@ -207,8 +225,41 @@ class SurfacedUsageBuffer:
         ring = self._text_masks.setdefault(group_id, deque(maxlen=self._cap))
         ring.append(tokens)
 
+    def note_surfaced_cue(
+        self,
+        group_id: str,
+        *,
+        episode_id: str,
+        cue_text: str,
+        supporting_spans: list[str] | None = None,
+        ts: float,
+    ) -> None:
+        """Register a surfaced cue-backed episode for the citation scan (M5.1).
+
+        The cue's text and spans become both match candidates (novel reuse of a
+        cue phrase = reliance) and echo-mask sources (verbatim parroting never
+        fires).
+        """
+        if not episode_id:
+            return
+        phrase_token_lists: list[tuple[str, ...]] = []
+        for candidate in [cue_text, *(supporting_spans or [])]:
+            tokens = tuple(_normalize_text((candidate or "")[:_USAGE_SNIPPET_MAX_CHARS]).split())
+            if tokens:
+                phrase_token_lists.append(tokens)
+        if not phrase_token_lists:
+            return
+        ring = self._cue_entries.setdefault(group_id, deque(maxlen=self._cap))
+        ring.append(
+            SurfacedCueEntry(
+                episode_id=episode_id,
+                ts=ts,
+                phrase_token_lists=tuple(phrase_token_lists),
+            )
+        )
+
     def is_empty(self, group_id: str) -> bool:
-        return not self._entries.get(group_id)
+        return not self._entries.get(group_id) and not self._cue_entries.get(group_id)
 
     def scan_novel_mentions(
         self,
@@ -230,9 +281,7 @@ class SurfacedUsageBuffer:
         if not content_tokens:
             return []
 
-        mask_sources = [entry.snippet_tokens for entry in ring]
-        mask_sources.extend(self._text_masks.get(group_id) or ())
-        echoed = _echoed_token_mask(content_tokens, mask_sources)
+        echoed = _echoed_token_mask(content_tokens, self._mask_sources(group_id))
         fired: list[SurfacedEntry] = []
         seen: set[str] = set()
         for entry in reversed(ring):
@@ -248,6 +297,52 @@ class SurfacedUsageBuffer:
         self._prune_dedup(now)
         return fired
 
+    def scan_novel_cue_matches(
+        self,
+        group_id: str,
+        content: str,
+        now: float,
+    ) -> list[SurfacedCueEntry]:
+        """Return surfaced cues genuinely relied on by ``content`` (M5.1).
+
+        Same pass semantics as scan_novel_mentions: the SAME echo mask (a
+        verbatim parrot of any surfaced payload never fires) and the SAME
+        dedup class/window, keyed ("cue::" + episode_id) in _last_used_event.
+        A cue fires when a contiguous >=2-token, >=10-char phrase shared with
+        its cue text/spans appears at a not-wholly-echoed content position.
+        """
+        ring = self._cue_entries.get(group_id)
+        if not ring:
+            return []
+        content_tokens = _normalize_text(content).split()
+        if not content_tokens:
+            return []
+
+        echoed = _echoed_token_mask(content_tokens, self._mask_sources(group_id))
+        fired: list[SurfacedCueEntry] = []
+        seen: set[str] = set()
+        for entry in reversed(ring):
+            if entry.episode_id in seen:
+                continue
+            seen.add(entry.episode_id)
+            dedup_key = (group_id, f"cue::{entry.episode_id}")
+            last = self._last_used_event.get(dedup_key)
+            if last is not None and (now - last) < self._dedup_window:
+                continue
+            if _has_novel_cue_match(content_tokens, echoed, entry):
+                self._last_used_event[dedup_key] = now
+                fired.append(entry)
+        self._prune_dedup(now)
+        return fired
+
+    def _mask_sources(self, group_id: str) -> list[tuple[str, ...]]:
+        """Echo-mask shingle sources shared by the entity and cue scans."""
+        sources = [entry.snippet_tokens for entry in self._entries.get(group_id) or ()]
+        for cue_entry in self._cue_entries.get(group_id) or ():
+            sources.extend(cue_entry.phrase_token_lists)
+        sources.extend(self._text_masks.get(group_id) or ())
+        return sources
+
     def _prune_dedup(self, now: float) -> None:
         stale = [
             key for key, ts in self._last_used_event.items() if (now - ts) >= self._dedup_window
@@ -257,6 +352,7 @@ class SurfacedUsageBuffer:
 
     def reset(self) -> None:
         self._entries.clear()
+        self._cue_entries.clear()
         self._last_used_event.clear()
         self._text_masks.clear()
 
@@ -286,6 +382,20 @@ def note_surfaced_texts_from_response(
             text = result.get("text") or result.get("content") or ""
             if text:
                 buffer.note_surfaced_text(group_id, str(text), ts)
+            # M5.1: surfaced cue-backed episodes join the citation scan. Their
+            # cue text/spans double as echo-mask sources inside the cue entry.
+            if result.get("result_type") == "cue_episode":
+                episode_id = result.get("episode_id") or ""
+                cue_text = result.get("cue_text") or ""
+                spans = [str(span) for span in result.get("supporting_spans") or []]
+                if episode_id and (cue_text or spans):
+                    buffer.note_surfaced_cue(
+                        group_id,
+                        episode_id=str(episode_id),
+                        cue_text=str(cue_text),
+                        supporting_spans=spans,
+                        ts=ts,
+                    )
         for packet in response.get("packets") or []:
             text = packet.get("summary") or packet.get("text") or ""
             title = packet.get("title") or ""
@@ -365,6 +475,37 @@ def _has_novel_mention(
     return False
 
 
+def _has_novel_cue_match(
+    content_tokens: list[str],
+    echoed: list[bool],
+    entry: SurfacedCueEntry,
+) -> bool:
+    """True when a shared cue phrase appears in novel (non-echoed) tokens.
+
+    Positional mirror of _matches_cue_content: a contiguous n-gram (2..5
+    tokens, >=10 chars joined) present in both the content and one of the
+    cue's text/span token lists counts as reliance, unless every token of the
+    matched span sits inside an echoed shingle (verbatim parroting).
+    """
+    candidate_ngrams: set[tuple[str, ...]] = set()
+    for tokens in entry.phrase_token_lists:
+        max_n = min(_CUE_USAGE_MAX_PHRASE_TOKENS, len(tokens))
+        for size in range(_CUE_USAGE_MIN_PHRASE_TOKENS, max_n + 1):
+            for i in range(len(tokens) - size + 1):
+                gram = tokens[i : i + size]
+                if len(" ".join(gram)) >= _CUE_USAGE_MIN_PHRASE_CHARS:
+                    candidate_ngrams.add(gram)
+    if not candidate_ngrams:
+        return False
+
+    for size in range(_CUE_USAGE_MIN_PHRASE_TOKENS, _CUE_USAGE_MAX_PHRASE_TOKENS + 1):
+        for i in range(len(content_tokens) - size + 1):
+            gram = tuple(content_tokens[i : i + size])
+            if gram in candidate_ngrams and not all(echoed[j] for j in range(i, i + size)):
+                return True
+    return False
+
+
 async def record_observed_usage_events(
     *,
     activation_store: ActivationStore,
@@ -373,11 +514,16 @@ async def record_observed_usage_events(
     content: str,
     now: float | None = None,
     usage_buffer: SurfacedUsageBuffer | None = None,
+    graph_store=None,
 ) -> list[str]:
-    """Record used-tier access events for surfaced entities relied on in content.
+    """Record used-tier usage for surfaced entities AND cues relied on in content.
 
     Requires ``recall_usage_feedback_enabled=True``; short-circuits (one dict
-    lookup) when no recall has surfaced entities for the group.
+    lookup) when no recall has surfaced anything for the group. Entities append
+    a used-tier access event; cue-backed episodes (M5.1, same pass, same echo
+    mask + dedup class) bump the cue record's tier-weighted usage_used_count /
+    usage_last_used_at when ``graph_store`` is provided. Returns the fired
+    entity ids plus ``"cue::<episode_id>"`` markers for fired cues.
     """
     if not cfg.recall_usage_feedback_enabled:
         return []
@@ -393,7 +539,28 @@ async def record_observed_usage_events(
             group_id=group_id,
             tier="used",
         )
-    return [entry.entity_id for entry in fired]
+    fired_ids = [entry.entity_id for entry in fired]
+    if graph_store is None:
+        return fired_ids
+
+    fired_cues = buffer.scan_novel_cue_matches(group_id, content, ts)
+    if not fired_cues:
+        return fired_ids
+    used_weight = float(cfg.usage_tier_weights.get("used", 0.0))
+    for cue_entry in fired_cues:
+        cue = await graph_store.get_episode_cue(cue_entry.episode_id, group_id)
+        if cue is None:
+            continue
+        await graph_store.update_episode_cue(
+            cue_entry.episode_id,
+            {
+                "usage_used_count": (cue.usage_used_count or 0.0) + used_weight,
+                "usage_last_used_at": datetime.fromtimestamp(ts, tz=timezone.utc),
+            },
+            group_id=group_id,
+        )
+        fired_ids.append(f"cue::{cue_entry.episode_id}")
+    return fired_ids
 
 
 class RecallEntityAccessRecorder:

@@ -430,6 +430,60 @@ async def _init() -> None:
     )
 
 
+def _maybe_save_activation_snapshot_periodic(now: float | None = None) -> int:
+    """RF M4.1: opportunistic periodic snapshot save, piggybacked on tool calls.
+
+    Same ownership rules as the shutdown save (_save_activation_snapshot_if_owner):
+    only when this process loaded the snapshot, no shell is running, and the
+    file is unchanged since our last observation. The cheap due-check (interval
+    + dirty count) runs first so the expensive shell probes fire at most once
+    per interval; a refused attempt re-arms the timer. After an owned save,
+    the observed mtime is refreshed so our own write does not trip the guard.
+    """
+    global _activation_snapshot_mtime_at_init
+
+    store = _runtime_activation_store
+    cfg = _activation_cfg
+    if (
+        cfg is None
+        or store is None
+        or not _activation_snapshot_loaded
+        or not hasattr(store, "maybe_save_periodic")
+    ):
+        return 0
+    interval = float(cfg.activation_snapshot_interval_seconds)
+    dirty_min = int(cfg.activation_snapshot_dirty_min)
+    if not store.periodic_save_due(interval_seconds=interval, dirty_min=dirty_min, now=now):
+        return 0
+    from engram.brain_runtime import serve_process_alive, shell_is_healthy
+
+    if serve_process_alive() or shell_is_healthy():
+        store.defer_periodic_save(now)
+        return 0
+    snapshot_path = activation_snapshot_path()
+    try:
+        current_mtime: float | None = snapshot_path.stat().st_mtime
+    except OSError:
+        current_mtime = None
+    if current_mtime != _activation_snapshot_mtime_at_init:
+        logger.info("Activation snapshot changed since load; skipping periodic MCP save")
+        store.defer_periodic_save(now)
+        return 0
+    saved = store.maybe_save_periodic(
+        snapshot_path,
+        interval_seconds=interval,
+        dirty_min=dirty_min,
+        now=now,
+    )
+    if saved:
+        try:
+            _activation_snapshot_mtime_at_init = snapshot_path.stat().st_mtime
+        except OSError:
+            _activation_snapshot_mtime_at_init = None
+        logger.info("Periodic activation snapshot (MCP): %d entities", saved)
+    return saved
+
+
 def _save_activation_snapshot_if_owner() -> None:
     """Persist activation state on clean MCP exit — only when safe to own the file.
 
@@ -744,6 +798,9 @@ async def _recall_middleware(
     if _session is None:
         # Unit tests and pre-init call sites should no-op, not raise.
         return
+    # M4.1: opportunistic periodic snapshot save — the stdio transport has no
+    # background loop, so tool calls are the only periodic trigger it gets.
+    _maybe_save_activation_snapshot_periodic()
     session = _get_session()
     session.session_tool_calls += 1
     if tool_name != "get_context":

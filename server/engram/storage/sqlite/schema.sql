@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS episode_cues (
     selected_count          INTEGER NOT NULL DEFAULT 0,
     used_count              INTEGER NOT NULL DEFAULT 0,
     near_miss_count         INTEGER NOT NULL DEFAULT 0,
+    usage_used_count        REAL NOT NULL DEFAULT 0.0,
+    usage_last_used_at      TEXT,
     policy_score            REAL NOT NULL DEFAULT 0.0,
     projection_attempts     INTEGER NOT NULL DEFAULT 0,
     last_hit_at             TEXT,

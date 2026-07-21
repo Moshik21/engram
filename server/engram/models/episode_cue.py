@@ -33,6 +33,13 @@ class EpisodeCue(BaseModel):
     selected_count: int = 0
     used_count: int = 0
     near_miss_count: int = 0
+    # M5.1 (RF goal): ranking-side episode usage via the cue substrate.
+    # usage_used_count is the TIER-WEIGHTED float sum (echo-guarded citation
+    # scan, w_used etc. from ActivationConfig.usage_tier_weights); the legacy
+    # int used_count above keeps its hygiene/telemetry semantics untouched.
+    # Read only under usage_ranking_enabled (u_episode = f*r', compute_u_values).
+    usage_used_count: float = 0.0
+    usage_last_used_at: datetime | None = None
     policy_score: float = 0.0
     projection_attempts: int = 0
     last_hit_at: datetime | None = None

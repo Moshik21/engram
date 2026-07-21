@@ -567,6 +567,8 @@ async def _record_observed_usage_events(manager: Any, *, group_id: str, content:
             cfg=cfg,
             group_id=group_id,
             content=content,
+            # M5.1: same-pass cue scan writes usage_used_count/usage_last_used_at.
+            graph_store=getattr(manager, "_graph", None),
         )
     except Exception:
         # silent-ok: usage-signal capture must never fail the observe write path.

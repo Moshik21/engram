@@ -141,6 +141,17 @@ Same u formula, same β_route, same tier weights. Both factors bounded (usage �
 
 **Why NOT unify environmental and behavioral into one term:** conflating them is precisely what `TEMPORAL → weight_activation=0.55` did — it made "recently *touched by the ranker*" answer "what happened recently". Creation-time is trustworthy metadata; touch-time is feedback. They compose multiplicatively and are separately gated, calibrated, and killable.
 
+### 4.1 Step 5.05/5.06 IS the episode environmental-recency model (M5.2, normative)
+
+Steps 5.05/5.06 (`retrieval/pipeline.py`, temporal scoring + date-survival) are **the** environmental-recency model for episodes — there is no other sanctioned creation-time recency path, and no new one may be added without amending this section. The contract:
+
+- **Gate:** `temporal_retrieval_enabled` + a detected temporal cue (`wants_latest` / `wants_earliest` / `is_state_query`). Non-temporal queries get NO environmental-recency factor.
+- **Input:** `episode.conversation_date` ONLY (trustworthy creation-time metadata). **Undated episodes get NO boost** — Step 5.05 `continue`s on a missing `conversation_date`; their score passes through unchanged (edge pinned by `test_undated_episode_gets_no_temporal_boost`). `created_at` is deliberately NOT a fallback: ingestion time is when the memory was written, not when it happened.
+- **Form:** multiplicative, bounded — `score *= 1 + exp(-age_days/h)` (latest/state) or `score *= 1 + (1 - exp(-age_days/h))` (earliest), `h = recency_halflife_days`; each factor ∈ (1, 2]. Step 5.06 additionally guarantees the top-3 date-sorted episode candidates survive into the final mix (a membership guarantee, not a score change).
+- **Composition with the behavioral channel (M5.1):** `final = rrf × (1 + β_route·u_episode) × (1 + temporal_cue_boost)`, where `u_episode = compute_u_values(usage_used_count, usage_last_used_at)` from the episode's cue record (Step 1.4, `usage_ranking_enabled` only, default off). The two recencies never share inputs: 5.05/5.06 read `conversation_date`; `u_episode` reads the echo-guarded, tier-weighted cue usage fields. Stack bound: usage ≤ 1.30 (β_max=0.30), so even granting the temporal side a conservative 3.0× envelope the combined stack is ≤ 3.9× — an item with a >3.9× rrf advantage can never be overtaken (pinned in `test_episode_usage.py` + the `rf_episode_u` rig stress probe).
+
+**M5.1 storage note (implemented 2026-07-21):** the cue record carries `usage_used_count: float` (tier-weighted) + `usage_last_used_at`; the legacy `int used_count` keeps its hygiene/telemetry semantics untouched. SQLite persists them as real columns (`usage_used_count REAL`, `usage_last_used_at TEXT`). **Helix native** has a frozen cue node schema (schema.hx regen is HEAVY), so both fields piggyback on `supporting_spans_json` as one tagged trailer entry (`_engram_cue_usage`), stripped back out in `_dict_to_episode_cue` — model-level consumers of `entity_mentions` never see it, and a cue with zero usage serializes byte-identically to the pre-M5.1 payload. FalkorDB (compat lane) does not persist the fields — episode-u is inert there. Known follow-up: the worker rework path (`worker_batching.py`) carries the legacy cue counters across re-projection but not yet `usage_*` (cue rebuild resets episode usage to 0).
+
 ---
 
 ## 5. Interaction contracts

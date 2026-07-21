@@ -155,8 +155,9 @@ class RedisActivationStore:
 
         The Redis store accepts the M1 tier parameter for call-site
         compatibility but records hygiene history only: the usage-event
-        mechanism (usage_events/journal) is inert in the Docker full-mode
-        compat lane pending M4.3 parity (RECENCY_FREQUENCY_GOAL.md).
+        mechanism (usage_events/journal) is DELIBERATELY inert in the Docker
+        full-mode compat lane (RF M4.3 resolved: documented-inert; pinned
+        against silent divergence by tests/storage/test_redis_activation_store.py).
         """
         from engram.activation.engine import record_access as _record_access
 

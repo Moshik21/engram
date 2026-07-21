@@ -11,7 +11,7 @@ import time
 import pytest
 import pytest_asyncio
 
-from engram.activation.engine import compute_activation, seed_consolidated_strength
+from engram.activation.engine import compute_activation, compute_u, seed_consolidated_strength
 from engram.config import ActivationConfig
 from engram.consolidation.phases.compact import (
     AccessHistoryCompactionPhase,
@@ -21,11 +21,16 @@ from engram.consolidation.phases.compact import (
 from engram.extraction.apply import ApplyEngine
 from engram.extraction.canonicalize import PredicateCanonicalizer
 from engram.extraction.models import EntityCandidate
-from engram.models.activation import ActivationState
+from engram.extraction.promotion import durable_result_boost
+from engram.models.activation import DEFAULT_USAGE_TIER_WEIGHTS, ActivationState
 from engram.models.episode import Episode
+from engram.retrieval.scorer import score_candidates
 from engram.storage.memory.activation import MemoryActivationStore
 
 DAY = 86400.0
+NOW = 1_700_000_000.0
+W_MENTIONED = DEFAULT_USAGE_TIER_WEIGHTS["mentioned"]
+BETA_MAX = 0.30  # usage_beta_route config ceiling (le=0.30) — the FREQUENCY route
 
 
 class _FakeGraph:
@@ -84,6 +89,12 @@ async def _commit(engine: ApplyEngine, candidate: EntityCandidate) -> str:
 
 
 class TestArithmeticSanity:
+    """HYGIENE-view (prune/mature) arithmetic. Post-M2 this compute_activation
+    band is exactly what cs-seeding buys: with usage_ranking_enabled ON the
+    scorer gates the activation term to 0, so the seed's only live consumer
+    is the prune floor (see TestRankingArithmeticPostM2 for the ranking side).
+    """
+
     def test_oneshot_identity_within_2x_of_mundane_at_30_days(self):
         """With the prior seeded, a one-shot identity fact at 30 days scores
         within 2x of a 5-access mundane entity at 30 days."""
@@ -113,6 +124,113 @@ class TestArithmeticSanity:
         )
 
         assert mundane_act / oneshot_act > 2.0
+
+
+# ======================================================================
+# Ranking-side arithmetic post-M2 (M3.1): durable boost x usage tiebreaker
+# ======================================================================
+
+
+def _mentioned_state(count: int, last_age_days: float) -> ActivationState:
+    """`count` mention-tier usage events, newest at NOW - last_age_days."""
+    state = ActivationState(node_id="ent_mundane")
+    for i in range(count):
+        state.record_usage_event(NOW - (last_age_days + i) * DAY, W_MENTIONED)
+    return state
+
+
+class TestRankingArithmeticPostM2:
+    """Re-derivation of the M3.3 arithmetic against the landed M2 reality.
+
+    With usage_ranking_enabled ON the scorer replaces the additive activation
+    term with 0 (M2.2 reader neutralization), so seeded consolidated_strength
+    never reaches ranking — cs-seeding is a PRUNE/hygiene input only.
+    Ranking-side importance then flows through two SEPARATE stages that never
+    multiply into one number: the usage tiebreaker (1 + beta*u) inside the
+    scorer, and the durable reserved lane (prefer_durable_facts type-rank
+    dominance + additive boost, result_selection.py) at post-processing —
+    see test_importance_invariants.py for the lane pins. The tests below
+    compare the two channels' MAGNITUDES as design arithmetic.
+
+    Worked scenario (rf_judge_math style): a one-shot identity fact (durable
+    Person, ZERO usage events) vs a 5x-mentioned mundane Concept
+    (5 x w_mentioned=0.1 events => n_eff=0.5, f=0.1031) at last-mention age
+    1d / 30d / 180d, equal semantic similarity, beta at the 0.30 ceiling
+    (usage's best case).
+    """
+
+    def test_cs_seed_reaches_ranking_only_when_usage_flag_off(self):
+        """Flag ON: seeded cs is invisible to the scorer (act term gated to
+        0) — identical scores with and without the seed. Flag OFF (shipped
+        default): the same seed still lifts the score through
+        weight_activation. This pins 'cs-seeding affects PRUNE only' as a
+        flag-ON claim, not a global one."""
+        history = [NOW - 30 * DAY]
+
+        def _score_with(cs: float, enabled: bool) -> float:
+            cfg = ActivationConfig(usage_ranking_enabled=enabled)
+            state = ActivationState(
+                node_id="e1",
+                access_history=list(history),
+                access_count=1,
+                consolidated_strength=cs,
+            )
+            [scored] = score_candidates(
+                candidates=[("e1", 0.5)],
+                spreading_bonuses={},
+                hop_distances={},
+                seed_node_ids=set(),
+                activation_states={"e1": state},
+                now=NOW,
+                cfg=cfg,
+            )
+            return scored.score
+
+        assert _score_with(0.05, enabled=True) == _score_with(0.0, enabled=True)
+        assert _score_with(0.05, enabled=False) > _score_with(0.0, enabled=False)
+
+    def test_identity_fact_zero_usage_multiplier_is_exactly_one(self):
+        """The one-shot identity fact has NO usage events: u == 0.0 exactly,
+        so its usage multiplier is exactly 1.0 — its entire ranking-side
+        importance comes from the durable lane (boost constant 2.5)."""
+        cfg = ActivationConfig()
+        assert compute_u(ActivationState(node_id="ent_identity"), NOW, cfg) == 0.0
+        assert durable_result_boost("Person") == 2.5
+
+    def test_mundane_5x_mentioned_u_pinned_at_three_horizons(self):
+        """5 x 0.1-weight mention events => n_eff=0.5; u decays with the
+        last-mention age: 0.0994 (1d) / 0.0433 (30d) / 0.0258 (180d)."""
+        cfg = ActivationConfig()
+        expected = {1.0: 0.0994, 30.0: 0.0433, 180.0: 0.0258}
+        for age_days, want in expected.items():
+            state = _mentioned_state(5, age_days)
+            assert state.n_eff == pytest.approx(0.5)
+            assert compute_u(state, NOW, cfg) == pytest.approx(want, abs=5e-4)
+
+    def test_durable_identity_beats_mentioned_mundane_at_all_horizons(self):
+        """Channel-magnitude comparison (design arithmetic, not a live
+        product): the identity fact's durable constant is 2.5 while the
+        mundane 5x-mentioned usage channel peaks at 1.0298 (1d) and decays
+        to 1.0077 (180d) — the durable channel outweighs it >= 2.42x at
+        every horizon, and in the live lane model the durable item wins
+        outright regardless of score. This is CORRECT: five environmental
+        mentions are weak evidence (n_eff=0.5 lifts f to only 0.103, barely
+        off the frequency floor), while durability is a commit-time class —
+        identity facts must keep surfacing on weak matches with zero decay
+        (the F6 intentional asymmetry)."""
+        cfg = ActivationConfig()
+        sem = 0.5
+
+        identity_mult = durable_result_boost("Person")  # x2.5, horizon-invariant
+        assert identity_mult == 2.5
+
+        expected_mundane_mult = {1.0: 1.0298, 30.0: 1.0130, 180.0: 1.0077}
+        for age_days, want in expected_mundane_mult.items():
+            u = compute_u(_mentioned_state(5, age_days), NOW, cfg)
+            mundane_mult = 1.0 + BETA_MAX * u
+            assert mundane_mult == pytest.approx(want, abs=5e-4)
+            assert sem * identity_mult > sem * mundane_mult
+            assert identity_mult / mundane_mult >= 2.42
 
 
 # ======================================================================

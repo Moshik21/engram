@@ -6,7 +6,7 @@ import fnmatch
 
 import pytest
 
-from engram.models.activation import ActivationState
+from engram.models.activation import DEFAULT_USAGE_TIER_WEIGHTS, ActivationState
 from engram.storage.redis.activation import RedisActivationStore
 
 
@@ -158,3 +158,39 @@ async def test_clear_activation_removes_group_index_member() -> None:
 
     assert "act:ent_a" not in redis.hashes
     assert "ent_a" not in redis.zsets["act_group:brain_a"]
+
+
+@pytest.mark.asyncio
+async def test_record_access_all_tiers_hygiene_only_no_usage_side_effects() -> None:
+    """RF M4.3 pin: the full-mode Redis lane is DOCUMENTED-INERT for usage.
+
+    record_access must accept every M1 tier without error and append hygiene
+    history (access_history/access_count/last_accessed), but the usage-event
+    mechanism stays inert: no usage_events, no usage caches, nothing
+    usage-shaped in the persisted hash. If someone half-wires usage into this
+    store (silent divergence from the documented choice), this test fails.
+    """
+    redis = _FakeRedis()
+    store = RedisActivationStore(redis)
+    # Sourced from the canonical tier table so a newly added tier is
+    # automatically covered by this pin.
+    tiers = sorted(DEFAULT_USAGE_TIER_WEIGHTS)
+    assert set(tiers) == {"surfaced", "mentioned", "used", "corrected", "confirmed"}
+
+    for i, tier in enumerate(tiers):
+        await store.record_access("ent_a", 1_000.0 + i, group_id="brain_a", tier=tier)
+
+    state = await store.get_activation("ent_a")
+    assert state is not None
+    # Hygiene history recorded for every tier.
+    assert state.access_count == len(tiers)
+    assert state.access_history == [1_000.0 + i for i in range(len(tiers))]
+    assert state.last_accessed == 1_000.0 + len(tiers) - 1
+    # Zero usage side-effects in the round-tripped state...
+    assert state.usage_events == []
+    assert state.usage_weight_sum == 0.0
+    assert state.usage_last_ts == 0.0
+    assert state.n_eff == 0.0
+    # ...and nothing usage-shaped persisted anywhere in the store.
+    for key, stored_hash in redis.hashes.items():
+        assert not any("usage" in field for field in stored_hash), (key, stored_hash)

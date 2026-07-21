@@ -16,6 +16,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# RF M4.2: per-window budget for syncing activation counters onto graph rows.
+_ACTIVATION_SNAPSHOT_SYNC_MAX = 5000
+
 
 def _hygiene_state_path() -> Path:
     home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
@@ -354,6 +357,30 @@ async def execute_hygiene_mop(
         "records": len(records),
         "reasons": reason_counts,
     }
+
+    # RF M4.2: sync activation counters onto graph entity rows inside the mop
+    # window (shell paused ⇒ single-writer), budgeted per window. This is the
+    # ONLY writer of the graph-row access_count/last_accessed columns, so they
+    # are approximate — stale up to one mop window, and missing the shell's
+    # crash-window accesses (the brain loads the last-clean-exit snapshot
+    # read-only). Ranking never reads them; see
+    # MemoryActivationStore.snapshot_to_graph for the full contract.
+    snapshot_sync = getattr(activation_store, "snapshot_to_graph", None)
+    if callable(snapshot_sync) and not dry_run:
+        try:
+            synced = await snapshot_sync(graph_store, limit=_ACTIVATION_SNAPSHOT_SYNC_MAX)
+            mop["snapshot_sync"] = {
+                "entities": int(synced or 0),
+                "budget": _ACTIVATION_SNAPSHOT_SYNC_MAX,
+            }
+        except Exception:
+            logger.exception("mop activation snapshot sync failed")
+            mop["snapshot_sync"] = {"status": "error"}
+    else:
+        mop["snapshot_sync"] = {
+            "skipped": True,
+            "reason": "dry_run" if dry_run else "store lacks snapshot_to_graph",
+        }
 
     after = await collect_hygiene_debt_from_store(graph_store, group_id)
     try:

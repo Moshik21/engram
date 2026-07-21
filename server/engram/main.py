@@ -433,6 +433,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
     if config.activation.continuity_startup_warmup_enabled:
         _start_continuity_warmup(manager, config)
     _start_capture_queue_drain(manager, config)
+    _start_activation_snapshot_task(activation_store, config)
 
     _app_state.update(
         {
@@ -478,6 +479,42 @@ def _activation_snapshot_path():
     from engram.storage.memory.activation import activation_snapshot_path
 
     return activation_snapshot_path()
+
+
+def _start_activation_snapshot_task(activation_store, config: EngramConfig) -> asyncio.Task | None:
+    """RF M4.1: periodic activation-snapshot saves in the shell lifespan.
+
+    The shell is the primary snapshot owner, so it saves without ownership
+    probes; the store gates each attempt on elapsed >= interval AND dirty >=
+    min, bounding kill -9 access loss to ~interval instead of losing
+    everything since the last clean shutdown.
+    """
+    interval = float(config.activation.activation_snapshot_interval_seconds)
+    dirty_min = int(config.activation.activation_snapshot_dirty_min)
+    if interval <= 0 or not hasattr(activation_store, "maybe_save_periodic"):
+        return None
+
+    async def _loop() -> None:
+        # Poll faster than the interval so a save fires promptly once due.
+        poll = min(60.0, interval)
+        while True:
+            await asyncio.sleep(poll)
+            try:
+                saved = activation_store.maybe_save_periodic(
+                    _activation_snapshot_path(),
+                    interval_seconds=interval,
+                    dirty_min=dirty_min,
+                )
+                if saved:
+                    logger.info("Periodic activation snapshot: %d entities", saved)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("Periodic activation snapshot failed", exc_info=True)
+
+    task = asyncio.create_task(_loop())
+    _track_startup_background_task(task)
+    return task
 
 
 async def _shutdown() -> None:

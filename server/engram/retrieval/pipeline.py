@@ -6,8 +6,10 @@ import asyncio
 import logging
 import math
 import time
+from datetime import timezone
 from typing import TYPE_CHECKING
 
+from engram.activation.engine import compute_u_values
 from engram.activation.spreading import (
     identify_actr_seeds,
     identify_seeds,
@@ -182,6 +184,47 @@ def _candidate_pool_has_zero_semantic_score(
         and _stage_metric(stage_timings_ms, "recall_candidate_max_score") <= 0.0
         and _stage_metric(stage_timings_ms, "recall_search_candidate_count") <= 0
     )
+
+
+async def _apply_episode_usage_tiebreaker(
+    episode_candidates: list[ScoredResult],
+    cue_candidates: list[ScoredResult],
+    *,
+    graph_store,
+    group_id: str,
+    now: float,
+    cfg: ActivationConfig,
+) -> None:
+    """M5.1 episode-u composition: score = rrf x (1 + beta_route * u_episode).
+
+    u_episode = compute_u_values(usage_used_count, usage_last_used_at) from the
+    episode's cue record (tier-weighted, echo-guarded usage — the cue
+    substrate, RF_target_design section 4). Episodes without a cue or without
+    usage keep u = 0 (graceful degradation, no per-episode ActivationState).
+    Runs ONLY under usage_ranking_enabled, BEFORE Step 5.05, so the
+    environmental temporal factor multiplies on top:
+    final = rrf x (1 + beta_route*u_episode) x (1 + temporal_cue_boost).
+    """
+    u_by_episode: dict[str, float] = {}
+    for sr in [*episode_candidates, *cue_candidates]:
+        u = u_by_episode.get(sr.node_id)
+        if u is None:
+            u = 0.0
+            try:
+                cue = await graph_store.get_episode_cue(sr.node_id, group_id)
+            except Exception:
+                # silent-ok: a cue-read miss only forfeits the usage tiebreaker
+                # for this episode; recall must never fail on it.
+                logger.debug("Episode-u cue read failed", exc_info=True)
+                cue = None
+            if cue is not None and cue.usage_used_count > 0.0 and cue.usage_last_used_at:
+                last_dt = cue.usage_last_used_at
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
+                u = compute_u_values(cue.usage_used_count, last_dt.timestamp(), now, cfg)
+            u_by_episode[sr.node_id] = u
+        if u > 0.0:
+            sr.score *= 1.0 + cfg.usage_beta_route * u
 
 
 def _merge_special_results(
@@ -965,6 +1008,20 @@ async def retrieve(
         "recall_cue_candidate_max_score",
         max((result.score for result in cue_candidates), default=0.0),
     )
+
+    # Step 1.4 (M5.1): episode-u composition on the cue substrate. Flag-gated
+    # (usage_ranking_enabled, default False -> zero cue reads, byte-identical).
+    # Placed before the Step-1.8 special-result early returns so every path
+    # that can surface an episode sees the same composition.
+    if cfg.usage_ranking_enabled and (episode_candidates or cue_candidates):
+        await _apply_episode_usage_tiebreaker(
+            episode_candidates,
+            cue_candidates,
+            graph_store=graph_store,
+            group_id=group_id,
+            now=now,
+            cfg=cfg,
+        )
 
     # Step 1.8: Entity-first fallback when search finds few candidates
     if not candidates and not primary_search_timed_out:

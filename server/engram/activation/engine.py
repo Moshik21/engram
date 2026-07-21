@@ -77,8 +77,9 @@ def seed_consolidated_strength(
     return True
 
 
-def compute_u(
-    state: ActivationState,
+def compute_u_values(
+    n_eff: float,
+    last_ts: float,
     now: float,
     cfg: ActivationConfig,
 ) -> float:
@@ -89,19 +90,28 @@ def compute_u(
     r'     = r_floor + (1 - r_floor) * r             floor keeps old-but-frequent alive
     u      = f * r'                                  0 exactly when n_eff == 0
 
-    Pure and deterministic: reads only the O(1) caches state.n_eff and
-    state.usage_last_ts (M1.1). No store access.
+    Pure and deterministic: substrate-agnostic (M5.1) — entities pass the
+    ActivationState O(1) caches via compute_u; episodes pass the cue record's
+    tier-weighted used_count / last_used_at. No store access.
     """
-    n_eff = state.n_eff
     if n_eff <= 0.0:
         return 0.0
 
     f = min(1.0, math.log1p(n_eff) / math.log1p(cfg.usage_n_cap))
     h_seconds = cfg.usage_half_life_days * 86400.0
-    delta_last = max(0.0, now - state.usage_last_ts)
+    delta_last = max(0.0, now - last_ts)
     r = 2.0 ** (-delta_last / h_seconds)
     r_prime = cfg.usage_r_floor + (1.0 - cfg.usage_r_floor) * r
     return f * r_prime
+
+
+def compute_u(
+    state: ActivationState,
+    now: float,
+    cfg: ActivationConfig,
+) -> float:
+    """Entity-side u: delegates to compute_u_values on the M1.1 O(1) caches."""
+    return compute_u_values(state.n_eff, state.usage_last_ts, now, cfg)
 
 
 def record_access(

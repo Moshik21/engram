@@ -77,7 +77,9 @@ def score_candidates(
 
     is applied post-composite, pre-sort, with u = f*r' from usage_events
     only (engine.compute_u). An item can overtake another only within a
-    <= 30% relevance band (beta_max) — usage never beats semantics.
+    <= 30% relevance band (beta_max) — usage never beats semantics. The
+    hygiene novelty/rediscovery readers are also replaced flag-ON: the
+    ranking view reads ONLY the usage store (see inline comment).
 
     activation = compute_activation(history), clamped [0, 1]
     spreading = spreading_bonus, clamped [0, 1] (independent signal)
@@ -122,24 +124,47 @@ def score_candidates(
         # M5.3 (F4 KILL): Thompson Sampling and its ts_weight twin are
         # deleted; this deterministic cfg.exploration_weight term is now the
         # only exploration signal and is always live on the scoring path.
-        access_count = state.access_count if state else 0
-        if sem_sim > 0:
-            novelty = 1.0 / (1.0 + math.log1p(access_count))
-            exploration = cfg.exploration_weight * sem_sim * novelty
+        if usage_on:
+            # One-store-two-views closure (the M2-verifier leftover readers):
+            # flag-ON, the ranking view reads ONLY the usage store, so the
+            # hygiene readers below (access_count novelty, access_history
+            # rediscovery) must not run — surfaced-only history would
+            # otherwise strip an entity's novelty boost while contributing
+            # nothing to u, inverting used-wins-ties.
+            #
+            # Novelty is delegated ENTIRELY to the u multiplier: "novel iff
+            # usage_weight_sum == 0" is expressed as multiplier == 1.0
+            # exactly for never-used entities (u == 0), strictly > 1.0 once
+            # used. A usage-derived novelty *penalty* here cannot work: at
+            # these magnitudes w_expl*sem*(1 - novelty(n_eff)) exceeds the
+            # bounded gain beta*u*composite for every beta <= beta_max=0.30
+            # at small n_eff (e.g. n_eff=0.3: penalty 0.0083 vs gain 0.0023
+            # at defaults), which would re-invert used-wins-ties.
+            #
+            # Rediscovery is zeroed flag-ON: a dormancy bonus from
+            # usage_last_ts would grow while u's recency factor r' decays —
+            # double-reading the same timestamp in opposite directions —
+            # and r_floor already keeps old-but-frequent items alive.
+            exploration = cfg.exploration_weight * sem_sim if sem_sim > 0 else 0.0
         else:
-            exploration = 0.0
+            access_count = state.access_count if state else 0
+            if sem_sim > 0:
+                novelty = 1.0 / (1.0 + math.log1p(access_count))
+                exploration = cfg.exploration_weight * sem_sim * novelty
+            else:
+                exploration = 0.0
 
-        # Rediscovery bonus: exponential decay for dormant entities
-        if sem_sim > 0 and state and state.access_history and cfg.rediscovery_weight > 0:
-            last_access = max(state.access_history)
-            days_since = (now - last_access) / 86400.0
-            halflife = cfg.rediscovery_halflife_days
-            rediscovery = (
-                cfg.rediscovery_weight
-                * sem_sim
-                * (1.0 - math.exp(-math.log(2) * days_since / halflife))
-            )
-            exploration += rediscovery
+            # Rediscovery bonus: exponential decay for dormant entities
+            if sem_sim > 0 and state and state.access_history and cfg.rediscovery_weight > 0:
+                last_access = max(state.access_history)
+                days_since = (now - last_access) / 86400.0
+                halflife = cfg.rediscovery_halflife_days
+                rediscovery = (
+                    cfg.rediscovery_weight
+                    * sem_sim
+                    * (1.0 - math.exp(-math.log(2) * days_since / halflife))
+                )
+                exploration += rediscovery
 
         # Conversation context boost
         ctx_boost = 0.0

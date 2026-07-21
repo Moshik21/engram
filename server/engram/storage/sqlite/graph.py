@@ -237,6 +237,9 @@ class SQLiteGraphStore:
             "ALTER TABLE episode_cues ADD COLUMN selected_count INTEGER DEFAULT 0",
             "ALTER TABLE episode_cues ADD COLUMN used_count INTEGER DEFAULT 0",
             "ALTER TABLE episode_cues ADD COLUMN near_miss_count INTEGER DEFAULT 0",
+            # M5.1: tier-weighted ranking-side cue usage (legacy used_count is hygiene-only)
+            "ALTER TABLE episode_cues ADD COLUMN usage_used_count REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE episode_cues ADD COLUMN usage_last_used_at TEXT",
             "ALTER TABLE episode_cues ADD COLUMN policy_score REAL DEFAULT 0.0",
             "ALTER TABLE episode_cues ADD COLUMN projection_attempts INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE episode_cues ADD COLUMN last_hit_at TEXT",
@@ -1106,11 +1109,13 @@ class SQLiteGraphStore:
                 cue_score, salience_score, projection_priority, route_reason, cue_text,
                 entity_mentions_json, temporal_markers_json, quote_spans_json,
                 contradiction_keys_json, first_spans_json, hit_count, surfaced_count,
-                selected_count, used_count, near_miss_count, policy_score,
+                selected_count, used_count, near_miss_count, usage_used_count,
+                usage_last_used_at, policy_score,
                 projection_attempts, last_hit_at, last_feedback_at, last_projected_at,
                 created_at, updated_at)
                VALUES (
-                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                   ?, ?, ?
                )
                ON CONFLICT(episode_id) DO UPDATE SET
                    group_id=excluded.group_id,
@@ -1132,6 +1137,8 @@ class SQLiteGraphStore:
                    selected_count=excluded.selected_count,
                    used_count=excluded.used_count,
                    near_miss_count=excluded.near_miss_count,
+                   usage_used_count=excluded.usage_used_count,
+                   usage_last_used_at=excluded.usage_last_used_at,
                    policy_score=excluded.policy_score,
                    projection_attempts=excluded.projection_attempts,
                    last_hit_at=excluded.last_hit_at,
@@ -1163,6 +1170,8 @@ class SQLiteGraphStore:
                 cue.selected_count,
                 cue.used_count,
                 cue.near_miss_count,
+                cue.usage_used_count,
+                cue.usage_last_used_at.isoformat() if cue.usage_last_used_at else None,
                 cue.policy_score,
                 cue.projection_attempts,
                 cue.last_hit_at.isoformat() if cue.last_hit_at else None,
@@ -1216,7 +1225,8 @@ class SQLiteGraphStore:
             elif key == "projection_state" and hasattr(value, "value"):
                 transformed[dest] = value.value
             elif (
-                key in {"last_hit_at", "last_feedback_at", "last_projected_at"}
+                key
+                in {"last_hit_at", "last_feedback_at", "last_projected_at", "usage_last_used_at"}
                 and value is not None
             ):
                 transformed[dest] = value.isoformat() if hasattr(value, "isoformat") else value
@@ -2714,6 +2724,8 @@ class SQLiteGraphStore:
             selected_count=row["selected_count"] or 0,
             used_count=row["used_count"] or 0,
             near_miss_count=row["near_miss_count"] or 0,
+            usage_used_count=row["usage_used_count"] or 0.0,
+            usage_last_used_at=_parse_dt(row["usage_last_used_at"]),
             policy_score=row["policy_score"] or 0.0,
             projection_attempts=row["projection_attempts"] or 0,
             last_hit_at=_parse_dt(row["last_hit_at"]),

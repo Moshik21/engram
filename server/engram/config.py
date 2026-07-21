@@ -2159,6 +2159,28 @@ class ActivationConfig(BaseModel):
             "usage_events only (loop-free). 0 disables the retriever."
         ),
     )
+    activation_snapshot_interval_seconds: int = Field(
+        default=600,
+        ge=0,
+        description=(
+            "RF M4.1 periodic activation-snapshot cadence. The snapshot-owning "
+            "process (shell lifespan task; MCP stdio piggybacks on tool calls) "
+            "saves when BOTH elapsed >= interval AND dirty accesses >= "
+            "activation_snapshot_dirty_min, bounding kill -9 access loss to "
+            "~interval. 0 disables periodic saves (shutdown save still runs). "
+            "All existing ownership rules (owner-only save, mtime guard, "
+            "journal fold) still apply to every periodic save."
+        ),
+    )
+    activation_snapshot_dirty_min: int = Field(
+        default=50,
+        ge=0,
+        description=(
+            "Minimum record_access events since the last snapshot save before "
+            "a periodic save may fire (RF M4.1). Keeps idle sessions from "
+            "rewriting an unchanged snapshot every interval."
+        ),
+    )
     recall_planner_enabled: bool = Field(
         default=False,
         description="Enable planner-driven multi-intent recall",

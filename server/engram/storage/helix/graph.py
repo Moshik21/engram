@@ -99,6 +99,53 @@ def _projection_state_value(value: Any) -> str:
     return str(value.value if hasattr(value, "value") else value or "cued")
 
 
+# M5.1 (RF goal): helix cue nodes have a FIXED native schema (schema.hx regen
+# is heavy), so the tier-weighted ranking-side usage fields (usage_used_count,
+# usage_last_used_at) piggyback on supporting_spans_json as one tagged trailer
+# entry. The trailer is stripped back out in _dict_to_episode_cue, so
+# model-level consumers of entity_mentions never see it. Flag-off cues carry
+# no usage (0.0/None) and serialize byte-identically to the pre-M5.1 payload.
+_CUE_USAGE_KEY = "_engram_cue_usage"
+
+
+def _encode_cue_usage_mentions(
+    entity_mentions: list,
+    usage_used_count: float,
+    usage_last_used_at: Any,
+) -> str:
+    payload = list(entity_mentions)
+    if usage_used_count > 0.0 or usage_last_used_at:
+        payload.append(
+            {
+                _CUE_USAGE_KEY: {
+                    "used_count": float(usage_used_count),
+                    "last_used_at": _iso_or_empty(usage_last_used_at) or None,
+                }
+            }
+        )
+    return json.dumps(payload)
+
+
+def _split_cue_usage_mentions(raw_json: Any) -> tuple[list, float, str | None]:
+    """Split supporting_spans_json into (clean mentions, usage count, usage ts)."""
+    used_count = 0.0
+    last_used_at: str | None = None
+    clean: list = []
+    for item in _json_list(raw_json):
+        if isinstance(item, dict) and _CUE_USAGE_KEY in item:
+            usage = item.get(_CUE_USAGE_KEY) or {}
+            try:
+                used_count = float(usage.get("used_count") or 0.0)
+            # silent-ok: stored-field parse tolerance; malformed count degrades to 0.0
+            except (TypeError, ValueError):
+                used_count = 0.0
+            raw_ts = usage.get("last_used_at")
+            last_used_at = str(raw_ts) if raw_ts else None
+        else:
+            clean.append(item)
+    return clean, used_count, last_used_at
+
+
 def _cue_model_payload(cue: EpisodeCue, now: str) -> dict[str, Any]:
     return {
         "episode_id": cue.episode_id,
@@ -106,7 +153,11 @@ def _cue_model_payload(cue: EpisodeCue, now: str) -> dict[str, Any]:
         "cue_version": cue.cue_version,
         "discourse_class": cue.discourse_class,
         "cue_text": cue.cue_text,
-        "supporting_spans_json": json.dumps(cue.entity_mentions),
+        "supporting_spans_json": _encode_cue_usage_mentions(
+            cue.entity_mentions,
+            cue.usage_used_count,
+            cue.usage_last_used_at,
+        ),
         "temporal_markers_json": json.dumps(cue.temporal_markers),
         "quote_spans_json": json.dumps(cue.quote_spans),
         "contradiction_keys_json": json.dumps(cue.contradiction_keys),
@@ -680,6 +731,9 @@ class HelixGraphStore:
         if hid is not None:
             self._cue_id_cache[ep_id] = hid
 
+        mentions, usage_used_count, usage_last_used_at = _split_cue_usage_mentions(
+            d.get("supporting_spans_json")
+        )
         return EpisodeCue(
             episode_id=ep_id,
             group_id=d.get("group_id", "default"),
@@ -693,7 +747,9 @@ class HelixGraphStore:
             route_reason=d.get("route_reason") or None,
             created_at=_parse_dt(d.get("created_at")) or utc_now(),
             updated_at=_parse_dt(d.get("updated_at")),
-            entity_mentions=_json_list(d.get("supporting_spans_json")),
+            entity_mentions=mentions,
+            usage_used_count=usage_used_count,
+            usage_last_used_at=_parse_dt(usage_last_used_at),
             temporal_markers=[str(item) for item in _json_list(d.get("temporal_markers_json"))],
             quote_spans=[str(item) for item in _json_list(d.get("quote_spans_json"))],
             contradiction_keys=[str(item) for item in _json_list(d.get("contradiction_keys_json"))],
@@ -2032,9 +2088,25 @@ class HelixGraphStore:
 
         # Apply updates
         cue_text = updates.get("cue_text", current.get("cue_text", ""))
-        spans_json = current.get("supporting_spans_json", "[]")
-        if "entity_mentions" in updates:
-            spans_json = json.dumps(updates["entity_mentions"])
+        # M5.1: supporting_spans_json carries the usage trailer on helix; merge
+        # mention updates and usage updates without dropping either side.
+        current_mentions, current_usage_count, current_usage_ts = _split_cue_usage_mentions(
+            current.get("supporting_spans_json", "[]")
+        )
+        usage_count = updates.get("usage_used_count", current_usage_count)
+        usage_ts = updates.get("usage_last_used_at", current_usage_ts)
+        if (
+            "entity_mentions" in updates
+            or "usage_used_count" in updates
+            or ("usage_last_used_at" in updates)
+        ):
+            spans_json = _encode_cue_usage_mentions(
+                list(updates.get("entity_mentions", current_mentions)),
+                float(usage_count or 0.0),
+                usage_ts,
+            )
+        else:
+            spans_json = current.get("supporting_spans_json", "[]")
         now = utc_now_iso()
 
         update_payload = {

@@ -283,7 +283,7 @@ byte-identical until the six flip gates pass.
 
 ## M3 — Importance prior calibration + flip (D6 importance lane) [EVAL-GATED; needs M0.6]
 
-- [ ] **M3.1 Magnitude calibration + bounded invariant.** Re-derive the M3.3 arithmetic
+- [x] **M3.1 Magnitude calibration + bounded invariant.** Re-derive the M3.3 arithmetic
       (one-shot durable ≈ 5-access mundane at 30d) against the M2.1 `u`; revisit cap per **F6**.
       *(Judge-1 improvement: the 2.5× durable ranking multiplier composes multiplicatively and
       escapes the "usage never beats semantics" theorem — a durable-but-weak item (sem 0.30→0.75)
@@ -291,31 +291,60 @@ byte-identical until the six flip gates pass.
       invariant, or justify identity-core surfacing on weak match as intended.)* DoD: worked-
       number test mirrors rf_judge_math scenarios; an importance-vs-semantics invariant test
       states and enforces the chosen bound.
+      LANDED 2026-07-21 (tests only, zero source edits): worked numbers pinned —
+      flag-ON cs-seed invisible to ranking (prune-only), 5×-mentioned mundane u =
+      0.0994/0.0433/0.0258 at 1d/30d/180d vs the durable channel ≥2.42× at every
+      horizon (`test_importance_prior.py` 15 tests). Invariants
+      (`test_importance_invariants.py` 27 tests): constants pinned 2.5/1.5/0.0
+      per class; verify pass found the multiplicative band was a MIS-MODEL — see
+      the F6 amendment: the live mechanism is the `prefer_durable_facts` reserved
+      lane (type-rank dominance, unbounded, intentional), now pinned exactly,
+      incl. usage's 1.30x inability to cross it, the within-lane additive class
+      order + exact-tie boundary, and the 0.08 rescue-lane ceiling (+0.2).
 - [ ] **M3.2 Flip `importance_prior_enabled` default.** Only after M0.6 + M3.1 + no regression
       on M4.1/oracle rigs. DoD: eval report committed. **EVAL-GATED: continuity gate + M4.1/oracle.**
 
 ## M4 — Durability + store unification (D6)
 
-- [ ] **M4.1 Periodic snapshot save** (shell + MCP stdio; interval or dirty-count trigger;
+- [x] **M4.1 Periodic snapshot save** (shell + MCP stdio; interval or dirty-count trigger;
       keep last-clean-exit ownership rules, mcp/server.py:425-451). DoD: kill -9 mid-session
       loses ≤ interval of accesses (fake-clock test). *(Confirmed/corrected durability is the
       journal, M1.3; this row bounds used/surfaced loss.)*
-- [ ] **M4.2 Graph rows: wire or delete (F3).** Wire = call `snapshot_to_graph`
+      LANDED 2026-07-21: knobs `activation_snapshot_interval_seconds=600` (0 disables) +
+      `activation_snapshot_dirty_min=50`, save when BOTH due; `maybe_save_periodic` is
+      fake-clock injectable and delegates to `save_to_file` (journal fold applies to every
+      periodic save). Shell: 60s lifespan poll task; MCP stdio: due-check piggybacked on
+      tool calls, full ownership rules honored (owner-save refreshes its own mtime guard;
+      refusals defer so probes run ≤ once/interval). 12 tests
+      (`test_activation_snapshot_periodic.py`) incl. durable-without-clean-shutdown both
+      paths. Known accepted: save does blocking IO on the loop (mirrors shutdown save),
+      bounded to once/interval — `asyncio.to_thread` is a follow-up.
+- [x] **M4.2 Graph rows: wire or delete (F3).** Wire = call `snapshot_to_graph`
       (storage/memory/activation.py:159-175) in the mop window (shell paused ⇒ single-writer);
       delete = drop columns + rewrite prune's pre-filter honestly (sqlite/graph.py:1529-1558;
       helix/graph.py:2755-2813). *(Judge-2 improvement: if wired, the counts are last-clean-
       exit-stale — the brain loads read-only, the shell's crash-window accesses are absent —
       document them as approximate, not authoritative.)* DoD: prune pre-filter semantics
       documented + tested either way; ranking never reads the column.
-- [ ] **M4.3 Redis activation store parity (full-mode compat lane).** *(Judge-2 improvement —
+      LANDED 2026-07-21 (WIRED): `execute_hygiene_mop` calls `snapshot_to_graph` after the
+      drains, budget 5000/window most-recent-first; result block carries `snapshot_sync`
+      counts; dry-run/no-API labeled skips, failures loud (`logger.exception` + status
+      error); columns documented in-code as APPROXIMATE. 6 tests
+      (`test_mop_snapshot_sync.py`) incl. the ranking pin: `score_candidates` with graph
+      access_count=10^9 in entity_attributes is score-identical both flag states.
+- [x] **M4.3 Redis activation store parity (full-mode compat lane).** *(Judge-2 improvement —
       `redis/activation.py` is a separate implementation; `usage_events`, the tier param, and
       v2 changes are silently absent otherwise.)* Mirror the M1.1 changes in the Redis store,
       or document explicitly that the usage mechanism is inert in full mode (compat lane only).
       DoD: a test pins whichever choice; no silent divergence.
+      LANDED 2026-07-21 (documented-inert, now PINNED):
+      `test_record_access_all_tiers_hygiene_only_no_usage_side_effects` — tiers sourced from
+      `DEFAULT_USAGE_TIER_WEIGHTS` (auto-covers new tiers), all accepted, hygiene exact,
+      zero usage side-effects.
 
 ## M5 — Episode channel + vocabulary honesty (D4/D7/D8) [EVAL-GATED for the episode-u flip]
 
-- [ ] **M5.1 Episode `u_episode` via cue substrate + cue-bearing rig.** Add `used_count`
+- [x] **M5.1 Episode `u_episode` via cue substrate + cue-bearing rig.** Add `used_count`
       (tier-weighted) + `last_used_at` to the cue record; agent-used events from
       `_matches_cue_content` in the same echo-guarded scan (M1.4); `u_episode = f·r′`.
       *(Judge-3 blocker 4 — the M4.1/session/oracle rigs contain ZERO cues, so this channel is
@@ -325,8 +354,25 @@ byte-identical until the six flip gates pass.
       episode-side collapse/tie probe.)* Files: storage/*/cue schema, retrieval/pipeline.py.
       DoD: episode no-op on empty cue-usage; episode tie-probe; episode determinism; episode
       composition stress probe passes. **EVAL-GATED: episode G1/G3/G4 + composition probe.**
-- [ ] **M5.2 Document Step 5.05/5.06 as THE episode recency model** (docs + coverage for the
+      LANDED 2026-07-21: cue model gains `usage_used_count: float` + `usage_last_used_at`
+      (legacy int `used_count` hygiene semantics untouched); sqlite = real columns, helix =
+      `supporting_spans_json` `_engram_cue_usage` trailer (no schema.hx regen; stripped on
+      read, zero-usage payload byte-identical); same-pass echo-guarded cue scan
+      (`scan_novel_cue_matches`, shared echo mask + `cue::` dedup class); Step-1.4
+      composition `rrf × (1+β_route·u_episode)` before Step 5.05, `usage_ranking_enabled`
+      only. MEASURED (`rf_episode_u` rig, pinned clock): G1 flag-on empty ≡ flag-off
+      byte-identical PASS; G1b flag-off populated ≡ empty (kill-switch drift probe) PASS;
+      G3 used-cue wins equal-rrf tie PASS (0.4088 > 0.3997); G4 3/3 runs id+score-identical
+      PASS; composition stress: 3.9×/4.0×-stronger rrf item stays first (weak boosted-both
+      0.1679 vs 0.312/0.320) PASS. Real max stack 1.30×2.0=2.6 < 3.9 envelope (pinned in
+      `test_episode_usage.py`). FalkorDB compat lane does not persist the fields (episode-u
+      inert there); worker rework cue rebuild does not yet carry `usage_*` (follow-up).
+- [x] **M5.2 Document Step 5.05/5.06 as THE episode recency model** (docs + coverage for the
       undated-episode no-boost edge, pipeline.py:1681-1801). DoD: doc + edge test.
+      LANDED 2026-07-21: normative §4.1 in `experiments/RF_target_design.md` (gate, input =
+      `conversation_date` only, bounded form, composition with u_episode, storage note);
+      edge pinned by `test_undated_episode_gets_no_temporal_boost` (undated episode score
+      == exact semantic base, dated episode boosted above it).
 - [x] **M5.3 TS default per F4.** If KILL: delete `score_candidates_thompson`, the pipeline
       branch, `activation/feedback.py`, `ts_*` knobs, `ts_alpha/ts_beta` fields (+snapshot
       compat). If FLOOR: one-line `ts_enabled=False` + `exploration_weight` pinned. If ever
@@ -401,6 +447,17 @@ proves the graph channel survives the shared-pipeline R/F changes), **frequency-
    matches), (b) documents the asymmetry vs the usage theorem explicitly, and
    (c) any rebalance (e.g. beta_durable) gates on the live continuity gate.
    cs cap 0.05 accepted pending M3.1 recalibration against u.
+   **AMENDED 2026-07-21 (M3.1 verify)**: the "bounded 2.5x multiplicative
+   band" was a mis-model — no live path composes sem × durable_boost. The
+   real mechanism is a reserved lane: `prefer_durable_facts`
+   (result_selection.py) sorts on `(type_rank, score + boost)` where durable
+   entities take type_rank 3 — score-INDEPENDENT and unbounded (sem-0.01
+   durable Person beats sem-0.99 Concept), with the 2.5/1.5 constants acting
+   additively within the lane and bounded additive rescue lanes elsewhere
+   (`boost × 0.08 ≤ +0.2`). The lane is intentional (strictly stronger than
+   the assumed band, same rationale) and is now pinned as-is by
+   `test_importance_invariants.py`, including the lane's immunity to usage
+   (1.30x cannot cross it). M3.2 must reason from the lane model.
 7. **F7 — RESOLVED: BUILD** (M5.1 as designed, behind the episode gates).
    Episodes are the core tier; leaving them without a usage channel recreates
    the "no principled recency model" gap this goal exists to close.
