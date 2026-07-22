@@ -295,6 +295,31 @@ byte-identical until the six flip gates pass.
       recoverable). Flip prerequisites (parked, tracked in the report): backlog
       reindex + continuity PASS restored -> organic used-event capture window ->
       arm-B churn rerun + explicit G2 adjudication.
+      PREREQUISITES CLEARED 2026-07-21 (same day, commits 956eeec..fade5df):
+      the autopsy found a FOUR-defect stack (vector index empty brain-wide —
+      1/8876 episodes, vectors only written at projection which shell installs
+      never run; native BM25 1.9s warm/20s cold gating every lane; stats-probe
+      timeout-poison capping entity reads at 15ms vs 74ms actual; abandoned
+      BM25 calls as pool zombies). Shipped: BM25 circuit breaker (search index
+      + graph store), honest budget ceilings, durable mop vector drain, full
+      live backfill (8918 episodes + 2683 cues, 0 failures), REST/axi
+      cue-register wiring (capture was structurally MCP-only). Organic
+      continuity PASS restored live (438ms recall, golden Decision hit;
+      re-verified post-restart at 1560ms). RERUN
+      (`experiments/M2_6_rerun_2026-07-21.md`, adversarially verified): **G2
+      PASS 42/42** (floor 23; was 4/42), E==A byte-identical on 208 real
+      results, churn non-vacuous and ZERO (191 plants: jaccard@10 = 1.0, 0
+      inversions, 0 band violations). Rerun also caught + fixed the flag-ON
+      latency blocker (~8x from sequential cue reads -> bounded-concurrency +
+      per-process usage marker). **FLIP STATUS: armed, not flipped.** Sole
+      remaining condition: G6 organic used-tier yield > 0 (capture window
+      opened 2026-07-21; usedCount=0 at close). When yield is nonzero: flip
+      per M2.5 with an E==A byte-identity + latency spot-check only — no full
+      gate rerun required. Follow-ups: native-transport sync-block audit (a
+      never-returning native call froze the mop's event loop, deadline, and
+      SIGTERM — SIGKILL required), find_cues_by_group needs pagination on
+      large brains, helix-py BM25 latency + HNSW SearchV reachability
+      upstream.
 
 ## M3 — Importance prior calibration + flip (D6 importance lane) [EVAL-GATED; needs M0.6]
 
