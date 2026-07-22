@@ -1,6 +1,8 @@
 # Goal: The Agent-Experience Repair — write-side attention, question-space recall, index integrity
 
-**Status: DRAFT — awaiting founder decisions D1–D5**
+**Status: EXECUTING — D1–D5 resolved 2026-07-22 under founder-delegated judgment
+(pattern of the two predecessor goals; product not live, brain/schema
+modification pre-authorized)**
 **Drafted: 2026-07-22, from the first agent-experience evaluation**
 **Predecessor: RECENCY_FREQUENCY_GOAL.md (complete; usage flip armed behind organic yield)**
 
@@ -57,23 +59,27 @@ not to indexing.
 
 ## Founder decisions required
 
-- [ ] **D1 — schema.hx regen window.** M0's by-id vector/doc probes require
+- [x] **D1 — APPROVED (additive-only).** M0's by-id vector/doc probes require
       new native queries → schema regen + native rebuild. This is the
       operational cost that has been deferred three times (drain census, write
       idempotency, backfill dedup all need it). Approve one supervised regen
       window, or reject and accept census-blind workarounds permanently.
-- [ ] **D2 — existing noise: de-index or demote?** If helix native supports
+      RESOLUTION NOTE: additive QUERY definitions only, zero node/edge schema
+      changes; validated on the 17GB clone before any live window; the live
+      regen runs supervised with the shell paused (same protocol as the
+      vector-write window).
+- [x] **D2 — decided by M0.4 capability check; DEFAULT DEMOTE.** If helix native supports
       vector deletion, machinery-class episodes can be removed from HNSW; if
       not, they get class-based ranking demotion (recap_penalty pattern) and
       exclusion at query time. Decision follows a capability check in M0.
-- [ ] **D3 — question-proposal protocol shape.** `axi observe --questions`
+- [x] **D3 — CLI flag (`--question`, repeatable) mapping into the observation payload.** `axi observe --questions`
       flag (explicit, per-call) vs structured observation body (parsed
       contract) vs both. Client packs and the clawhub skill must teach it.
-- [ ] **D4 — never-used decay consumer.** Feed surfaced/used ratio to prune
+- [x] **D4 — DEMOTION first; prune only after a measurement window.** Feed surfaced/used ratio to prune
       (episodes eligible for soft-delete) or to a mop-time demotion score
       (kept but down-weighted). Recommend demotion first, prune only after a
       measurement window.
-- [ ] **D5 — historical re-index scope.** Full corpus through real
+- [x] **D5 — SALIENCE-GATED SUBSET.** Full corpus through real
       `index_episode` (~12h of mop windows at 50/window; proper chunk
       vectors) vs salience-gated subset (skip machinery class — likely ~40%
       smaller). Recommend gated subset.
