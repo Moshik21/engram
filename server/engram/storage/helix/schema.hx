@@ -636,6 +636,50 @@ QUERY find_entity_vectors_by_ids_all(entity_ids: [String]) =>
     vectors <- V<EntityVec>::WHERE(_::{entity_id}::IS_IN(entity_ids))::{data, entity_id, group_id, content_type, embed_provider, embed_model}
     RETURN vectors
 
+// M0.1 by-id presence probes (agent-experience goal): exact graph<->index
+// census for EpisodeVec/CueVec/EpisodeChunk, mirroring
+// find_entity_vectors_by_ids. Full RETURN (no projection) so each row carries
+// the Helix internal id — the handle the DROP V repair queries below need.
+QUERY find_episode_vectors_by_ids(episode_ids: [String], gid: String) =>
+    vectors <- V<EpisodeVec>::WHERE(AND(_::{episode_id}::IS_IN(episode_ids), _::{group_id}::EQ(gid)))
+    RETURN vectors
+
+QUERY find_cue_vectors_by_ids(episode_ids: [String], gid: String) =>
+    vectors <- V<CueVec>::WHERE(AND(_::{episode_id}::IS_IN(episode_ids), _::{group_id}::EQ(gid)))
+    RETURN vectors
+
+QUERY find_episode_chunk_vectors_by_ids(episode_ids: [String], gid: String) =>
+    vectors <- V<EpisodeChunk>::WHERE(AND(_::{episode_id}::IS_IN(episode_ids), _::{group_id}::EQ(gid)))
+    RETURN vectors
+
+// M0.2 paged vector-side listings for the index-consistency drain (bounded
+// windows; RANGE(start, end) is an index window over stable LMDB id order).
+QUERY list_episode_vectors_page(gid: String, start: I64, end: I64) =>
+    vectors <- V<EpisodeVec>::WHERE(_::{group_id}::EQ(gid))::RANGE(start, end)
+    RETURN vectors
+
+QUERY list_cue_vectors_page(gid: String, start: I64, end: I64) =>
+    vectors <- V<CueVec>::WHERE(_::{group_id}::EQ(gid))::RANGE(start, end)
+    RETURN vectors
+
+QUERY list_episode_chunk_vectors_page(gid: String, start: I64, end: I64) =>
+    vectors <- V<EpisodeChunk>::WHERE(_::{group_id}::EQ(gid))::RANGE(start, end)
+    RETURN vectors
+
+// M0.2 duplicate/orphan vector repair handles (M0.4 capability: HNSW delete
+// is a deleted=true tombstone, filtered from search and V<> listings).
+QUERY delete_episode_vector(id: ID) =>
+    DROP V<EpisodeVec>(id)
+    RETURN NONE
+
+QUERY delete_cue_vector(id: ID) =>
+    DROP V<CueVec>(id)
+    RETURN NONE
+
+QUERY delete_episode_chunk_vector(id: ID) =>
+    DROP V<EpisodeChunk>(id)
+    RETURN NONE
+
 // Delete a single graph embedding vector by Helix internal ID
 QUERY delete_graph_embed_vector(id: ID) =>
     DROP V<GraphEmbedVec>(id)

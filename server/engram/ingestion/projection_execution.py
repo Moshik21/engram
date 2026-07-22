@@ -244,6 +244,7 @@ class EvidenceProjectionExecutor:
         decisions = self._commit_policy.evaluate(
             evidence_bundle,
             entity_count,
+            episode_source=episode.source,
         )
         committed = [
             (ev, d) for ev, d in zip(evidence_bundle.candidates, decisions) if d.action == "commit"

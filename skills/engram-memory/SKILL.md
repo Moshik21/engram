@@ -1,7 +1,7 @@
 ---
 name: engram-brain
 description: Native local memory for OpenClaw agents: Capture, Cue, Project, Recall, and Consolidate conversations into a private Helix-backed brain.
-version: 0.3.5
+version: 0.3.6
 homepage: https://github.com/Moshik21/engram
 user-invocable: true
 metadata: {"openclaw":{"requires":{"anyBins":["curl"]},"envVars":[{"name":"ANTHROPIC_API_KEY","required":false,"description":"Optional richer entity extraction; deterministic extraction works without it."},{"name":"ENGRAM_GROUP_ID","required":false,"description":"Optional brain namespace for multi-brain setups."}],"emoji":"\ud83e\udde0","homepage":"https://github.com/Moshik21/engram","install":[{"kind":"shell","command":"curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw","bins":["engram","engramctl"]}],"tags":["memory","knowledge-graph","mcp","recall","long-term-memory","cognitive-architecture"]}}
@@ -166,6 +166,24 @@ Use **remember** (max 5 per compaction window) when:
 Use **observe** only for harness-invisible context or explicit store requests.  
 Reject session recaps (“what we did today”).
 
+### One fact per observe + anticipated questions
+
+Prefer **one fact per observe** over multi-fact dumps — long observations never
+surface for their natural single-fact questions (answer locality). When you
+observe, also propose the 1–3 **anticipated questions** a future agent would
+ask to need this memory; each becomes a question-space recall cue pointing at
+the episode (max 5 per observe):
+
+```bash
+printf '%s' 'FastEmbed outage root cause: model.onnx download interrupted.' \
+  | engram axi observe --stdin \
+      --question "what was the FastEmbed outage root cause" \
+      --question "why are new memories missing vectors"
+```
+
+Phrase questions the way a future agent would ask them, not as restatements of
+the content — the question wording is what gets embedded.
+
 ## How to Store Memories
 
 To observe (fast, cheap, no extraction):
@@ -173,8 +191,12 @@ To observe (fast, cheap, no extraction):
 POST http://localhost:8100/api/knowledge/observe
 Content-Type: application/json
 
-{"content": "<text to store>", "source": "openclaw"}
+{"content": "<text to store>", "source": "openclaw", "questions": ["<anticipated question>"]}
 ```
+
+`questions` is optional (max 5). The observe body also accepts
+`proposed_entities` / `proposed_relationships`, persisted as deferred evidence
+(no projection at observe time).
 
 To remember (agent-promoted atomic facts):
 ```

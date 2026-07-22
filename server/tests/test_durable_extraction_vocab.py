@@ -281,4 +281,8 @@ class TestEndToEndNarrowPipeline:
         assert not result.is_error
         decisions = [e for e in result.entities if e["entity_type"] == "Decision"]
         assert len(decisions) == 1
-        assert decisions[0]["name"] == "use PostgreSQL for the new reporting service"
+        # M1.4 squatter guard (P4: names are identifiers, not content): the
+        # commit policy caps entity names at 6 tokens; the full clause folds
+        # into the summary, so nothing is lost — just relocated.
+        assert decisions[0]["name"] == "use PostgreSQL for the new reporting"
+        assert "use PostgreSQL for the new reporting service" in decisions[0]["summary"]

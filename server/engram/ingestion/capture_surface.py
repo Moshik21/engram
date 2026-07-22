@@ -29,7 +29,8 @@ from engram.ingestion.presenter import (
     present_api_observe_skip,
     present_mcp_memory_write,
 )
-from engram.models.episode import Attachment
+from engram.models.episode import Attachment, EpisodeProjectionState
+from engram.models.episode_cue import EpisodeCue
 from engram.retrieval.memory_operations import (
     MemoryOperationSample,
     measured_memory_operation,
@@ -43,6 +44,11 @@ _MCP_WRITE_LIVE_TURN_TIMEOUT_SECONDS = 0.01
 _AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS = 100
 _SESSION_RECENT_PACKET_SCOPE = "session_recent"
 _SESSION_RECENT_PACKET_LIMIT = 5
+# M2.1 question-space observe (AGENT_EXPERIENCE_GOAL, D3): anticipated
+# questions ride the observe payload and become cue records in question-space.
+AGENT_QUESTION_ROUTE_REASON = "agent_question"
+_AGENT_QUESTION_MAX_PER_OBSERVE = 5
+_AGENT_QUESTION_MAX_LENGTH = 300
 
 
 def _string_value(value: Any) -> str | None:
@@ -542,6 +548,95 @@ async def store_observation(
     return episode_id
 
 
+def normalize_observe_questions(questions: Any) -> list[str]:
+    """Normalize agent-supplied anticipated questions: strings only, deduped, capped."""
+    if not isinstance(questions, list | tuple):
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in questions:
+        if not isinstance(raw, str):
+            continue
+        text = " ".join(raw.split()).strip()[:_AGENT_QUESTION_MAX_LENGTH]
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(text)
+        if len(normalized) >= _AGENT_QUESTION_MAX_PER_OBSERVE:
+            break
+    return normalized
+
+
+async def create_agent_question_cues(
+    manager: Any,
+    *,
+    episode_id: str,
+    group_id: str,
+    questions: list[str] | None,
+) -> int:
+    """M2.1: index one question-cue per anticipated question for an episode.
+
+    Each cue's text IS the question (route_reason='agent_question'), embedded
+    through the EXISTING capture-time cue vector lane (``index_episode_cue``),
+    so question-cues compete in the cue recall lane with zero new ranking
+    paths. Vector-only: the deterministic content cue remains the single graph
+    cue row for the episode. Gated on the cue lane flags
+    (``cue_layer_enabled`` + ``cue_vector_index_enabled``) — flag-off installs
+    are byte-identical. Never fails the observe write.
+    """
+    normalized = normalize_observe_questions(questions)
+    if not normalized:
+        return 0
+    cfg = getattr(manager, "_cfg", None)
+    if cfg is None or not (
+        getattr(cfg, "cue_layer_enabled", False) and getattr(cfg, "cue_vector_index_enabled", False)
+    ):
+        return 0
+    index_cue = getattr(getattr(manager, "_search", None), "index_episode_cue", None)
+    if not callable(index_cue):
+        return 0
+    created = 0
+    # Observe stays cheap: each index is bounded by the capture cue-index
+    # timeout, and the FIRST timeout aborts the remainder (a cold/slow embed
+    # model would otherwise compound up to 5x inside the observe request).
+    per_cue_timeout = (
+        float(getattr(cfg, "capture_cue_vector_index_timeout_ms", 500) or 500) / 1000.0
+    )
+    for question in normalized:
+        cue = EpisodeCue(
+            episode_id=episode_id,
+            group_id=group_id,
+            discourse_class="question",
+            projection_state=EpisodeProjectionState.CUE_ONLY,
+            route_reason=AGENT_QUESTION_ROUTE_REASON,
+            cue_text=question,
+        )
+        try:
+            await asyncio.wait_for(index_cue(cue), timeout=per_cue_timeout)
+            created += 1
+        except (TimeoutError, asyncio.TimeoutError):
+            logger.warning(
+                "Agent question cue indexing exceeded %.0fms for episode %s; "
+                "skipping %d remaining question cue(s) this observe",
+                per_cue_timeout * 1000,
+                episode_id,
+                len(normalized) - created - 1,
+            )
+            break
+        except Exception:
+            # silent-ok: best-effort secondary vector index; the episode write
+            # already succeeded and observe must never fail on cue indexing.
+            logger.warning(
+                "Failed to index agent question cue for episode %s",
+                episode_id,
+                exc_info=True,
+            )
+    return created
+
+
 async def _record_observed_usage_events(manager: Any, *, group_id: str, content: str) -> None:
     """M1.4: echo-guarded citation scan on the Capture fast path.
 
@@ -746,6 +841,9 @@ async def build_api_observe_write_surface(
     source: str,
     conversation_date: str | None = None,
     events: list[dict] | None = None,
+    questions: list[str] | None = None,
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Run the REST observe write path behind a Capture-stage surface boundary."""
     _started, finish_operation = measured_memory_operation(
@@ -761,9 +859,17 @@ async def build_api_observe_write_surface(
         conversation_date=parse_conversation_date(conversation_date),
         pass_conversation_date=True,
     )
-    # observe stays cheap: persist event annotations as deferred evidence (CQRS
-    # bridge) without projecting. Consolidation later promotes them into dated
-    # Event nodes once the threshold/corroboration bar is met.
+    # M2.1: anticipated questions become question-space cue vectors pointing at
+    # this episode, competing in the existing cue recall lane.
+    question_cue_count = await create_agent_question_cues(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+        questions=questions,
+    )
+    # observe stays cheap: persist event annotations and agent proposals as
+    # deferred evidence (CQRS bridge) without projecting. Consolidation later
+    # promotes them once the threshold/corroboration bar is met.
     await persist_observe_event_annotations(
         manager,
         episode_id=episode_id,
@@ -771,15 +877,17 @@ async def build_api_observe_write_surface(
         content=content,
         events=events,
         conversation_date=parse_conversation_date(conversation_date),
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
     )
     await _record_write_operation(manager, group_id, finish_operation)
-    return attach_api_capture_diagnostics(
-        present_api_memory_write(
-            memory_write_contract("observe", episode_id),
-            status="observed",
-        ),
-        manager,
+    payload = present_api_memory_write(
+        memory_write_contract("observe", episode_id),
+        status="observed",
     )
+    if questions:
+        payload["questionCues"] = question_cue_count
+    return attach_api_capture_diagnostics(payload, manager)
 
 
 async def build_api_attachment_observe_write_surface(
@@ -1178,26 +1286,34 @@ async def persist_observe_event_annotations(
     content: str,
     events: list[dict] | None,
     conversation_date: datetime | None = None,
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
 ) -> None:
-    """Persist observe-time event annotations as deferred evidence (no projection).
+    """Persist observe-time event annotations and proposals as deferred evidence.
 
     This is the CQRS bridge for cheap capture: events are span-verified, turned
     into Event/OCCURRED_ON evidence, and stored with status='deferred'. The
     consolidation evidence-adjudication phase later promotes them once corroborated.
+    M2.1: agent-proposed entities/relationships on an observe payload ride the
+    SAME deferred-evidence pipeline (no projection, no new extraction path).
     """
-    if not events:
+    if not events and not proposed_entities and not proposed_relationships:
         return
     graph = getattr(manager, "_graph", None)
     store_evidence = getattr(graph, "store_evidence", None)
     if not callable(store_evidence):
         logger.debug("observe events skipped: graph store lacks store_evidence")
         return
-    event_entities, event_rels = events_to_proposals(events)
-    if not event_entities and not event_rels:
+    merged_entities, merged_rels = merge_event_proposals(
+        events,
+        proposed_entities,
+        proposed_relationships,
+    )
+    if not merged_entities and not merged_rels:
         return
     candidates = proposals_to_evidence(
-        event_entities,
-        event_rels,
+        merged_entities,
+        merged_rels,
         episode_id,
         group_id,
         episode_content=content,
@@ -1427,6 +1543,9 @@ async def build_mcp_observe_write_surface(
     source: str = "mcp",
     conversation_date: str | None = None,
     events: list[dict] | None = None,
+    questions: list[str] | None = None,
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
     ingest_live_turn: Callable[..., Any],
     recall_middleware: Callable[..., Any],
 ) -> dict[str, Any]:
@@ -1447,9 +1566,17 @@ async def build_mcp_observe_write_surface(
         pass_conversation_date=True,
         capture_store_timeout_ms=_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
     )
-    # observe stays cheap: persist event annotations as deferred evidence (CQRS
-    # bridge) without projecting. Consolidation later promotes them into dated
-    # Event nodes once the threshold/corroboration bar is met.
+    # M2.1: anticipated questions become question-space cue vectors pointing at
+    # this episode, competing in the existing cue recall lane.
+    question_cue_count = await create_agent_question_cues(
+        manager,
+        episode_id=episode_id,
+        group_id=group_id,
+        questions=questions,
+    )
+    # observe stays cheap: persist event annotations and agent proposals as
+    # deferred evidence (CQRS bridge) without projecting. Consolidation later
+    # promotes them once the threshold/corroboration bar is met.
     await persist_observe_event_annotations(
         manager,
         episode_id=episode_id,
@@ -1457,6 +1584,8 @@ async def build_mcp_observe_write_surface(
         content=content,
         events=events,
         conversation_date=parse_conversation_date(conversation_date),
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
     )
     record_mcp_memory_write_activity(session)
     _cache_recent_observation_packet(
@@ -1475,6 +1604,8 @@ async def build_mcp_observe_write_surface(
         ),
         manager,
     )
+    if questions:
+        response["question_cues"] = question_cue_count
     await _run_mcp_write_side_effect(
         "live_turn",
         ingest_live_turn(manager, content, source="observe"),

@@ -64,6 +64,10 @@ class Episode(BaseModel):
     retry_count: int = 0
     processing_duration_ms: int | None = None
     encoding_context: str | None = None
+    # "" (unclassified) | "machinery" | "substantive" — write-side attention
+    # class (M1.1). Persisted inside the encoding_context JSON blob; see
+    # engram.ingestion.salience.encode_salience_class/decode_salience_class.
+    salience_class: str = ""
     memory_tier: str = "episodic"  # "episodic" | "transitional" | "semantic"
     consolidation_cycles: int = 0
     entity_coverage: float = 0.0

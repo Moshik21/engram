@@ -1,0 +1,381 @@
+{
+ "description": "Hand-labeled salience corpus for the M1.1 machinery classifier, pulled 2026-07-22 from the live dogfood brain via GET /api/episodes (content as returned by that surface, 200-char truncation). Labels assigned by hand: machinery = harness/protocol traffic (task-notification frames, stripped toolu_ id dumps, session lifecycle, compaction frames); substantive = genuine prompts/responses/observations/docs.",
+ "gates": {
+  "false_positive_rate_on_substantive": 0.0,
+  "machinery_recall_min": 0.8
+ },
+ "episodes": [
+  {
+   "id": "ep_accec6506602",
+   "source": "auto:prompt",
+   "content": "[user|Engram]  \n bm6s67jbk \n toolu_017nUmqBJ7VsfW9BP57M1GSn \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/bm6s67jbk.output \n completed \n Background c",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_3cf06c472d89",
+   "source": "auto:prompt",
+   "content": "[user|Engram]  \n wkonv1206 \n toolu_01JNZyAgXCoskXrzYWVG4SQQ \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/wkonv1206.output \n completed \n Dynamic work",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_b7cd337de88c",
+   "source": "auto:prompt",
+   "content": "[user|server]  \n b8bad1jzt \n toolu_01Jf3DvePB8De3BUhqSFY6aj \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/b8bad1jzt.output \n completed \n Background c",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_0081e5803779",
+   "source": "auto:prompt",
+   "content": "[user|Engram] <task-notification>\n<task-id>wixqg9mwq</task-id>\n<tool-use-id>toolu_01M4qmn3MLYm4yhGAfQrmKAb</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-",
+   "label": "machinery",
+   "note": "task-notification XML frame"
+  },
+  {
+   "id": "ep_4c753c36c513",
+   "source": "auto:prompt",
+   "content": "[user|Engram] <task-notification>\n<task-id>b9ff789q5</task-id>\n<tool-use-id>toolu_016QwEpU2eZC6uFedzPhZr7Y</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-",
+   "label": "machinery",
+   "note": "task-notification XML frame"
+  },
+  {
+   "id": "ep_2104a00646b7",
+   "source": "auto:prompt",
+   "content": "[user|Engram]  \n wymik155w \n toolu_01GNfK3URTFeZZLxxG1m2imE \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/wymik155w.output \n completed \n Dynamic work",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_625a59f9906b",
+   "source": "auto:prompt",
+   "content": "[user|server]  \n wh4h96szt \n toolu_01JTmFnfbfUVCXav2bAoYkJs \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/wh4h96szt.output \n completed \n Dynamic work",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_0ba092793efc",
+   "source": "auto:prompt",
+   "content": "[user|Engram]  \n w2pxgp4w2 \n toolu_015wQZbK1hnmZxj3dxwXjWRB \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/w2pxgp4w2.output \n completed \n Dynamic work",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_722fc30d1e83",
+   "source": "auto:prompt",
+   "content": "[user|Engram]  \n w6xcx3p9p \n toolu_01YW9bZz1TiZebo61CPfP9Ze \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/w6xcx3p9p.output \n completed \n Dynamic work",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_bf28ae3cd2eb",
+   "source": "auto:prompt",
+   "content": "[user|server]  \n whjbzpxir \n toolu_01RGQecRJzcjNw4Rqyn8gRyC \n /private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/whjbzpxir.output \n completed \n Dynamic work",
+   "label": "machinery",
+   "note": "stripped task-notification: task id + toolu_ id + output path"
+  },
+  {
+   "id": "ep_db006b4b392a",
+   "source": "auto:prompt",
+   "content": "[user|server] <task-notification>\n<task-id>ba0iqjw7n</task-id>\n<summary>Monitor event: \"Live vector write progress (shell is DOWN until this completes)\"</summary>\n<event>[Monitor timed out \u2014 re-arm if",
+   "label": "machinery",
+   "note": "task-notification XML frame"
+  },
+  {
+   "id": "ep_3bd468ffe393",
+   "source": "auto:prompt",
+   "content": "[user|server] <task-notification>\n<task-id>a100612a941de221b</task-id>\n<output-file>/private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-4edd-b244-df7d3875b056/tasks/a100612a941de221b.out",
+   "label": "machinery",
+   "note": "task-notification XML frame"
+  },
+  {
+   "id": "ep_23a2841a2874",
+   "source": "auto:prompt",
+   "content": "[user|server] <task-notification>\n<task-id>bg5tiz84l</task-id>\n<tool-use-id>toolu_01CxyV8xLozaoydPLyhGiv1q</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-konnermoshier-Engram/2317d745-9e2f-",
+   "label": "machinery",
+   "note": "task-notification XML frame"
+  },
+  {
+   "id": "ep_dc6b551ff48e",
+   "source": "auto:session",
+   "content": "[session-start|Engram] New session started",
+   "label": "machinery",
+   "note": "session lifecycle frame"
+  },
+  {
+   "id": "ep_b105d235e0be",
+   "source": "auto:session",
+   "content": "[session-end|konnermoshier] Session ended",
+   "label": "machinery",
+   "note": "session lifecycle frame"
+  },
+  {
+   "id": "ep_513adb1d5ebc",
+   "source": "auto:session",
+   "content": "[session-end|MachineShopScheduler] Session ended",
+   "label": "machinery",
+   "note": "session lifecycle frame"
+  },
+  {
+   "id": "ep_226c64265c01",
+   "source": "auto:session",
+   "content": "[session-start|MachineShopScheduler] New session started",
+   "label": "machinery",
+   "note": "session lifecycle frame"
+  },
+  {
+   "id": "ep_57f20a9d9360",
+   "source": "auto:session",
+   "content": "[session-start|server] New session started",
+   "label": "machinery",
+   "note": "session lifecycle frame"
+  },
+  {
+   "id": "ep_4ff8f9923391",
+   "source": "claude:precompact",
+   "content": "[compaction|Engram|2317d745-9e2f-4edd-b244-df7d3875b056] Context compaction; promotion window compact_2e195559abc88b99",
+   "label": "machinery",
+   "note": "context compaction frame"
+  },
+  {
+   "id": "ep_088a9abdd5fe",
+   "source": "claude:precompact",
+   "content": "[compaction|server|2317d745-9e2f-4edd-b244-df7d3875b056] Context compaction; promotion window compact_d7929234252c77f1",
+   "label": "machinery",
+   "note": "context compaction frame"
+  },
+  {
+   "id": "ep_20ff10bb7e4c",
+   "source": "claude:precompact",
+   "content": "[compaction|Engram|019f4def-bda6-7e51-bfb9-f49a99d9225a] Context compaction; promotion window compact_7aadfb561701e0ae",
+   "label": "machinery",
+   "note": "context compaction frame"
+  },
+  {
+   "id": "ep_3c84c98b6771",
+   "source": "claude:precompact",
+   "content": "[compaction|Engram|019f495f-4551-7790-81f3-29ab1556d4d9] Context compaction; promotion window compact_c108bad0d5ee1701",
+   "label": "machinery",
+   "note": "context compaction frame"
+  },
+  {
+   "id": "ep_3cf61c7d1306",
+   "source": "auto:prompt",
+   "content": "[user|Engram] /goal docs/product/AGENT_EXPERIENCE_GOAL.md complete this",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_d38f7ab8dcad",
+   "source": "auto:prompt",
+   "content": "[user|server] yes draft the next goal doc",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_dc6610efe86f",
+   "source": "auto:prompt",
+   "content": "[user|server] Okay. Now... How would you propose resolving these issues you have pointed out? think deep, novel solutions, things we aren't considering.. etc",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_e3f9a4a2c35b",
+   "source": "auto:prompt",
+   "content": "[user|Engram] Now, as the user(you) the agent in the harness is who would use this.. Do you find this useful? Maybe you create and run a small test suite? Maybe we create an advanced suite for a Sonne",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_42885111f02e",
+   "source": "auto:prompt",
+   "content": "[user|Engram] Continue the pre-release punch-list goal (complete 1-4): workflow wkonv1206 \u2014 L1/L2/L4 built (capture-embed+smoke, watchdog, docs claims table + SKILL 0.3.5 republish reminder), L3 paper",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_343bc48d6c6c",
+   "source": "auto:prompt",
+   "content": "[user|server] how do I push the skill?",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_c54e64b11cb9",
+   "source": "auto:prompt",
+   "content": "[user|Engram] Continue the pre-release punch-list goal (complete 1-4): workflow wkonv1206 in flight (L1 capture-embed + smoke, L2 mop watchdog, L3 papercuts, L4 docs honesty + verifiers). On completio",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_86129647c53e",
+   "source": "auto:prompt",
+   "content": "[user|Engram] /goal complete 1-4 1. Fresh-install vector coverage (the big one nobody listed). Here's the trap: episode vectors are still only written at projection. Today's backfill fixed your brain,",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_ca39161bcaee",
+   "source": "auto:prompt",
+   "content": "[user|Engram] should we look at these next before pushing a new production release, updatinng the readme, website, etc? Still misaligned or unproven: the graph depth tier is still eval-neutral \u2014 it re",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_2ba7c5cf0f32",
+   "source": "auto:prompt",
+   "content": "[user|Engram] SO now that we have done all that we have done today.. Where does Engram stand? Did we align all gears? does the theory of Engram, ACT-R etc hold up?",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_bc650be4d53b",
+   "source": "auto:prompt",
+   "content": "[user|Engram] Confirm CI green on 7a9dd0d (gh run list --branch main --limit 1; rerun --failed if evicted per the 6-for-6 policy). The RF flip-prerequisite chain is COMPLETE and synthesized to the use",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_939acb6e2da9",
+   "source": "auto:prompt",
+   "content": "[user|server] Can you explain the flip? Are you able to do the E==A latency spot check? Why do we have such latency?",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_56347d375062",
+   "source": "auto:prompt",
+   "content": "[user|server] where do we stand now?",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_db8b5d22708f",
+   "source": "auto:prompt",
+   "content": "[user|Engram] Finish the RF flip-prerequisite chain (user directive). State: ALL actionable prerequisites cleared \u2014 backfill done (8918+2683, 0 fail), continuity PASS live (438ms), capture window open",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_27c1b7ea23ac",
+   "source": "auto:prompt",
+   "content": "[user|server]  \n ba0iqjw7n \n Monitor event: \"Live vector write progress (shell is DOWN until this completes)\" \n run-once sentinel \nIf this event is something the user would act on now, send a PushNoti",
+   "label": "machinery",
+   "note": "stripped monitor-event notification: bare task id lead line"
+  },
+  {
+   "id": "ep_c3fee6f01787",
+   "source": "auto:prompt",
+   "content": "[user|server]  \n ba0iqjw7n \n Monitor event: \"Live vector write progress (shell is DOWN until this completes)\" \n [Monitor timed out \u2014 re-arm if needed.]",
+   "label": "machinery",
+   "note": "stripped monitor-event notification: bare task id lead line"
+  },
+  {
+   "id": "ep_bb61718b8e60",
+   "source": "auto:response",
+   "content": "[assistant|Engram] Drafted, committed, and pushed (`427c11f`): **`docs/product/AGENT_EXPERIENCE_GOAL.md`**, with the battery rig as its committed baseline.\n\nThe shape, in brief:\n\n- **Six design princi",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_83a12c98d787",
+   "source": "auto:response",
+   "content": "[assistant|server] Let me give you the deep version \u2014 because when I stare at all five defects together, they stop looking like five bugs and start looking like **one missing organ**, plus a discovery",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_c3c0a3019b94",
+   "source": "auto:response",
+   "content": "[assistant|server] Here's my honest answer as the user, with fresh data \u2014 I just ran the experiment: ten questions I know the answers to, asked through the real agent surface, graded against ground tr",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_01b3ed28bd91",
+   "source": "auto:response",
+   "content": "[assistant|Engram] CI is green on `b8c8d07` \u2014 first try, no reruns needed. The pre-release punch-list goal is now fully closed:\n\n1. **Fresh-install vector coverage** \u2014 capture-time episode embedding +",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_146a3872fb1a",
+   "source": "auto:response",
+   "content": "[assistant|Engram] The watcher will report when CI lands. If it's green, the punch-list goal is fully closed; if a runner eviction hits, I'll apply the standing rerun policy.",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_d0240dbd82fe",
+   "source": "auto:response",
+   "content": "[assistant|Engram] Skill is republished \u2014 agents installing or updating `engram-brain` now get the honest 0.3.5 copy. CI on the punch-list commit is still running (~4 min in of the usual ~11); local s",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_64df23466428",
+   "source": "auto:response",
+   "content": "[assistant|server] Frontmatter is already at 0.3.5 with the right slug, so the CLI picks everything up from the folder:\n\n```bash\ncd /Users/konnermoshier/Engram\nclawhub publish skills/engram-memory --s",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_3b908badc211",
+   "source": "auto:response",
+   "content": "[assistant|server] All four punch-list items are done \u2014 built in parallel lanes, adversarially verified, blocker + stale-claim sweep fixed, committed as `b8c8d07`, pushed (CI running; local suite 4864",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_4aaac0d6438a",
+   "source": "auto:response",
+   "content": "[assistant|Engram] Yes to some of it, no to most of it \u2014 the split matters, because two of those three items are *designed* not to block a release, but hiding inside the list is one thing I'd absolute",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_2faf191ec4d9",
+   "source": "auto:response",
+   "content": "[assistant|Engram] This one deserves a straight answer from everything the last week of evidence established, so here it is \u2014 the honest ledger.\n\n## Where Engram stands\n\nToday ended with a fact that r",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_ba604b027906",
+   "source": "claude-code",
+   "content": "Agent-experience evaluation 2026-07-22 (grader = the working agent holding full ground truth; battery saved at server/tests/rigs/agent_experience_battery.json). Score: 3 hits / 1 weak / 1 wrong-hit / ",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_82d5ee9a289e",
+   "source": "claude-code",
+   "content": "Pre-release punch list shipped (commit b8c8d07, 4864 tests green, adversarially verified). 1: capture-time episode vector indexing (outbox pattern, ack-non-blocking) \u2014 fresh installs can no longer reg",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_df8660049c94",
+   "source": "claude-code",
+   "content": "RF flip prerequisites CLEARED same-day per founder directive (commits 956eeec..fade5df, CI green). The real defect behind the continuity FAIL was a four-defect recall stack: episode/cue vector index e",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_c982eaa10f03",
+   "source": "claude-code",
+   "content": "RF (recency/frequency) goal COMPLETE 2026-07-21, overnight autonomous execution (founder-delegated decisions). Commits f9e64b6..26e710c, 4789 backend tests, CI green. Shipped behind usage_ranking_enab",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_cfefd2552709",
+   "source": "claude-code",
+   "content": "RELEASED 2026-07-18: v0.1.0 is LIVE at github.com/Moshik21/engram/releases/tag/v0.1.0 \u2014 ghcr images, 3 native wheels (macOS arm64/x86_64, linux x86_64; aarch64 pending cross-OpenSSL), install bundle +",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_8ac3fce04c95",
+   "source": "auto:bootstrap",
+   "content": "[project-bootstrap|Engram|README.md]\n<p align=\"center\">\n  <img src=\"docs/assets/readme/hero-banner.svg\" alt=\"Engram: long-term memory for AI agents\" width=\"100%\">\n</p>\n\n<p align=\"center\">\n  <a href=\"h",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_2fb3f65a15e6",
+   "source": "auto:bootstrap",
+   "content": "[project-bootstrap|server|pyproject.toml]\n[project]\nname = \"engram\"\nversion = \"0.1.0\"\ndescription = \"Persistent memory layer for AI agents \u2014 temporal knowledge graphs with ACT-R retrieval and offline ",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_fad2344e8f17",
+   "source": "auto:bootstrap",
+   "content": "[project-bootstrap|Engram|docs/vision/private/engram-managed-saas-prd.md]\n# Engram Managed SaaS PRD\n\n## Status\n\nPrivate draft. Keep local.\n\n## Working Title\n\nRecommended product name: **Engram Managed",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_b2d6fba06bc2",
+   "source": "auto:bootstrap",
+   "content": "[project-bootstrap|Engram|docs/vision/openclaw-distribution-strategy.md]\n# OpenClaw Distribution Strategy for Engram\n\nInternal strategy document. Not for external publication.\n\n---\n\n## The Opportunity",
+   "label": "substantive"
+  },
+  {
+   "id": "ep_3a6b55f321d4",
+   "source": "continuity_live_gate",
+   "content": "Cold Decision hit requires healthy search index. Product continuity requires search/index health so cold get_context and recall surface Decisions.",
+   "label": "substantive"
+  }
+ ]
+}

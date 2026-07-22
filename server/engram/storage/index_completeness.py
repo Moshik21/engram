@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -43,6 +43,16 @@ class EmbeddingProviderUnavailableError(RuntimeError):
 
     Raised LOUDLY instead of silently producing a vector-less "success" —
     the M2.6 outage happened because a broken provider was invisible.
+    """
+
+
+class ByIdVectorProbeUnavailableError(RuntimeError):
+    """The engine lacks the by-id vector probe routes (pre-M0.1 binary).
+
+    Raised by the search index when ``find_*_vectors_by_ids`` routes are not
+    registered, so presence checks can fall back to the inexact ANN census
+    instead of treating a broken probe as "everything is missing" (which
+    would re-embed the same items every window and grow duplicate vectors).
     """
 
 
@@ -388,6 +398,7 @@ async def _ids_with_vectors(
     if callable(probe):
         present: set[str] = set()
         chunk = max(1, int(probe_chunk))
+        probe_unavailable = False
         for i in range(0, len(ids), chunk):
             batch = ids[i : i + chunk]
             try:
@@ -395,12 +406,18 @@ async def _ids_with_vectors(
             except TypeError:
                 # Some fakes/impls only accept the id list.
                 found = await probe(batch)
+            except ByIdVectorProbeUnavailableError:
+                # Pre-M0.1 engine without the by-id routes: fall through to
+                # the census path instead of reporting everything missing.
+                probe_unavailable = True
+                break
             except Exception:
                 logger.warning("%s failed for chunk starting at %d", probe_attr, i, exc_info=True)
                 found = {}
             if isinstance(found, dict):
                 present.update(str(k) for k, v in found.items() if v)
-        return present, True
+        if not probe_unavailable:
+            return present, True
 
     embed_one = getattr(search_index, "_embed_text", None)
     census = getattr(search_index, census_attr, None)
@@ -427,8 +444,13 @@ async def backfill_missing_episode_vectors(
     cursor: tuple[float, str] | None = None,
     limit: int = DEFAULT_EPISODE_SCAN_LIMIT,
     probe_chunk: int = DEFAULT_EMBEDDING_PROBE_CHUNK,
+    skip_episode: Callable[[Any], bool] | None = None,
 ) -> BackfillResult:
     """Embed and index episodes that lack EpisodeVec vectors.
+
+    *skip_episode* is the machinery-skip hook (agent-experience D5): episodes
+    it returns True for are excluded from vector expectations entirely —
+    stored and BM25-reachable, never drained into semantic space.
 
     Capture-time indexing (capture_service) is the primary episode-vector
     writer; this drain is the safety net for capture-time failures and
@@ -454,6 +476,7 @@ async def backfill_missing_episode_vectors(
         if getattr(ep, "deleted_at", None) is None
         and str(getattr(ep, "id", "") or "")
         and str(getattr(ep, "content", "") or "").strip()
+        and not (skip_episode is not None and skip_episode(ep))
     ]
     if not indexable:
         return result
@@ -577,7 +600,9 @@ async def backfill_missing_cue_vectors(
         for ep in episodes
         if getattr(ep, "deleted_at", None) is None and str(getattr(ep, "id", "") or "")
     )
-    presence_probe_exact = callable(getattr(search_index, "get_cue_embeddings", None))
+    probe_fn = getattr(search_index, "get_cue_embeddings", None)
+    avail_fn = getattr(search_index, "by_id_probe_available", None)
+    presence_probe_exact = callable(probe_fn) and (not callable(avail_fn) or bool(avail_fn("cue")))
     if not presence_probe_exact and cursor is not None:
         candidates = [(key, ep) for key, ep in candidates if key > cursor]
     if not candidates:
@@ -657,3 +682,220 @@ async def backfill_missing_cue_vectors(
     if not presence_exact and not dry_run and cursor_candidate is not None:
         result.cursor_next = cursor_candidate
     return result
+
+
+# ----------------------------------------------------------------------
+# M0.2 index-consistency drain (agent-experience goal, P3)
+# ----------------------------------------------------------------------
+
+# Vector kinds swept by the consistency drain. All three are keyed by
+# episode_id; chunks additionally by chunk_index.
+CONSISTENCY_KINDS = ("episode", "cue", "chunk")
+# Kinds whose duplicates may be AUTO-DELETED. Cue vectors are excluded:
+# question-space cues (M2.1) legitimately put multiple CueVec rows on one
+# episode, and CueVec carries no per-cue discriminator (episode_id/group_id/
+# content_type only) — a drain cannot tell a backfill duplicate from a
+# question cue. Cue duplicates are counted as debt, never deleted.
+DUP_REPAIR_KINDS = ("episode", "chunk")
+DEFAULT_CONSISTENCY_PAGE = 500
+
+
+def _consistency_dup_key(kind: str, row: dict) -> tuple[str, str]:
+    episode_id = str(row.get("episode_id") or "")
+    if kind == "chunk":
+        return (episode_id, str(row.get("chunk_index", "")))
+    return (episode_id, "")
+
+
+async def run_index_consistency_drain(
+    graph_store: Any,
+    search_index: Any,
+    group_id: str,
+    *,
+    kinds: Sequence[str] = CONSISTENCY_KINDS,
+    page_size: int = DEFAULT_CONSISTENCY_PAGE,
+    max_rows: int = 2000,
+    max_repairs: int = 200,
+    cursors: dict[str, int] | None = None,
+    dry_run: bool = False,
+    repair_duplicates: bool = True,
+    repair_orphans: bool = False,
+    deadline_ts: float | None = None,
+    limit: int = DEFAULT_EPISODE_SCAN_LIMIT,
+) -> dict[str, Any]:
+    """Bounded graph<->vector-index diff with duplicate repair.
+
+    Sweeps EpisodeVec/CueVec/EpisodeChunk rows in pages (stable LMDB id
+    order, per-kind offset cursor), then re-probes each page's episode_ids
+    through the exact by-id routes so duplicate detection is GLOBAL for the
+    keys seen this window (a page-local census would miss pairs split across
+    windows — the known duplicate CueVec rows are scattered, not adjacent).
+
+    Repairs: duplicate rows beyond the first (sorted by internal id) are
+    deleted up to *max_repairs*; orphan rows (episode row gone) are recorded
+    and only deleted when *repair_orphans* — soft-deleted episodes also
+    vanish from the listing, and soft-delete is reversible.
+
+    Cursor semantics: offsets are eventual, not exact — deletes shift the
+    id-ordered listing left, so a few rows can be jumped this sweep; they are
+    re-scanned on the next full sweep (cursor resets to 0 when a page comes
+    back short). BM25 docs have NO by-id presence surface in HelixQL (M0.4:
+    SearchBM25 silently skips orphan docs; DROP N fails on absent nodes), so
+    the BM25 direction is reported via write-conflict stats, not swept.
+
+    The vectors->rows direction here complements the rows->vectors direction
+    (missing vectors), which the episode/cue backfill drains own — those are
+    exact now via the same by-id probes.
+    """
+    list_page = getattr(search_index, "list_vector_rows_page", None)
+    find_rows = getattr(search_index, "find_vector_rows_by_episode_ids", None)
+    delete_row = getattr(search_index, "delete_vector_row", None)
+    report: dict[str, Any] = {
+        "group_id": group_id,
+        "dry_run": bool(dry_run),
+        "kinds": {},
+        "bm25": {
+            "probe_supported": False,
+            "note": (
+                "no by-id BM25 doc presence surface in HelixQL; orphan docs "
+                "surface only as write conflicts (see write_conflicts)"
+            ),
+        },
+    }
+    if not callable(list_page) or not callable(find_rows):
+        report["skipped"] = "search index lacks vector-row listing/probe surface"
+        return report
+
+    # Shared episode-row id set (all three kinds key on episode_id).
+    episode_row_ids: set[str] = set()
+    get_episodes = getattr(graph_store, "get_episodes", None)
+    if callable(get_episodes):
+        episodes = await get_episodes(group_id=group_id, limit=max(1, int(limit))) or []
+        episode_row_ids = {
+            str(getattr(ep, "id", "") or "")
+            for ep in episodes
+            if getattr(ep, "deleted_at", None) is None
+        }
+
+    cursors = dict(cursors or {})
+    page_n = max(1, int(page_size))
+    active_kinds = [k for k in kinds if k in CONSISTENCY_KINDS]
+    # Per-kind row budget: a shared budget lets the first kind starve the
+    # rest every window (observed on the clone: the episode sweep consumed
+    # all 2000 rows and cues never scanned until it completed).
+    rows_budget = max(page_n, int(max_rows) // max(1, len(active_kinds)))
+    repairs_left = max(0, int(max_repairs))
+
+    for kind in active_kinds:
+        rows_scanned_kind = 0
+        offset = max(0, int(cursors.get(kind, 0) or 0))
+        kind_report: dict[str, Any] = {
+            "rows_scanned": 0,
+            "duplicate_keys": 0,
+            "duplicate_rows_deleted": 0,
+            "orphan_rows_found": 0,
+            "orphan_rows_deleted": 0,
+            "delete_failures": 0,
+            "cursor_next": offset,
+            "sweep_complete": False,
+        }
+        report["kinds"][kind] = kind_report
+        deleted_this_kind = 0
+        # Keys already adjudicated this window: a key whose rows span pages
+        # gets globally re-probed by every page that touches it — without
+        # this, debt-only kinds (cue) double-count duplicates.
+        adjudicated_keys: set[tuple[str, str]] = set()
+
+        while rows_scanned_kind < rows_budget:
+            if deadline_ts is not None and time.monotonic() >= deadline_ts:
+                kind_report["stopped"] = "deadline"
+                break
+            try:
+                page = await list_page(kind, group_id, offset, offset + page_n)
+            except ByIdVectorProbeUnavailableError:
+                kind_report["stopped"] = "probe_unavailable"
+                break
+            except Exception:
+                logger.warning(
+                    "index consistency: %s page at %d failed", kind, offset, exc_info=True
+                )
+                kind_report["stopped"] = "page_error"
+                break
+            page = page or []
+            kind_report["rows_scanned"] += len(page)
+            rows_scanned_kind += len(page)
+
+            page_episode_ids = sorted(
+                {str(r.get("episode_id") or "") for r in page if r.get("episode_id")}
+            )
+            all_rows: list[dict] = []
+            for i in range(0, len(page_episode_ids), DEFAULT_EMBEDDING_PROBE_CHUNK):
+                batch = page_episode_ids[i : i + DEFAULT_EMBEDDING_PROBE_CHUNK]
+                try:
+                    all_rows.extend(await find_rows(kind, batch, group_id) or [])
+                except Exception:
+                    logger.warning("index consistency: %s by-id probe failed", kind, exc_info=True)
+                    all_rows = []
+                    break
+
+            by_key: dict[tuple[str, str], list[dict]] = {}
+            for row in all_rows:
+                by_key.setdefault(_consistency_dup_key(kind, row), []).append(row)
+
+            for key, rows in by_key.items():
+                if key in adjudicated_keys:
+                    continue
+                adjudicated_keys.add(key)
+                episode_id = key[0]
+                is_orphan = bool(episode_row_ids) and episode_id not in episode_row_ids
+                doomed: list[dict] = []
+                doomed_reason = "duplicate"
+                if len(rows) > 1:
+                    kind_report["duplicate_keys"] += 1
+                    if repair_duplicates and not is_orphan and kind in DUP_REPAIR_KINDS:
+                        ordered = sorted(rows, key=lambda r: str(r.get("id") or ""))
+                        doomed = ordered[1:]
+                if is_orphan:
+                    kind_report["orphan_rows_found"] += len(rows)
+                    if repair_orphans:
+                        # Confirm absence directly before destroying anything.
+                        get_ep = getattr(graph_store, "get_episode", None)
+                        confirmed: Any = object()
+                        if callable(get_ep):
+                            try:
+                                confirmed = await get_ep(episode_id, group_id)
+                            except Exception:  # silent-ok: unconfirmed -> no repair
+                                confirmed = object()
+                        if confirmed is None:
+                            doomed = rows
+                            doomed_reason = "orphan"
+                for row in doomed:
+                    if repairs_left <= 0 or dry_run or not callable(delete_row):
+                        break
+                    helix_id = row.get("id") or row.get("_id")
+                    if helix_id is None:
+                        continue
+                    ok = await delete_row(kind, helix_id)
+                    if ok:
+                        repairs_left -= 1
+                        deleted_this_kind += 1
+                        if doomed_reason == "orphan":
+                            kind_report["orphan_rows_deleted"] += 1
+                        else:
+                            kind_report["duplicate_rows_deleted"] += 1
+                    else:
+                        kind_report["delete_failures"] += 1
+
+            # Deletes shift the id-ordered listing left; advancing by the raw
+            # page length can jump rows — they are re-scanned next sweep.
+            offset += len(page)
+            kind_report["cursor_next"] = max(0, offset - deleted_this_kind)
+            if len(page) < page_n:
+                kind_report["sweep_complete"] = True
+                kind_report["cursor_next"] = 0
+                break
+        cursors[kind] = kind_report["cursor_next"]
+
+    report["repairs_remaining_budget"] = repairs_left
+    report["cursors_next"] = {k: int(cursors.get(k, 0)) for k in kinds if k in CONSISTENCY_KINDS}
+    return report

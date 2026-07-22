@@ -604,6 +604,7 @@ def build_write_payload(
     content: str,
     source: str,
     conversation_date: str | None,
+    questions: list[str] | None = None,
 ) -> AxiResult:
     if not content.strip():
         return AxiResult(
@@ -626,6 +627,7 @@ def build_write_payload(
                 content=content,
                 source=source,
                 conversation_date=conversation_date,
+                questions=questions,
             )
         elif operation == "remember":
             result = client.remember(
@@ -1365,6 +1367,9 @@ def _compact_write_result(operation: str, result: dict[str, Any]) -> dict[str, A
         "projection_mode": lifecycle.get("projection_mode"),
         "projection_status": lifecycle.get("projection_status"),
     }
+    question_cues = first_present(result, "questionCues", "question_cues")
+    if question_cues is not None:
+        payload["question_cues"] = question_cues
     message = result.get("message")
     if message:
         payload["message"] = message

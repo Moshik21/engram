@@ -147,6 +147,11 @@ class ObserveBody(BaseModel):
     source: str = "dashboard"
     conversation_date: str | None = None
     events: list[dict] | None = None
+    # M2.1 question-space observe: anticipated questions this memory answers.
+    questions: list[str] | None = None
+    # Agent-proposed facts ride the deferred-evidence pipeline (no projection).
+    proposed_entities: list[dict] | None = None
+    proposed_relationships: list[dict] | None = None
 
 
 class ObserveImageRequest(BaseModel):
@@ -265,6 +270,9 @@ async def observe(request: Request, body: ObserveBody) -> JSONResponse:
         source=body.source,
         conversation_date=body.conversation_date,
         events=body.events,
+        questions=body.questions,
+        proposed_entities=body.proposed_entities,
+        proposed_relationships=body.proposed_relationships,
     )
     return JSONResponse(content=payload)
 

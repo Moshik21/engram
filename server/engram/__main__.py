@@ -258,6 +258,44 @@ def main():
         help="Print machine-readable JSON instead of markdown",
     )
 
+    # --- battery ---
+    battery_parser = subparsers.add_parser(
+        "battery",
+        help="Score the agent-experience battery (containment@3 over recall + context)",
+    )
+    battery_parser.add_argument(
+        "--against-live",
+        action="store_true",
+        help="Run against a live server instead of the seeded lite CI corpus",
+    )
+    battery_parser.add_argument(
+        "--server-url",
+        default="http://127.0.0.1:8100",
+        help="Server URL for --against-live (default http://127.0.0.1:8100)",
+    )
+    battery_parser.add_argument(
+        "--floor",
+        type=int,
+        default=None,
+        help="Exit nonzero when the battery score is below this floor",
+    )
+    battery_parser.add_argument(
+        "--battery-path",
+        default=None,
+        help="Override path to the battery JSON rig",
+    )
+    battery_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON instead of markdown",
+    )
+    battery_parser.add_argument(
+        "--require-machinery-clean",
+        action="store_true",
+        help="Exit nonzero when any machinery-class text appears in a top-3 "
+        "(gate B4); vacuous-clean (zero results everywhere) also fails",
+    )
+
     # --- axi ---
     axi_parser = subparsers.add_parser(
         "axi",
@@ -530,6 +568,47 @@ def main():
         else:
             print(format_continuity_report(result))
         sys.exit(0 if result.get("passed") else 1)
+
+    # --- battery ---
+    if args.command == "battery":
+        import asyncio
+        import json as _json
+        from pathlib import Path as _Path
+
+        from engram.evaluation.battery import (
+            format_battery_report,
+            run_battery_against_live,
+            run_battery_seeded,
+        )
+
+        battery_path = _Path(args.battery_path) if getattr(args, "battery_path", None) else None
+        if getattr(args, "against_live", False):
+            result = run_battery_against_live(
+                server_url=getattr(args, "server_url", "http://127.0.0.1:8100"),
+                battery_path=battery_path,
+            )
+        else:
+            result = asyncio.run(run_battery_seeded(battery_path=battery_path))
+        if args.json:
+            print(_json.dumps(result, indent=2, default=str))
+        else:
+            print(format_battery_report(result, floor=args.floor))
+        failed = args.floor is not None and result.get("score", 0) < args.floor
+        if getattr(args, "require_machinery_clean", False):
+            rows = result.get("questions") or []
+            violations = [r for r in rows if r.get("machinery_top3_indexes")]
+            vacuous = all(not r.get("result_count") for r in rows)
+            if violations or vacuous:
+                print(
+                    "B4 FAIL: "
+                    + (
+                        f"machinery in top-3 for {[r.get('id') for r in violations]}"
+                        if violations
+                        else "vacuously clean (zero results everywhere)"
+                    )
+                )
+                failed = True
+        sys.exit(1 if failed else 0)
 
     # --- axi ---
     if args.command == "axi":

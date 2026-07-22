@@ -188,6 +188,17 @@ def configure_axi_parser(parser: argparse.ArgumentParser) -> None:
         )
         write_parser.add_argument("--source", default="axi")
         write_parser.add_argument("--conversation-date", default=None)
+        if command == "observe":
+            write_parser.add_argument(
+                "--question",
+                dest="questions",
+                action="append",
+                default=None,
+                help=(
+                    "Anticipated question this observation answers; becomes a "
+                    "question-space recall cue. Repeatable."
+                ),
+            )
 
     bootstrap_parser = subparsers.add_parser(
         "bootstrap",
@@ -465,6 +476,7 @@ def _dispatch(args: argparse.Namespace, client: AxiRestClient) -> AxiResult:
             content=sys.stdin.read(),
             source=args.source,
             conversation_date=args.conversation_date,
+            questions=getattr(args, "questions", None),
         )
     if command == "bootstrap":
         project_path = _normalize_project_path(args.project_path)

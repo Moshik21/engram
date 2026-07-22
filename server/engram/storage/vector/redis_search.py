@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import struct
 
@@ -237,8 +238,17 @@ class RedisSearchIndex:
             logger.warning("Failed to index episode %s: %s", episode.id, e)
 
     async def index_episode_cue(self, cue: EpisodeCue) -> None:
-        """Embed and index cue text."""
-        key = self._hash_key(cue.group_id, "episode_cue", cue.episode_id)
+        """Embed and index cue text.
+
+        M2.1: agent-question cues are extra cue vectors for the SAME episode, so
+        they fan out to derived keys instead of clobbering the base cue key.
+        Search maps results back via the stored ``source_id`` field.
+        """
+        key_id = cue.episode_id
+        if cue.route_reason == "agent_question":
+            digest = hashlib.sha1(cue.cue_text.encode("utf-8")).hexdigest()[:12]
+            key_id = f"{cue.episode_id}::q::{digest}"
+        key = self._hash_key(cue.group_id, "episode_cue", key_id)
         if not cue.cue_text:
             try:
                 await self._redis.delete(key)

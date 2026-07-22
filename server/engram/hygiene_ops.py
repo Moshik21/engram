@@ -34,6 +34,14 @@ _VECTOR_BACKFILL_CUES_MAX = 400
 _VECTOR_BACKFILL_EPISODES_SECONDS_MAX = 600.0
 _VECTOR_BACKFILL_CUES_SECONDS_MAX = 240.0
 
+# M0.2 index-consistency drain: bounded graph<->index diff per mop window
+# (duplicate vectors, orphan vector rows). Exact by-id probes measured
+# ~0.05s/200 ids and the full CueVec page sweep ~0.03s on the 17GB clone,
+# so these budgets cost seconds, not minutes.
+_INDEX_CONSISTENCY_ROWS_MAX = 2000
+_INDEX_CONSISTENCY_REPAIRS_MAX = 200
+_INDEX_CONSISTENCY_SECONDS_MAX = 120.0
+
 
 def _hygiene_state_path() -> Path:
     home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
@@ -400,11 +408,17 @@ async def execute_hygiene_mop(
     # Durable vector-debt drain: backfill missing episode + cue vectors under
     # a per-window budget. Provider breakage is loud but never fails the mop
     # (the M2.6 disaster was a broken provider staying invisible).
+    from engram.ingestion.salience import vector_index_exempt
     from engram.storage.index_completeness import (
         EmbeddingProviderUnavailableError,
         backfill_missing_cue_vectors,
         backfill_missing_episode_vectors,
     )
+
+    def _machinery_skip(episode: Any) -> bool:
+        # D5 salience-gated subset: machinery-class episodes stay stored and
+        # BM25-reachable but are never drained into vector space.
+        return vector_index_exempt(episode, activation_cfg)
 
     embeddings_enabled = getattr(search_index, "_embeddings_enabled", None)
     if dry_run:
@@ -463,6 +477,7 @@ async def execute_hygiene_mop(
                     group_id,
                     max_episodes=_VECTOR_BACKFILL_EPISODES_MAX,
                     cursor=_cursor(group_cursors.get("episodes")),
+                    skip_episode=_machinery_skip,
                 ),
                 timeout=_VECTOR_BACKFILL_EPISODES_SECONDS_MAX,
             )
@@ -518,6 +533,57 @@ async def execute_hygiene_mop(
                 "status": "error",
                 "episodes": ep_backfill.indexed if ep_backfill else 0,
             }
+
+    # M0.2 index-consistency drain: bounded vector-side sweep (duplicate
+    # vectors from the drains/backfill era, orphan rows) with per-kind offset
+    # cursors persisted like the vector-backfill cursors. BM25 has no by-id
+    # presence surface (M0.4) — its direction is reported via the write-
+    # conflict self-heal counters instead.
+    from engram.storage.index_completeness import run_index_consistency_drain
+
+    if dry_run:
+        mop["index_consistency"] = {"skipped": True, "reason": "dry_run"}
+    else:
+        state = _read_hygiene_state()
+        ic_all = state.get("index_consistency_cursors")
+        ic_all = dict(ic_all) if isinstance(ic_all, dict) else {}
+        ic_group = ic_all.get(group_id)
+        ic_group = dict(ic_group) if isinstance(ic_group, dict) else {}
+        try:
+            ic_report = await asyncio.wait_for(
+                run_index_consistency_drain(
+                    graph_store,
+                    search_index,
+                    group_id,
+                    max_rows=_INDEX_CONSISTENCY_ROWS_MAX,
+                    max_repairs=_INDEX_CONSISTENCY_REPAIRS_MAX,
+                    cursors={k: int(v) for k, v in ic_group.items() if isinstance(v, int)},
+                    deadline_ts=time.monotonic() + _INDEX_CONSISTENCY_SECONDS_MAX,
+                ),
+                timeout=_INDEX_CONSISTENCY_SECONDS_MAX + 30.0,
+            )
+            cursors_next = ic_report.get("cursors_next")
+            if isinstance(cursors_next, dict):
+                ic_all[group_id] = {str(k): int(v) for k, v in cursors_next.items()}
+                state["index_consistency_cursors"] = ic_all
+                _write_hygiene_state(state)
+            mop["index_consistency"] = ic_report
+        except TimeoutError:
+            logger.warning(
+                "mop index-consistency drain exceeded its wall-clock bound (%ss)",
+                _INDEX_CONSISTENCY_SECONDS_MAX,
+            )
+            mop["index_consistency"] = {"status": "timeout"}
+        except Exception:
+            logger.exception("mop index-consistency drain failed")
+            mop["index_consistency"] = {"status": "error"}
+        try:
+            from engram.storage.helix.graph import get_bm25_conflict_stats
+
+            if isinstance(mop.get("index_consistency"), dict):
+                mop["index_consistency"]["write_conflicts"] = get_bm25_conflict_stats()
+        except Exception:  # silent-ok: lite installs have no helix graph module
+            logger.debug("bm25 conflict stats unavailable", exc_info=True)
 
     after = await collect_hygiene_debt_from_store(graph_store, group_id)
     try:

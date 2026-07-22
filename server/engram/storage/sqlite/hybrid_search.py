@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 
 from engram.config import ActivationConfig
@@ -15,6 +16,40 @@ from engram.storage.sqlite.vectors import SQLiteVectorStore, cosine_similarity, 
 from engram.utils.attachments import get_first_image_attachment
 
 logger = logging.getLogger(__name__)
+
+# M2.1 question-space observe: agent-question cues are extra cue vectors for the
+# SAME episode, so they get a derived vector id (episode_id + question digest)
+# instead of clobbering the base cue vector row keyed by (id, content_type).
+_QUESTION_CUE_ROUTE_REASON = "agent_question"
+_QUESTION_CUE_ID_SEPARATOR = "::q::"
+
+
+def _cue_vector_id(cue: EpisodeCue) -> str:
+    """Vector-row id for a cue: base cues keep episode_id; question cues fan out."""
+    if cue.route_reason != _QUESTION_CUE_ROUTE_REASON:
+        return cue.episode_id
+    digest = hashlib.sha1(cue.cue_text.encode("utf-8")).hexdigest()[:12]
+    return f"{cue.episode_id}{_QUESTION_CUE_ID_SEPARATOR}{digest}"
+
+
+def _collapse_question_cue_hits(hits: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    """Map question-cue vector ids back to episode ids, keeping the best score.
+
+    Hits arrive sorted by score descending, so the first occurrence per episode
+    is its maximum; order is preserved. A no-op when no question cues exist
+    (base cue ids never contain the separator), keeping the flag-off cue lane
+    byte-identical.
+    """
+    collapsed: dict[str, float] = {}
+    order: list[str] = []
+    for item_id, score in hits:
+        episode_id = item_id.split(_QUESTION_CUE_ID_SEPARATOR, 1)[0]
+        if episode_id not in collapsed:
+            collapsed[episode_id] = score
+            order.append(episode_id)
+        elif score > collapsed[episode_id]:
+            collapsed[episode_id] = score
+    return [(episode_id, collapsed[episode_id]) for episode_id in order]
 
 
 class HybridSearchIndex:
@@ -170,7 +205,7 @@ class HybridSearchIndex:
             if self._storage_dim > 0:
                 embeddings = truncate_vectors(embeddings, self._storage_dim)
             await self._vectors.upsert(
-                cue.episode_id,
+                _cue_vector_id(cue),
                 "episode_cue",
                 cue.group_id,
                 cue.cue_text,
@@ -539,6 +574,8 @@ class HybridSearchIndex:
         except Exception as e:
             self._record_query_embed_failure(f"vector cue search failed: {e}")
             return fts_results[:limit]
+
+        vec_results = _collapse_question_cue_hits(vec_results)
 
         if not vec_results:
             return fts_results[:limit]

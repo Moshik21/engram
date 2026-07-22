@@ -269,6 +269,90 @@ async def _working_memory_pool(
 
 
 # ---------------------------------------------------------------------------
+# Durable candidate feeder (AX M3.1)
+# ---------------------------------------------------------------------------
+
+_DURABLE_FEEDER_LIMIT = 64
+_DURABLE_FEEDER_CACHE_TTL_SECONDS = 60.0
+_DURABLE_FEEDER_TIMEOUT_SECONDS = 1.5
+# {(id(graph_store), group_id): (expires_at, entity_ids)}
+_durable_feeder_cache: dict[tuple[int, str], tuple[float, list[str]]] = {}
+
+
+def clear_durable_feeder_cache() -> None:
+    """Test hook: drop all cached durable-feeder id listings."""
+    _durable_feeder_cache.clear()
+
+
+async def _durable_feeder_ids(
+    group_id: str,
+    graph_store: GraphStore,
+    now: float,
+) -> list[str]:
+    """AX M3.1: bounded id listing of identity_core + durable-class entities.
+
+    Zero search cost: direct indexed graph listings only
+    (``get_identity_core_entities`` + ``find_entities_by_type`` over the
+    promotion durable class set), bounded at ``_DURABLE_FEEDER_LIMIT`` and
+    cached per (store, group) for a short TTL. Returns ids only — the feeder
+    never injects rank or score; downstream scoring decides their fate.
+    """
+    key = (id(graph_store), group_id)
+    cached = _durable_feeder_cache.get(key)
+    if cached is not None and cached[0] > now:
+        return list(cached[1])
+
+    from engram.extraction.promotion import DURABLE_RECALL_ENTITY_TYPES
+
+    ids: list[str] = []
+    seen: set[str] = set()
+
+    def _take(entities: list) -> None:
+        for entity in entities or []:
+            eid = getattr(entity, "id", None)
+            if eid and eid not in seen:
+                seen.add(eid)
+                ids.append(eid)
+                if len(ids) >= _DURABLE_FEEDER_LIMIT:
+                    return
+
+    async def _list() -> None:
+        if hasattr(graph_store, "get_identity_core_entities"):
+            _take(await graph_store.get_identity_core_entities(group_id))
+        if len(ids) < _DURABLE_FEEDER_LIMIT and hasattr(graph_store, "find_entities_by_type"):
+            for entity_type in sorted(DURABLE_RECALL_ENTITY_TYPES):
+                _take(
+                    await graph_store.find_entities_by_type(
+                        entity_type,
+                        group_id,
+                        limit=_DURABLE_FEEDER_LIMIT - len(ids),
+                    )
+                )
+                if len(ids) >= _DURABLE_FEEDER_LIMIT:
+                    break
+
+    try:
+        # Wall-clock bound: native type listings fetch server-side unbounded
+        # (helix find_entities_by_type truncates client-side), so a cache-miss
+        # on a large brain must not stall recall — partial ids are fine and
+        # the cache retries next miss.
+        await asyncio.wait_for(_list(), timeout=_DURABLE_FEEDER_TIMEOUT_SECONDS)
+    except (TimeoutError, asyncio.TimeoutError):
+        logger.warning(
+            "Durable feeder listing exceeded %.1fs (non-fatal); using %d partial ids",
+            _DURABLE_FEEDER_TIMEOUT_SECONDS,
+            len(ids),
+        )
+        return ids
+    except Exception as e:
+        logger.warning("Durable feeder listing failed (non-fatal): %s", e)
+        return ids
+
+    _durable_feeder_cache[key] = (now + _DURABLE_FEEDER_CACHE_TTL_SECONDS, list(ids))
+    return ids
+
+
+# ---------------------------------------------------------------------------
 # Entity name patterns for query extraction
 # ---------------------------------------------------------------------------
 
@@ -909,6 +993,18 @@ async def generate_candidates(
         _set_stage_metric(stage_timings_ms, "recall_candidate_max_score", 0.0)
         return []
 
+    # Step 3.5: durable candidate feeder (AX M3.1, flag-gated). Ids only —
+    # appended AFTER the RRF merge so the feeder contributes zero rank signal;
+    # feeder-only candidates get real similarity backfill and scoring decides.
+    durable_ids: list[str] = []
+    if cfg.durable_candidate_feeder_enabled:
+        durable_ids = await _durable_feeder_ids(group_id, graph_store, now)
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_durable_feeder_candidate_count",
+            len(durable_ids),
+        )
+
     # Step 4: Merge non-empty pools via RRF
     pools = [
         p
@@ -921,10 +1017,16 @@ async def generate_candidates(
         ]
         if p
     ]
-    if not pools:
+    if not pools and not durable_ids:
         return []
 
-    merged_ids = _merge_pools_rrf(pools, cfg.rrf_k, limits["pool_total_limit"])
+    merged_ids = _merge_pools_rrf(pools, cfg.rrf_k, limits["pool_total_limit"]) if pools else []
+    if durable_ids:
+        merged_set = set(merged_ids)
+        for eid in durable_ids:
+            if eid not in merged_set:
+                merged_set.add(eid)
+                merged_ids.append(eid)
 
     # Step 5: Build semantic score map from search results
     search_scores: dict[str, float] = {eid: score for eid, score in search_results}

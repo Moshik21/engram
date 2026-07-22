@@ -272,7 +272,7 @@ async def test_evidence_projection_executor_commits_and_defers_evidence():
     graph.store_evidence = AsyncMock()
     build_evidence_bundle = MagicMock(return_value=evidence_bundle)
     commit_policy = SimpleNamespace(
-        evaluate=lambda bundle, _entity_count: [
+        evaluate=lambda bundle, _entity_count, **_kwargs: [
             CommitDecision(evidence_id=bundle.candidates[0].evidence_id, action="commit"),
             CommitDecision(evidence_id=bundle.candidates[1].evidence_id, action="defer"),
         ],
@@ -403,7 +403,7 @@ async def test_evidence_projection_executor_persists_rejected_proposal_rows():
     graph.get_entity_count = AsyncMock(return_value=12)
     graph.store_evidence = AsyncMock()
     commit_policy = SimpleNamespace(
-        evaluate=lambda bundle, _entity_count: [
+        evaluate=lambda bundle, _entity_count, **_kwargs: [
             CommitDecision(evidence_id=bundle.candidates[0].evidence_id, action="commit"),
             CommitDecision(
                 evidence_id=bundle.candidates[1].evidence_id,

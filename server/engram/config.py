@@ -1461,6 +1461,16 @@ class ActivationConfig(BaseModel):
             "episode vector indexing; 0 indexes as soon as the background lane is free."
         ),
     )
+    salience_gated_embedding_enabled: bool = Field(
+        default=True,
+        description=(
+            "Write-side attention gate (M1.2): machinery-class episodes "
+            "(protocol frames, task notifications, tool-use id dumps, exit-code "
+            "dumps) are stored and BM25/grep-reachable but skip capture-time "
+            "vector indexing and the mop vector drain. Kill switch: "
+            "ENGRAM_ACTIVATION__SALIENCE_GATED_EMBEDDING_ENABLED=false."
+        ),
+    )
     cue_index_outbox_enabled: bool = Field(
         default=True,
         description="Persist cue-vector indexing work before running it in the background",
@@ -2199,6 +2209,16 @@ class ActivationConfig(BaseModel):
             "per route when routing runs. Live only when usage_ranking_enabled; "
             "bounded by beta_max=0.30 (usage can never beat semantics by more "
             "than a 30% band)."
+        ),
+    )
+    durable_candidate_feeder_enabled: bool = Field(
+        default=False,
+        description=(
+            "AX M3.1 durable candidate feeder: identity_core + durable-class "
+            "entities (bounded at 64, cached bounded graph listing — zero "
+            "search cost) are always present in the recall candidate pool. "
+            "Scoring decides their fate: no rank injection, no score floor. "
+            "Off (default) is byte-identical to the pre-feeder pool."
         ),
     )
     usage_top_used_limit: int = Field(

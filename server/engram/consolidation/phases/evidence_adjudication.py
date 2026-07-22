@@ -291,6 +291,10 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                 needs_corroboration_reason = None
                 if "proper_name" in ev_signals and "identity_pattern" not in ev_signals:
                     needs_corroboration_reason = "proper_name_needs_corroboration"
+                elif "observation_sourced" in ev_signals and "identity_pattern" not in ev_signals:
+                    # M1.4 squatter guard: observation-sourced entities need
+                    # >=2-episode corroboration for full commit.
+                    needs_corroboration_reason = "observation_needs_corroboration"
                 elif (
                     ev.get("source_type") == "client_proposal" and "span_verified" not in ev_signals
                 ):
@@ -313,7 +317,10 @@ class EvidenceAdjudicationPhase(ConsolidationPhase):
                                 ev,
                                 group_id=group_id,
                                 count_cycle=needs_corroboration_reason
-                                != "proper_name_needs_corroboration",
+                                not in (
+                                    "proper_name_needs_corroboration",
+                                    "observation_needs_corroboration",
+                                ),
                             )
                             records.append(
                                 EvidenceAdjudicationRecord(

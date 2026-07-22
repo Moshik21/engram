@@ -16,7 +16,10 @@ engramctl doctor
 1. `claim_authority` when project file memory is present
 2. `get_context` once before substantive answers
 3. `recall` when people/projects/prior decisions appear
-4. `observe` only for harness-invisible context
+4. `observe` only for harness-invisible context — **one fact per observe**, and
+   attach 1–3 anticipated questions a future agent would ask
+   (`engram axi observe --stdin --question "..."`, repeatable; API body
+   `questions: [...]`). Each becomes a question-space recall cue.
 5. `remember` only for high-signal facts with proposals (0–5 / compact window)
 
 ## Session end

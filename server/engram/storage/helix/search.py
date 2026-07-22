@@ -2049,6 +2049,178 @@ class HelixSearchIndex:
 
         return results
 
+    # ------------------------------------------------------------------
+    # M0.1 by-id vector probes (exact presence; kills the ANN-census
+    # instrument bug) + M0.2 consistency-drain row surface
+    # ------------------------------------------------------------------
+
+    # kind -> (by-id probe endpoint, paged listing endpoint, delete endpoint)
+    _VECTOR_ROW_ENDPOINTS = {
+        "episode": (
+            "find_episode_vectors_by_ids",
+            "list_episode_vectors_page",
+            "delete_episode_vector",
+        ),
+        "cue": (
+            "find_cue_vectors_by_ids",
+            "list_cue_vectors_page",
+            "delete_cue_vector",
+        ),
+        "chunk": (
+            "find_episode_chunk_vectors_by_ids",
+            "list_episode_chunk_vectors_page",
+            "delete_episode_chunk_vector",
+        ),
+    }
+
+    def _vector_row_endpoint(self, kind: str, slot: int) -> str:
+        try:
+            return self._VECTOR_ROW_ENDPOINTS[kind][slot]
+        except KeyError:
+            raise ValueError(f"unknown vector row kind: {kind!r}") from None
+
+    def by_id_probe_available(self, kind: str) -> bool:
+        """Whether the exact by-id probe for *kind* can answer on this engine.
+
+        True also when unknowable (HTTP transport) — the probe itself raises
+        :class:`ByIdVectorProbeUnavailableError` on the error path then.
+        """
+        return not self._native_route_missing(self._vector_row_endpoint(kind, 0))
+
+    def _native_route_missing(self, endpoint: str) -> bool:
+        """True when the native engine definitively lacks *endpoint*.
+
+        False means present OR unknown (HTTP transport / no engine handle) —
+        unknown callers proceed and rely on the error-path detection below.
+        """
+        transport = getattr(self._helix_client, "_native_transport", None)
+        engine = getattr(transport, "_engine", None)
+        has_route = getattr(engine, "has_route", None)
+        if engine is None or not callable(has_route):
+            return False
+        try:
+            return not bool(has_route(endpoint))
+        except Exception:  # silent-ok: capability probe only; treat as unknown
+            return False
+
+    @staticmethod
+    def _raise_if_missing_route(endpoint: str, exc: Exception) -> None:
+        text = str(exc).lower()
+        if any(marker in text for marker in ("not found", "no handler", "unknown", "404")):
+            from engram.storage.index_completeness import ByIdVectorProbeUnavailableError
+
+            raise ByIdVectorProbeUnavailableError(endpoint) from exc
+
+    async def find_vector_rows_by_episode_ids(
+        self,
+        kind: str,
+        episode_ids: list[str],
+        group_id: str,
+    ) -> list[dict]:
+        """Exact vector-row lookup by business key (EpisodeVec/CueVec/chunk).
+
+        Rows carry the Helix internal ``id`` (the DROP V handle) plus
+        ``episode_id``/``group_id``/``data``. Raises
+        :class:`ByIdVectorProbeUnavailableError` on engines without the
+        M0.1 routes so callers can fall back to the inexact census.
+        """
+        endpoint = self._vector_row_endpoint(kind, 0)
+        if not episode_ids or not group_id:
+            return []
+        if self._native_route_missing(endpoint):
+            from engram.storage.index_completeness import ByIdVectorProbeUnavailableError
+
+            raise ByIdVectorProbeUnavailableError(endpoint)
+        try:
+            return await self._query(
+                endpoint,
+                {"episode_ids": [str(i) for i in episode_ids], "gid": group_id},
+            )
+        except Exception as exc:
+            self._raise_if_missing_route(endpoint, exc)
+            raise
+
+    async def list_vector_rows_page(
+        self,
+        kind: str,
+        group_id: str,
+        start: int,
+        end: int,
+    ) -> list[dict]:
+        """Bounded page of vector rows in stable LMDB id order (M0.2 sweep)."""
+        endpoint = self._vector_row_endpoint(kind, 1)
+        if not group_id or end <= start:
+            return []
+        if self._native_route_missing(endpoint):
+            from engram.storage.index_completeness import ByIdVectorProbeUnavailableError
+
+            raise ByIdVectorProbeUnavailableError(endpoint)
+        try:
+            return await self._query(
+                endpoint,
+                {"gid": group_id, "start": int(start), "end": int(end)},
+            )
+        except Exception as exc:
+            self._raise_if_missing_route(endpoint, exc)
+            raise
+
+    async def delete_vector_row(self, kind: str, helix_id: Any) -> bool:
+        """Tombstone one vector row by Helix internal id (M0.4: DROP V).
+
+        Returns success; failures are counted by the caller's report — never
+        silent, never fatal to a drain window.
+        """
+        endpoint = self._vector_row_endpoint(kind, 2)
+        try:
+            await self._query(endpoint, {"id": helix_id})
+            return True
+        except Exception as exc:
+            if "alreadydeleted" in str(exc).lower().replace(" ", ""):
+                return True  # tombstone already present — idempotent success
+            # silent-ok: per-row repair failure is returned as False and
+            # counted in the drain report's delete_failures.
+            logger.warning("delete_vector_row(%s, %s) failed: %s", kind, helix_id, exc)
+            return False
+
+    async def _get_vector_map_by_episode_ids(
+        self,
+        kind: str,
+        episode_ids: list[str],
+        group_id: str,
+    ) -> dict[str, list[float]]:
+        rows = await self.find_vector_rows_by_episode_ids(kind, episode_ids, group_id)
+        out: dict[str, list[float]] = {}
+        for row in rows:
+            eid = str(row.get("episode_id") or "")
+            vec = row.get("data") or row.get("vec") or row.get("vector")
+            if eid and eid not in out and isinstance(vec, list) and vec:
+                out[eid] = [float(v) for v in vec]
+        return out
+
+    async def get_episode_embeddings(
+        self,
+        episode_ids: list[str],
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]:
+        """Exact EpisodeVec presence/embedding lookup (M0.1 probe).
+
+        The episode vector-debt drain prefers this over the ANN census
+        (which surfaced only a small reachable subset regardless of k).
+        """
+        if not episode_ids or not group_id:
+            return {}
+        return await self._get_vector_map_by_episode_ids("episode", episode_ids, group_id)
+
+    async def get_cue_embeddings(
+        self,
+        episode_ids: list[str],
+        group_id: str | None = None,
+    ) -> dict[str, list[float]]:
+        """Exact CueVec presence/embedding lookup by episode_id (M0.1 probe)."""
+        if not episode_ids or not group_id:
+            return {}
+        return await self._get_vector_map_by_episode_ids("cue", episode_ids, group_id)
+
     async def get_graph_embeddings(
         self,
         entity_ids: list[str],

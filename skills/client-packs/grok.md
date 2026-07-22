@@ -16,7 +16,10 @@ Default MCP surface is `ENGRAM_MCP_SURFACE=public` (golden loop tools only).
 1. `get_context` once before substantive answers
 2. `recall` when prior context could change the response
 3. `remember` high-signal Decisions/Preferences/People with proposals
-4. `observe` for uncertain-value context only when harness auto-capture misses it
+4. `observe` for uncertain-value context only when harness auto-capture misses
+   it — **one fact per observe**, with 1–3 anticipated questions (API body
+   `questions: [...]`; CLI `engram axi observe --stdin --question "..."`,
+   repeatable). Each becomes a question-space recall cue.
 
 ## Session end
 

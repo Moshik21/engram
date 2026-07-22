@@ -169,10 +169,13 @@ class AxiRestClient:
         content: str,
         source: str,
         conversation_date: str | None = None,
+        questions: list[str] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"content": content, "source": source}
         if conversation_date:
             body["conversation_date"] = conversation_date
+        if questions:
+            body["questions"] = list(questions)
         return self.request_json("POST", "/api/knowledge/observe", body=body)
 
     def remember(

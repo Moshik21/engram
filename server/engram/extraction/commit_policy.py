@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from engram.extraction.evidence import CommitDecision, EvidenceBundle, EvidenceCandidate
 from engram.extraction.promotion import is_high_signal_entity_type
+from engram.ingestion.salience import is_observation_source
+
+logger = logging.getLogger(__name__)
 
 # Signals that warrant cold-start threshold relaxation
 _HIGH_CONFIDENCE_SIGNALS = frozenset(
@@ -22,6 +26,48 @@ _HIGH_CONFIDENCE_SIGNALS = frozenset(
         # unverified claims.
     }
 )
+
+# M1.4 squatter guard (P4: names are identifiers, not content). An entity
+# name longer than this is a summary in disguise — the excess folds into the
+# summary and the name is capped.
+_MAX_ENTITY_NAME_TOKENS = 6
+
+# Identity-class signals exempt from the observation corroboration hold —
+# "my name is Konner" captured via observe must not wait for a second episode.
+_IDENTITY_SIGNALS = _HIGH_CONFIDENCE_SIGNALS - {"technical_token"}
+
+
+def _cap_entity_name(candidate: EvidenceCandidate) -> None:
+    """Cap sentence-length entity names; fold the excess into the summary.
+
+    The battery's squatter class: a milestone observation extracted into a
+    sentence-long entity name that scored 0.99 on unrelated ranking queries.
+    """
+    payload = candidate.payload if isinstance(candidate.payload, dict) else {}
+    name = str(payload.get("name") or "")
+    tokens = name.split()
+    if len(tokens) <= _MAX_ENTITY_NAME_TOKENS:
+        return
+    capped = " ".join(tokens[:_MAX_ENTITY_NAME_TOKENS])
+    summary = str(payload.get("summary") or "")
+    payload["name"] = capped
+    if not summary:
+        payload["summary"] = name
+    elif not summary.startswith(name):
+        payload["summary"] = f"{name}. {summary}"
+    candidate.payload = payload
+    if candidate.corroborating_signals is None:
+        candidate.corroborating_signals = []
+    if "name_capped" not in candidate.corroborating_signals:
+        candidate.corroborating_signals.append("name_capped")
+    logger.warning(
+        "Squatter guard: entity name exceeds %d tokens (%d); capped %r -> %r "
+        "(excess folded into summary)",
+        _MAX_ENTITY_NAME_TOKENS,
+        len(tokens),
+        name,
+        capped,
+    )
 
 
 @dataclass
@@ -60,16 +106,47 @@ class AdaptiveCommitPolicy:
         self,
         bundle: EvidenceBundle,
         entity_count: int = 0,
+        *,
+        episode_source: str | None = None,
     ) -> list[CommitDecision]:
-        """Evaluate each candidate in the bundle and return commit decisions."""
+        """Evaluate each candidate in the bundle and return commit decisions.
+
+        ``episode_source`` is the source of the episode being projected; for
+        observation-class sources (mcp_observe / api_auto_observe / axi /
+        auto:* hooks) entity candidates require >=2-episode corroboration
+        before full commit (M1.4, extends the bare-proper-name gate).
+        """
+        observation_sourced = is_observation_source(episode_source)
         decisions: list[CommitDecision] = []
         for candidate in bundle.candidates:
+            if candidate.fact_class == "entity":
+                _cap_entity_name(candidate)
+                if observation_sourced:
+                    if candidate.corroborating_signals is None:
+                        candidate.corroborating_signals = []
+                    if "observation_sourced" not in candidate.corroborating_signals:
+                        candidate.corroborating_signals.append("observation_sourced")
             threshold = self._effective_threshold(
                 candidate.fact_class,
                 entity_count,
                 signals=candidate.corroborating_signals,
             )
             decision = self._decide(candidate, threshold)
+            if (
+                decision.action == "commit"
+                and candidate.fact_class == "entity"
+                and "observation_sourced" in (candidate.corroborating_signals or [])
+                and not (_IDENTITY_SIGNALS & set(candidate.corroborating_signals or []))
+            ):
+                # Squatter guard: one-shot observation entities defer until a
+                # second episode corroborates (evidence adjudication releases
+                # the hold at group count >= 2).
+                decision = CommitDecision(
+                    evidence_id=candidate.evidence_id,
+                    action="defer",
+                    reason="observation_needs_corroboration",
+                    effective_confidence=decision.effective_confidence,
+                )
             decisions.append(decision)
         return decisions
 

@@ -168,6 +168,109 @@ async def test_fresh_install_lite_capture_gives_full_episode_vector_coverage(tmp
     await graph.close()
 
 
+_MACHINERY_CONTENT = (
+    "[user|Engram] <task-notification>\n"
+    "<task-id>wixqg9mwq</task-id>\n"
+    "<tool-use-id>toolu_01M4qmn3MLYm4yhGAfQrmKAb</tool-use-id>\n"
+    "<output-file>/private/tmp/tasks/wixqg9mwq.output</output-file>\n"
+    "</task-notification>"
+)
+
+
+@pytest.mark.asyncio
+async def test_fresh_install_machinery_stored_but_vector_absent(tmp_path):
+    """M1.2 salience gate on a fresh install: machinery-class noise is stored
+    and BM25-reachable, but never enters vector space."""
+    db_path = str(tmp_path / "fresh-install-salience.db")
+    graph = SQLiteGraphStore(db_path)
+    await graph.initialize()
+    fts = FTS5SearchIndex(db_path)
+    vectors = SQLiteVectorStore(db_path)
+    search = HybridSearchIndex(
+        fts=fts,
+        vector_store=vectors,
+        provider=TopicEmbeddingProvider(),
+        embed_provider="fake",
+        embed_model="topic-5",
+    )
+    await search.initialize()
+
+    service = _service(graph, search, ActivationConfig())
+    machinery_id = await service.store_episode(
+        _MACHINERY_CONTENT,
+        group_id="default",
+        source="auto:prompt",
+    )
+    genuine_id = await service.store_episode(
+        "Melanie opened a pottery studio in Bend last spring.",
+        group_id="default",
+        source="auto:prompt",
+    )
+    await service.drain_cue_indexing()
+
+    # (a) Vector space contains ONLY the genuine episode.
+    rows = await (
+        await vectors.db.execute("SELECT id FROM embeddings WHERE content_type = 'episode'")
+    ).fetchall()
+    assert {row["id"] for row in rows} == {genuine_id}
+
+    # (b) The noise episode is stored with its class persisted (round-trip).
+    episodes = {ep.id: ep for ep in await graph.get_episodes(group_id="default")}
+    assert episodes[machinery_id].salience_class == "machinery"
+    assert episodes[genuine_id].salience_class == "substantive"
+
+    # (c) BM25/grep reachability unchanged: lexical search still finds it
+    # (the vector lane cannot — there is no vector).
+    results = await search.search_episodes("wixqg9mwq task", group_id="default")
+    assert any(res[0] == machinery_id for res in results)
+
+    await search.close()
+    await graph.close()
+
+
+@pytest.mark.asyncio
+async def test_salience_kill_switch_restores_uniform_indexing(tmp_path):
+    """Flag off => byte-identical behavior: machinery is vector-indexed and
+    no salience class is persisted."""
+    db_path = str(tmp_path / "fresh-install-kill-switch.db")
+    graph = SQLiteGraphStore(db_path)
+    await graph.initialize()
+    fts = FTS5SearchIndex(db_path)
+    vectors = SQLiteVectorStore(db_path)
+    search = HybridSearchIndex(
+        fts=fts,
+        vector_store=vectors,
+        provider=TopicEmbeddingProvider(),
+        embed_provider="fake",
+        embed_model="topic-5",
+    )
+    await search.initialize()
+
+    service = _service(
+        graph,
+        search,
+        ActivationConfig(salience_gated_embedding_enabled=False),
+    )
+    machinery_id = await service.store_episode(
+        _MACHINERY_CONTENT,
+        group_id="default",
+        source="auto:prompt",
+    )
+    await service.drain_cue_indexing()
+
+    rows = await (
+        await vectors.db.execute("SELECT id FROM embeddings WHERE content_type = 'episode'")
+    ).fetchall()
+    assert {row["id"] for row in rows} == {machinery_id}
+
+    episodes = {ep.id: ep for ep in await graph.get_episodes(group_id="default")}
+    assert episodes[machinery_id].salience_class == ""
+    assert episodes[machinery_id].encoding_context is None
+
+    await search.close()
+    await graph.close()
+
+
 @pytest.mark.asyncio
 async def test_capture_ack_does_not_wait_for_episode_embedding():
     graph = FakeGraphStore()

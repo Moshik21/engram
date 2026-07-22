@@ -23,6 +23,7 @@ from engram.config import ActivationConfig
 from engram.extraction.cues import build_episode_cue
 from engram.ingestion.cue_index_outbox import CueIndexOutbox
 from engram.ingestion.projection_state import sync_projection_state
+from engram.ingestion.salience import classify_salience, vector_index_exempt
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.storage.protocols import GraphStore, SearchIndex
 from engram.utils.dates import utc_now
@@ -128,6 +129,8 @@ class EpisodeCaptureService:
             created_at=utc_now(),
             attachments=attachments or [],
         )
+        if getattr(self._cfg, "salience_gated_embedding_enabled", False):
+            episode.salience_class = classify_salience(content, source)
         capture_started = time_perf_counter()
         store_task, persisted = await self._store_raw_episode_bounded(
             episode,
@@ -229,9 +232,18 @@ class EpisodeCaptureService:
             and episode.content.strip()
             and callable(getattr(self._search, "index_episode", None))
         ):
-            enqueue_started = time_perf_counter()
-            await self._enqueue_episode_vector_index(episode, stage_timings)
-            stage_timings["episode_vector_enqueue"] = _elapsed_ms(enqueue_started)
+            if vector_index_exempt(episode, self._cfg):
+                # M1.2 salience gate: machinery episodes are stored and
+                # BM25/grep-reachable but earn no capture-time vectors.
+                stage_timings["episode_vector_salience_skip"] = 0.0
+                logger.debug(
+                    "Salience gate: machinery-class episode %s skips capture-time vector indexing",
+                    episode.id,
+                )
+            else:
+                enqueue_started = time_perf_counter()
+                await self._enqueue_episode_vector_index(episode, stage_timings)
+                stage_timings["episode_vector_enqueue"] = _elapsed_ms(enqueue_started)
 
         if (
             self._cfg.decision_graph_enabled

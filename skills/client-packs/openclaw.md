@@ -18,6 +18,11 @@ engramctl doctor
 Same as other clients: `get_context` → `recall` → sparse `remember` →
 session-promote at end. See `docs/GOLDEN_LOOP.md`.
 
+When you `observe`, store **one fact per observe** and attach 1–3 anticipated
+questions a future agent would ask (API body `questions: [...]`; CLI
+`engram axi observe --stdin --question "..."`, repeatable). Each becomes a
+question-space recall cue pointing at the episode.
+
 ## Session end / promote habit
 
 Invoke **engram-session-promote**. Always pass proposals + `source_span`.

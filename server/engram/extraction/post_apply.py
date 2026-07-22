@@ -318,6 +318,23 @@ class ProjectionPostProcessor:
                 "composite": round(salience.composite, 4),
             }
         )
+        # Preserve the capture-time salience class (M1.2): this write replaces
+        # encoding_context wholesale and would otherwise drop it.
+        try:
+            from engram.ingestion.salience import decode_salience_class, encode_salience_class
+
+            episode = await self._graph.get_episode(episode_id, group_id)
+            existing_class = getattr(episode, "salience_class", "") or decode_salience_class(
+                getattr(episode, "encoding_context", None)
+            )
+            merged = encode_salience_class(encoding_ctx, existing_class)
+            if merged is not None:
+                encoding_ctx = merged
+        except Exception:
+            logger.debug(
+                "Could not preserve salience_class on emotional encoding write",
+                exc_info=True,
+            )
         await self._graph.update_episode(
             episode_id,
             {"encoding_context": encoding_ctx},

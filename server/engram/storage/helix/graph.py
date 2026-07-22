@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from engram.config import HelixDBConfig
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
+from engram.ingestion.salience import decode_salience_class, encode_salience_class
 from engram.models.entity import Entity
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
@@ -32,6 +33,46 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from engram.models.prospective import Intention
+
+# ---------------------------------------------------------------------------
+# M0.3 write-conflict self-heal (agent-experience goal)
+#
+# Native AddN derives the node id from the business key, and BM25 docs are
+# keyed by that node id. A stale orphan BM25 doc (cascade-delete failure —
+# helix-db swallows bm25.delete_doc errors with a println) makes every
+# re-create of the same key 500 forever: the bootstrap-500 defect class.
+# HelixQL has NO way to delete a doc whose node is gone (DROP N fails on
+# absent nodes; M0.4), so the reconcile ladder is: adopt the existing row if
+# one exists, else re-key ONCE deterministically, then surface as debt.
+# ---------------------------------------------------------------------------
+
+_BM25_REKEY_SUFFIX = "~bm25r"
+_BM25_CONFLICT_IDS_CAP = 50
+_BM25_CONFLICT_STATS: dict[str, int] = {
+    "conflicts": 0,
+    "adopted_existing": 0,
+    "rekeyed": 0,
+    "failed": 0,
+}
+_BM25_CONFLICT_IDS: list[str] = []
+
+
+def _is_bm25_doc_conflict(exc: Exception) -> bool:
+    text = str(exc)
+    return "BM25 document" in text and "already exists" in text
+
+
+def _record_bm25_conflict(kind: str, external_id: str) -> None:
+    _BM25_CONFLICT_STATS["conflicts"] += 1
+    marker = f"{kind}:{external_id}"
+    if marker not in _BM25_CONFLICT_IDS:
+        _BM25_CONFLICT_IDS.append(marker)
+        del _BM25_CONFLICT_IDS[:-_BM25_CONFLICT_IDS_CAP]
+
+
+def get_bm25_conflict_stats() -> dict[str, Any]:
+    """Hygiene-debt surface for BM25 write conflicts (read by the mop report)."""
+    return {"counts": dict(_BM25_CONFLICT_STATS), "ids": list(_BM25_CONFLICT_IDS)}
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -689,6 +730,7 @@ class HelixGraphStore:
             retry_count=d.get("retry_count", 0) or 0,
             processing_duration_ms=d.get("processing_duration_ms"),
             encoding_context=d.get("encoding_context_json"),
+            salience_class=decode_salience_class(d.get("encoding_context_json")),
             memory_tier=d.get("memory_tier", "episodic") or "episodic",
             consolidation_cycles=d.get("consolidation_cycles", 0) or 0,
             entity_coverage=d.get("entity_coverage", 0.0) or 0.0,
@@ -901,44 +943,117 @@ class HelixGraphStore:
     # Entities
     # ------------------------------------------------------------------
 
+    async def _create_with_bm25_reconcile(
+        self,
+        *,
+        endpoint: str,
+        payload: dict,
+        kind: str,
+        id_field: str,
+        external_id: str,
+        group_id: str,
+        resolve_existing: Any,
+    ) -> tuple[list[dict], str]:
+        """Run a create query with ONE BM25 doc-conflict reconcile (M0.3).
+
+        Returns ``(results, final_external_id)``. On a doc conflict: adopt the
+        existing row when one resolves (idempotent re-create), else retry ONCE
+        under a deterministic re-keyed business key (new stable node id →
+        new doc id) with a loud warning. A conflict on the re-keyed id — or
+        any second failure — raises and stays on the debt scoreboard via
+        :func:`get_bm25_conflict_stats`; never a silent 500 loop.
+        """
+        try:
+            return await self._query(endpoint, payload), external_id
+        except Exception as exc:
+            if not _is_bm25_doc_conflict(exc):
+                raise
+            _record_bm25_conflict(kind, external_id)
+            existing_hid = await resolve_existing(external_id, group_id)
+            if existing_hid is not None:
+                _BM25_CONFLICT_STATS["adopted_existing"] += 1
+                logger.warning(
+                    "%s(%s): BM25 doc conflict but the %s row exists — "
+                    "adopting the existing row (idempotent re-create)",
+                    endpoint,
+                    external_id,
+                    kind,
+                )
+                return [], external_id
+            if external_id.endswith(_BM25_REKEY_SUFFIX):
+                _BM25_CONFLICT_STATS["failed"] += 1
+                logger.error(
+                    "%s(%s): repeat BM25 doc conflict on the re-keyed id — "
+                    "orphan doc requires the native regen window (hygiene debt)",
+                    endpoint,
+                    external_id,
+                )
+                raise
+            rekeyed = external_id + _BM25_REKEY_SUFFIX
+            logger.error(
+                "%s(%s): stale orphan BM25 doc blocks the stable node id and "
+                "HelixQL cannot delete it (M0.4); re-keying to %s — recorded "
+                "as hygiene debt",
+                endpoint,
+                external_id,
+                rekeyed,
+            )
+            retry_payload = dict(payload)
+            retry_payload[id_field] = rekeyed
+            try:
+                results = await self._query(endpoint, retry_payload)
+            except Exception:
+                _BM25_CONFLICT_STATS["failed"] += 1
+                raise
+            _BM25_CONFLICT_STATS["rekeyed"] += 1
+            return results, rekeyed
+
     async def create_entity(self, entity: Entity) -> str:
         now = utc_now_iso()
         summary = self._encrypt(entity.group_id, entity.summary)
-        results = await self._query(
-            "create_entity",
-            {
-                "entity_id": entity.id,
-                "name": entity.name,
-                "group_id": entity.group_id,
-                "entity_type": entity.entity_type,
-                "summary": summary or "",
-                "attributes_json": json.dumps(entity.attributes) if entity.attributes else "{}",
-                "created_at": entity.created_at.isoformat() if entity.created_at else now,
-                "updated_at": now,
-                "is_deleted": False,
-                "deleted_at": "",
-                "identity_core": entity.identity_core,
-                "mat_tier": entity.mat_tier,
-                "recon_count": entity.recon_count,
-                "lexical_regime": entity.lexical_regime or "",
-                "canonical_identifier": entity.canonical_identifier or "",
-                "identifier_label": "true" if entity.identifier_label else "",
-                "pii_detected": bool(entity.pii_detected),
-                "pii_categories_json": (
-                    json.dumps(entity.pii_categories) if entity.pii_categories else "[]"
-                ),
-                "access_count": entity.access_count,
-                "last_accessed": (entity.last_accessed.isoformat() if entity.last_accessed else ""),
-                "source_episode_ids": json.dumps(entity.source_episode_ids),
-                "evidence_count": entity.evidence_count,
-                "evidence_span_start": (
-                    entity.evidence_span_start.isoformat() if entity.evidence_span_start else ""
-                ),
-                "evidence_span_end": (
-                    entity.evidence_span_end.isoformat() if entity.evidence_span_end else ""
-                ),
-            },
+        payload = {
+            "entity_id": entity.id,
+            "name": entity.name,
+            "group_id": entity.group_id,
+            "entity_type": entity.entity_type,
+            "summary": summary or "",
+            "attributes_json": json.dumps(entity.attributes) if entity.attributes else "{}",
+            "created_at": entity.created_at.isoformat() if entity.created_at else now,
+            "updated_at": now,
+            "is_deleted": False,
+            "deleted_at": "",
+            "identity_core": entity.identity_core,
+            "mat_tier": entity.mat_tier,
+            "recon_count": entity.recon_count,
+            "lexical_regime": entity.lexical_regime or "",
+            "canonical_identifier": entity.canonical_identifier or "",
+            "identifier_label": "true" if entity.identifier_label else "",
+            "pii_detected": bool(entity.pii_detected),
+            "pii_categories_json": (
+                json.dumps(entity.pii_categories) if entity.pii_categories else "[]"
+            ),
+            "access_count": entity.access_count,
+            "last_accessed": (entity.last_accessed.isoformat() if entity.last_accessed else ""),
+            "source_episode_ids": json.dumps(entity.source_episode_ids),
+            "evidence_count": entity.evidence_count,
+            "evidence_span_start": (
+                entity.evidence_span_start.isoformat() if entity.evidence_span_start else ""
+            ),
+            "evidence_span_end": (
+                entity.evidence_span_end.isoformat() if entity.evidence_span_end else ""
+            ),
+        }
+        results, final_id = await self._create_with_bm25_reconcile(
+            endpoint="create_entity",
+            payload=payload,
+            kind="entity",
+            id_field="entity_id",
+            external_id=entity.id,
+            group_id=entity.group_id,
+            resolve_existing=self._resolve_entity_helix_id,
         )
+        if final_id != entity.id:
+            entity.id = final_id  # keep the caller's object aligned with storage
         if results:
             hid = self._extract_helix_id(results[0])
             self._cache_entity(hid, entity.id, entity.group_id)
@@ -1824,41 +1939,51 @@ class HelixGraphStore:
             else episode.projection_state
         )
 
-        results = await self._query(
-            "create_episode",
-            {
-                "episode_id": episode.id,
-                "group_id": episode.group_id,
-                "content": content or "",
-                "source": episode.source or "",
-                "session_id": episode.session_id or "",
-                "status": status_val,
-                "created_at": episode.created_at.isoformat() if episode.created_at else now_iso,
-                "updated_at": episode.updated_at.isoformat() if episode.updated_at else now_iso,
-                "error": episode.error or "",
-                "retry_count": episode.retry_count,
-                "processing_duration_ms": episode.processing_duration_ms or 0,
-                "skipped_meta": False,
-                "skipped_triage": False,
-                "encoding_context_json": episode.encoding_context or "{}",
-                "memory_tier": episode.memory_tier or "episodic",
-                "consolidation_cycles": episode.consolidation_cycles,
-                "entity_coverage": episode.entity_coverage,
-                "projection_state": proj_val,
-                "last_projection_reason": episode.last_projection_reason or "",
-                "last_projected_at": (
-                    episode.last_projected_at.isoformat() if episode.last_projected_at else ""
-                ),
-                "conversation_date": (
-                    episode.conversation_date.isoformat() if episode.conversation_date else ""
-                ),
-                "attachments_json": (
-                    json.dumps([a.model_dump() for a in episode.attachments])
-                    if episode.attachments
-                    else "[]"
-                ),
-            },
+        payload = {
+            "episode_id": episode.id,
+            "group_id": episode.group_id,
+            "content": content or "",
+            "source": episode.source or "",
+            "session_id": episode.session_id or "",
+            "status": status_val,
+            "created_at": episode.created_at.isoformat() if episode.created_at else now_iso,
+            "updated_at": episode.updated_at.isoformat() if episode.updated_at else now_iso,
+            "error": episode.error or "",
+            "retry_count": episode.retry_count,
+            "processing_duration_ms": episode.processing_duration_ms or 0,
+            "skipped_meta": False,
+            "skipped_triage": False,
+            "encoding_context_json": (
+                encode_salience_class(episode.encoding_context, episode.salience_class) or "{}"
+            ),
+            "memory_tier": episode.memory_tier or "episodic",
+            "consolidation_cycles": episode.consolidation_cycles,
+            "entity_coverage": episode.entity_coverage,
+            "projection_state": proj_val,
+            "last_projection_reason": episode.last_projection_reason or "",
+            "last_projected_at": (
+                episode.last_projected_at.isoformat() if episode.last_projected_at else ""
+            ),
+            "conversation_date": (
+                episode.conversation_date.isoformat() if episode.conversation_date else ""
+            ),
+            "attachments_json": (
+                json.dumps([a.model_dump() for a in episode.attachments])
+                if episode.attachments
+                else "[]"
+            ),
+        }
+        results, final_id = await self._create_with_bm25_reconcile(
+            endpoint="create_episode",
+            payload=payload,
+            kind="episode",
+            id_field="episode_id",
+            external_id=episode.id,
+            group_id=episode.group_id,
+            resolve_existing=self._resolve_episode_helix_id,
         )
+        if final_id != episode.id:
+            episode.id = final_id  # keep the caller's object aligned with storage
         if results:
             hid = self._extract_helix_id(results[0])
             self._cache_episode(hid, episode.id, episode.group_id)
