@@ -13,6 +13,7 @@ Designed for unit tests with fakes and for live dogfood via CLI.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -28,9 +29,13 @@ DEFAULT_EMBEDDING_PROBE_CHUNK = 64
 DEFAULT_BACKFILL_BATCH = 32
 # Safety caps when listing episodes/cues for vector-debt drains.
 DEFAULT_EPISODE_SCAN_LIMIT = 50_000
-DEFAULT_CUE_SCAN_LIMIT = 50_000
 # ANN census sweep size when the index has no by-id embedding probe.
 VECTOR_CENSUS_K = 50_000
+# Cue drain: an episode younger than this with no cue may simply not have its
+# cue written yet (cue capture is same-session, best-effort) — the cursor must
+# not advance past it or the cue would be stranded forever. Older and cueless
+# is final: nothing will ever write that cue.
+CUE_CURSOR_YOUNG_EPISODE_GRACE_SECONDS = 3600.0
 
 
 class EmbeddingProviderUnavailableError(RuntimeError):
@@ -425,10 +430,10 @@ async def backfill_missing_episode_vectors(
 ) -> BackfillResult:
     """Embed and index episodes that lack EpisodeVec vectors.
 
-    Episode vectors are otherwise written ONLY at projection, so shell/quiet
-    installs (which never project) regrow episode-vector debt forever. This is
-    the durable drain: list missing under budget, embed via the provider
-    (through ``search_index.index_episode``), write vectors, return counts.
+    Capture-time indexing (capture_service) is the primary episode-vector
+    writer; this drain is the safety net for capture-time failures and
+    pre-existing debt. It lists missing under budget, embeds via the provider
+    (through ``search_index.index_episode``), writes vectors, returns counts.
 
     When presence is measured inexactly (ANN census undercounts on
     helix-native), *cursor* — a persisted ``(created_ts, episode_id)`` high
@@ -530,89 +535,125 @@ async def backfill_missing_cue_vectors(
     dry_run: bool = False,
     cursor: tuple[float, str] | None = None,
     probe_chunk: int = DEFAULT_EMBEDDING_PROBE_CHUNK,
+    limit: int = DEFAULT_EPISODE_SCAN_LIMIT,
 ) -> BackfillResult:
     """Embed and index episode cues that lack CueVec vectors.
 
     Cue indexing at capture is best-effort (outbox replay only covers shell
-    uptime), so coverage decays without a drain. Same structure and cursor
-    semantics as :func:`backfill_missing_episode_vectors`; vectors are keyed
-    by episode_id.
+    uptime), so coverage decays without a drain. Vectors are keyed by
+    episode_id.
+
+    LISTING IS EPISODE-BASED AND BOUNDED. The native bulk cue listing
+    (``find_cues_by_group``) takes only ``gid`` — no server-side k/limit —
+    and measured 20s+ on an 8.7k-cue brain as a loop-blocking sync native
+    call that ignores deadlines, so the drain must never issue it. Instead:
+    list episodes (bounded, proven fast), walk them oldest-first from the
+    persisted cursor, and probe each episode's cue by id
+    (``get_episode_cue``, ~74ms native). ``max_cues`` bounds the PROBES per
+    window, which also caps embeds, so a window cannot grind.
+
+    Cursor: ``(created_ts, episode_id)`` of the newest episode with a FINAL
+    outcome — cue indexed, cue already vectored, or old-and-cueless. It only
+    advances over a contiguous prefix of final outcomes, so failures are
+    retried next window and nothing is stranded; young cueless episodes
+    (< :data:`CUE_CURSOR_YOUNG_EPISODE_GRACE_SECONDS`) stop advancement
+    because their cue may still be written. NOTE: the key is the EPISODE's
+    created_at (earlier versions keyed on the cue row's created_at); old
+    persisted cursors stay structurally valid — at worst a few boundary
+    episodes are re-probed once.
+
+    ``missing_before`` is WINDOW-SCOPED (missing cues found by this window's
+    probes); a global count would require the unbounded listing.
     """
     result = BackfillResult(group_id=group_id)
-    fetch = getattr(graph_store, "_fetch_episode_cues_bulk", None)
-    if not callable(fetch):
+    get_episodes = getattr(graph_store, "get_episodes", None)
+    get_cue = getattr(graph_store, "get_episode_cue", None)
+    if not callable(get_episodes) or not callable(get_cue):
         return result
 
-    rows = await fetch(group_id) or []
-
-    def _field(row: Any, name: str) -> Any:
-        if isinstance(row, dict):
-            return row.get(name)
-        return getattr(row, name, None)
-
-    # (episode_id, cue_group, cue_text, created_at)
-    indexable: list[tuple[str, str, str, Any]] = []
-    seen: set[str] = set()
-    for row in rows[: max(1, int(DEFAULT_CUE_SCAN_LIMIT))]:
-        episode_id = str(_field(row, "episode_id") or "")
-        cue_text = str(_field(row, "cue_text") or "").strip()
-        if not episode_id or not cue_text or episode_id in seen:
-            continue
-        seen.add(episode_id)
-        indexable.append(
-            (
-                episode_id,
-                str(_field(row, "group_id") or group_id),
-                cue_text,
-                _field(row, "created_at"),
-            )
-        )
-    if not indexable:
+    episodes = await get_episodes(group_id=group_id, limit=max(1, int(limit))) or []
+    candidates = sorted(
+        ((_created_ts(getattr(ep, "created_at", None)), str(ep.id)), ep)
+        for ep in episodes
+        if getattr(ep, "deleted_at", None) is None and str(getattr(ep, "id", "") or "")
+    )
+    presence_probe_exact = callable(getattr(search_index, "get_cue_embeddings", None))
+    if not presence_probe_exact and cursor is not None:
+        candidates = [(key, ep) for key, ep in candidates if key > cursor]
+    if not candidates:
         return result
 
-    ids = [episode_id for episode_id, _g, _t, _c in indexable]
     present, presence_exact = await _ids_with_vectors(
         search_index,
-        ids,
+        [key[1] for key, _ep in candidates],
         group_id,
         probe_attr="get_cue_embeddings",
         census_attr="_vector_search_cues",
         probe_chunk=probe_chunk,
     )
-    if present is None:
-        missing = list(indexable)
-    else:
-        missing = [row for row in indexable if row[0] not in present]
-    result.missing_before = len(missing)
+    present = present or set()
 
-    keyed = sorted(((_created_ts(row[3]), row[0]), row) for row in missing)
-    if not presence_exact and cursor is not None:
-        keyed = [(key, row) for key, row in keyed if key > cursor]
-    keyed = keyed[: max(0, int(max_cues))]
-    result.attempted = len(keyed)
-    if not keyed or dry_run:
-        return result
-
-    await ensure_embedding_provider_healthy(search_index)
-
-    from engram.models.episode_cue import EpisodeCue
-
+    max_probes = max(0, int(max_cues))
+    grace_cutoff = time.time() - CUE_CURSOR_YOUNG_EPISODE_GRACE_SECONDS
+    provider_checked = False
+    probes = 0
     indexed_ids: list[str] = []
-    indexed_keys: list[tuple[float, str]] = []
     failed = 0
-    for key, (episode_id, cue_group, cue_text, _created) in keyed:
-        cue = EpisodeCue(episode_id=episode_id, group_id=cue_group, cue_text=cue_text)
+    missing_found = 0
+    attempted = 0
+    prefix_intact = True
+    cursor_candidate: tuple[float, str] | None = None
+
+    for key, _ep in candidates:
+        episode_id = key[1]
+        if episode_id in present:
+            if prefix_intact:
+                cursor_candidate = key
+            continue
+        if probes >= max_probes:
+            break
+        probes += 1
+        try:
+            cue = await get_cue(episode_id, group_id)
+        except Exception:
+            failed += 1
+            prefix_intact = False
+            logger.warning(
+                "cue probe (get_episode_cue) failed for %s — cue window stopped early",
+                episode_id,
+                exc_info=True,
+            )
+            break
+        if cue is None or not str(getattr(cue, "cue_text", "") or "").strip():
+            if key[0] >= grace_cutoff:
+                # Young and cueless: capture may still write this cue.
+                # Everything after is younger (sorted) — stop the window.
+                break
+            if prefix_intact:
+                cursor_candidate = key
+            continue
+        missing_found += 1
+        attempted += 1
+        if dry_run:
+            continue
+        if not provider_checked:
+            await ensure_embedding_provider_healthy(search_index)
+            provider_checked = True
         try:
             await search_index.index_episode_cue(cue)
             indexed_ids.append(episode_id)
-            indexed_keys.append(key)
+            if prefix_intact:
+                cursor_candidate = key
         except Exception:
             failed += 1
+            prefix_intact = False
             logger.warning("index_episode_cue failed for %s", episode_id, exc_info=True)
 
+    result.missing_before = missing_found
+    result.attempted = attempted
     result.indexed = len(indexed_ids)
     result.failed = failed
     result.indexed_ids = indexed_ids
-    if not presence_exact and indexed_keys:
-        result.cursor_next = max(indexed_keys)
+    if not presence_exact and not dry_run and cursor_candidate is not None:
+        result.cursor_next = cursor_candidate
     return result

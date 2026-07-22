@@ -1,4 +1,4 @@
-"""Durable outbox for episode-cue vector indexing."""
+"""Durable outbox for episode-cue and episode vector indexing."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from engram.models.episode import Episode
 from engram.models.episode_cue import EpisodeCue
 
 
@@ -18,6 +19,15 @@ class CueIndexOutboxItem:
     """A cue waiting for vector indexing."""
 
     cue: EpisodeCue
+    attempts: int = 0
+    last_error: str | None = None
+
+
+@dataclass(frozen=True)
+class EpisodeIndexOutboxItem:
+    """An episode waiting for vector indexing."""
+
+    episode: Episode
     attempts: int = 0
     last_error: str | None = None
 
@@ -128,6 +138,100 @@ class CueIndexOutbox:
             ).fetchone()
         return int(row[0] if row else 0)
 
+    def enqueue_episode(self, episode: Episode) -> None:
+        """Persist an episode before in-process vector indexing is scheduled."""
+        self._ensure_schema()
+        payload = json.dumps(episode.model_dump(mode="json"), sort_keys=True)
+        now = time.time()
+        with closing(self._connect()) as conn:
+            conn.execute(
+                """
+                INSERT INTO episode_index_outbox (
+                    episode_id, group_id, episode_json, status, attempts,
+                    last_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, 'pending', 0, NULL, ?, ?)
+                ON CONFLICT(episode_id, group_id) DO UPDATE SET
+                    episode_json = excluded.episode_json,
+                    status = 'pending',
+                    last_error = NULL,
+                    updated_at = excluded.updated_at
+                """,
+                (episode.id, episode.group_id, payload, now, now),
+            )
+            conn.commit()
+
+    def pending_episodes(
+        self,
+        *,
+        limit: int = 100,
+        include_failed: bool = True,
+    ) -> list[EpisodeIndexOutboxItem]:
+        """Return episodes awaiting vector indexing, optionally including failed retries."""
+        self._ensure_schema()
+        statuses = ("pending", "failed") if include_failed else ("pending",)
+        placeholders = ",".join("?" for _status in statuses)
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT episode_json, attempts, last_error
+                FROM episode_index_outbox
+                WHERE status IN ({placeholders})
+                ORDER BY updated_at ASC
+                LIMIT ?
+                """,
+                (*statuses, max(1, int(limit or 1))),
+            ).fetchall()
+        items: list[EpisodeIndexOutboxItem] = []
+        for episode_json, attempts, last_error in rows:
+            episode = self._episode_from_json(episode_json)
+            if episode is None:
+                continue
+            items.append(
+                EpisodeIndexOutboxItem(
+                    episode=episode,
+                    attempts=int(attempts or 0),
+                    last_error=str(last_error) if last_error else None,
+                ),
+            )
+        return items
+
+    def mark_episode_done(self, *, episode_id: str, group_id: str) -> None:
+        """Remove a successfully indexed episode from the outbox."""
+        self._ensure_schema()
+        with closing(self._connect()) as conn:
+            conn.execute(
+                "DELETE FROM episode_index_outbox WHERE episode_id = ? AND group_id = ?",
+                (episode_id, group_id),
+            )
+            conn.commit()
+
+    def mark_episode_failed(self, *, episode_id: str, group_id: str, error: str) -> None:
+        """Keep an episode retryable after a vector indexing failure."""
+        self._ensure_schema()
+        with closing(self._connect()) as conn:
+            conn.execute(
+                """
+                UPDATE episode_index_outbox
+                SET status = 'failed',
+                    attempts = attempts + 1,
+                    last_error = ?,
+                    updated_at = ?
+                WHERE episode_id = ? AND group_id = ?
+                """,
+                (error[:500], time.time(), episode_id, group_id),
+            )
+            conn.commit()
+
+    def pending_episode_count(self) -> int:
+        """Return the number of episodes still awaiting successful vector indexing."""
+        self._ensure_schema()
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM episode_index_outbox WHERE status IN ('pending', 'failed')"
+            ).fetchone()
+        return int(row[0] if row else 0)
+
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._path, timeout=1.0)
 
@@ -156,6 +260,27 @@ class CueIndexOutbox:
                 ON cue_index_outbox(status, updated_at)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS episode_index_outbox (
+                    episode_id TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    episode_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (episode_id, group_id)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_episode_index_outbox_status_updated
+                ON episode_index_outbox(status, updated_at)
+                """
+            )
             conn.commit()
         self._initialized = True
 
@@ -164,5 +289,13 @@ class CueIndexOutbox:
         try:
             raw: dict[str, Any] = json.loads(value)
             return EpisodeCue.model_validate(raw)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _episode_from_json(value: str) -> Episode | None:
+        try:
+            raw: dict[str, Any] = json.loads(value)
+            return Episode.model_validate(raw)
         except Exception:
             return None

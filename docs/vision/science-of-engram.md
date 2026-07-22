@@ -54,17 +54,41 @@ Memory retrieval is not static. What comes to mind depends on how recently
 something was used, how often it was reinforced, and how well it matches the
 current situation.
 
-Engram uses ACT-R-inspired activation ideas for that reason.
+Engram uses ACT-R-inspired activation ideas for that reason — but we measured
+where they help and where they do not, and this section is amended accordingly.
 
-ACT-R is not the only model of memory, but it provides a useful operational
-framework:
+**AMENDED 2026-07 (measured, not retracted quietly).** The original design used
+ACT-R activation computed from access history as a *ranking* signal. Real-corpus
+experiments refuted that specific use:
 
-- recency matters
-- repeated use matters
-- retrieval is competitive
-- context changes what is likely to surface
+- The sigmoid-normalized activation term saturates at a single access, so it
+  cannot discriminate 1 use from 50 (a 1-second-old single access scored ~0.91;
+  the redesigned signal de-saturates it to 0.067).
+- Access history conflated *surfaced* with *used* — the ranker was reinforcing
+  its own output (an echo loop), not learning from behavior.
+- With a populated activation store, reachability collapsed from 23 to 2/36 on
+  the eval rig.
 
-This gives Engram a principled alternative to fixed similarity search alone.
+Evidence: `docs/product/experiments/M4_1_activation_arm.md`,
+`docs/product/experiments/RF_target_design.md`,
+`docs/product/RECENCY_FREQUENCY_GOAL.md`.
+
+What **survived** is the underlying Anderson–Schooler insight: frequency ×
+recency base-level learning over *real environmental statistics*. It was rebuilt
+as `u = f · r'` over tiered, echo-guarded behavioral **usage events** (used /
+confirmed / corrected — never mere surfacing), composed as a bounded
+multiplicative tiebreaker (`final = semantic × (1 + β·u)`, β ≤ 0.30), so usage
+can break ties but never overturn semantic relevance. It ships default-off until
+organic usage data exists (`docs/product/experiments/M2_6_rerun_2026-07-21.md`).
+
+ACT-R activation itself is **retained where it works**: forgetting, prune
+floors, and memory hygiene — the decay side of the theory, not the ranking side.
+
+One more honest note: *importance* (durable facts like identity, decisions,
+preferences) is implemented as a **reserved lane**, not a multiplicative boost —
+durable-typed results are surfaced in their own lane regardless of raw match
+strength, and the bounded usage tiebreaker cannot cross that lane (see the F6
+amendment in `docs/product/RECENCY_FREQUENCY_GOAL.md`).
 
 ## 4. Consolidation
 
@@ -78,8 +102,12 @@ Engram reflects that with offline consolidation:
 - merge resolves duplicates
 - infer adds likely relationships
 - replay revisits missed structure
-- mature and semanticize promote more stable memory
 - prune removes low-value clutter
+
+*(Amended 2026-07: the standalone mature/semanticize phases were removed —
+graduation was structurally unreachable in practice. Memory tiers remain:
+identity-core entities promote to the semantic tier when flagged, with slower
+decay and longer prune horizons.)*
 
 This is not a literal replay of the hippocampus during sleep, but it follows a
 similar design idea: memory quality should improve offline, not only in the hot
@@ -131,6 +159,10 @@ Engram now separates:
 - dismissed
 - corrected
 
+Only used / confirmed / corrected events carry ranking weight; surfaced events
+count only for hygiene. An echo guard ensures a "used" event fires only when
+the entity reappears in *novel* tokens — feeding the ranker's own output back
+produces ~zero events (gate G7, `docs/product/RECENCY_FREQUENCY_GOAL.md`).
 That lets the system learn from actual value instead of reinforcing itself for
 merely showing the user something.
 

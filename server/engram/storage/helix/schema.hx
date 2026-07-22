@@ -429,6 +429,9 @@ QUERY find_cue_by_episode(ep_id: String, gid: String) =>
     cues <- N<EpisodeCue>::WHERE(AND(_::{episode_id}::EQ(ep_id), _::{group_id}::EQ(gid)))
     RETURN cues
 
+// NOTE: unbounded (no k/limit param) — materializes every cue row; measured
+// 20s+ on an 8.7k-cue native brain. Stats-path only; budgeted drains must
+// probe per-episode via find_cue_by_episode instead.
 QUERY find_cues_by_group(gid: String) =>
     cues <- N<EpisodeCue>::WHERE(_::{group_id}::EQ(gid))
     RETURN cues

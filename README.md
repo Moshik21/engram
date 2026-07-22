@@ -21,7 +21,7 @@
 
 <br>
 
-**Engram is long-term memory for AI agents.** It stores conversations as episodes, builds a temporal knowledge graph of people, facts, and relationships, ranks recall with ACT-R activation, and runs offline consolidation in a separate cold-brain process to merge duplicates and prune stale entries.
+**Engram is fully-local, long-term episode memory for AI agents — and it provably works.** On the real 8.9k-episode dogfood brain, deep recall reaches the gold memory in **42/42** gate queries and the organic continuity gate passes live at **~440ms** ([evidence](docs/product/experiments/M2_6_rerun_2026-07-21.md)). Conversations are stored as episodes with deterministic cues, recalled through hybrid semantic search, and cleaned up by an offline cold-brain process. A capture→recall loop with echo-guarded usage learning ships conservatively behind flip gates. A temporal knowledge graph is available as a **research/depth tier** — validation-gated, not the headline (measured net-neutral for answer accuracy so far; its proven win is surfacing connected episodes).
 
 <table>
 <tr>
@@ -59,7 +59,7 @@ Triage, projection, 15-phase consolidation, dream associations. Runs as a separa
 | **Capture** | `observe`, harness `auto:*`, or `remember`: fast store, optional cue trace |
 | **Cue** | Deterministic latent memory; recall before full LLM extraction |
 | **Project** | Entity resolution, embedding, graph write (background or immediate) |
-| **Recall** | Activation-aware packets instead of raw chat history |
+| **Recall** | Compact memory packets from hybrid search instead of raw chat history |
 | **Consolidate** | Merge, infer, prune, dream (offline) |
 
 <br>
@@ -207,15 +207,18 @@ Design doc: [docs/harness-memory-adoption-plan.md](docs/harness-memory-adoption-
 
 | Capability | Summary |
 |------------|---------|
-| **Temporal graph** | People, orgs, concepts, relationships with valid-from / valid-to |
-| **ACT-R activation** | Recency and frequency scoring; lazy recompute from access history |
-| **Spreading activation** | Recalling one entity boosts related nodes via graph proximity |
+| **Deep episode recall** | Hybrid vector + BM25 search with a circuit breaker; 42/42 gate reach on the real brain |
+| **Usage-based recency/frequency** | Bounded tiebreaker `u = f·r'` over behavioral usage events, echo-guarded; ships gated (default off until organic usage yield exists) |
+| **ACT-R hygiene** | Recency/frequency activation retained for forgetting, prune floors, and tier-aware decay — not as a ranking signal (refuted by measurement; see below) |
+| **Temporal graph (depth tier)** | People, orgs, concepts, relationships with valid-from / valid-to; research tier, validation-gated |
 | **15-phase consolidation** | Triage, merge, infer, dream, prune (offline cycle) |
 | **Memory packets** | Compact recall output with provenance for the current turn |
 | **Prospective memory** | `intend`: graph-embedded intentions triggered by related topics |
 | **Atlas** | Multi-scale graph exploration from region clusters to neighborhoods |
 | **3D dashboard** | Graph visualization, consolidation monitor, evaluation gates |
 | **Topological immunity** | Prunes low-connectivity noise and weak edges |
+
+**Evidence ledger (what is measured, not marketed):** deep recall 42/42 and organic continuity PASS at ~440ms on the real 8.9k-episode brain ([M2.6 rerun](docs/product/experiments/M2_6_rerun_2026-07-21.md)); usage-ranking flip armed but held until organic used-tier yield is nonzero ([M2.6 gate](docs/product/experiments/M2_6_real_corpus_gate.md)); activation-from-access-history as a ranker was measured and **refuted** (reach collapse 23→2/36 when populated), replaced by the bounded usage tiebreaker ([RF goal](docs/product/RECENCY_FREQUENCY_GOAL.md), [design](docs/product/experiments/RF_target_design.md)); graph channel's proven contribution is episode surfacing (oracle-surface 2→22/36), not answer-accuracy lift.
 
 <br>
 
@@ -226,7 +229,7 @@ The public MCP surface is frozen to a **9-tool golden loop** (`ENGRAM_MCP_SURFAC
 | Tool | Purpose |
 |------|---------|
 | `observe` / `remember` | Capture (fast queue vs immediate extraction) |
-| `recall` / `get_context` | Activation-aware retrieval and briefing |
+| `recall` / `get_context` | Hybrid retrieval and durable-first briefing |
 | `intend` | Prospective memory (topic-triggered intentions) |
 | `forget` | Retract or correct a memory |
 | `claim_authority` | Memory ownership and tool protocol for the turn |

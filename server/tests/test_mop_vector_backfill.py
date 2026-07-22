@@ -41,11 +41,29 @@ class FakeGraphStore:
     def __init__(self, episodes=(), cue_rows=()):
         self.episodes = list(episodes)
         self.cue_rows = list(cue_rows)
+        self.cue_probe_calls = 0
+        self.bulk_cue_calls = 0
 
     async def get_episodes(self, group_id=None, limit=50, offset=0):
         return self.episodes[offset : offset + limit]
 
+    async def get_episode_cue(self, episode_id, group_id):
+        from engram.models.episode_cue import EpisodeCue
+
+        self.cue_probe_calls += 1
+        for row in self.cue_rows:
+            if row["episode_id"] == episode_id:
+                return EpisodeCue(
+                    episode_id=episode_id,
+                    group_id=row.get("group_id", "g"),
+                    cue_text=row.get("cue_text", ""),
+                )
+        return None
+
     async def _fetch_episode_cues_bulk(self, group_id):
+        # The unbounded native listing (find_cues_by_group) measured 20s+ on
+        # an 8.7k-cue brain — the drain must NEVER call it (asserted below).
+        self.bulk_cue_calls += 1
         return list(self.cue_rows)
 
 
@@ -196,6 +214,8 @@ class TestMopVectorBackfill:
         assert vb["missing_before"] == {"episodes": 2, "cues": 2}
         assert sorted(search.indexed_episode_ids) == ["ep2", "ep3"]
         assert sorted(search.indexed_cue_ids) == ["ep1", "ep2"]
+        # The unbounded bulk cue listing must never be issued by the drain.
+        assert graph.bulk_cue_calls == 0
 
     @pytest.mark.asyncio
     async def test_budget_respected(self, engram_home: Path, monkeypatch: pytest.MonkeyPatch):
@@ -212,10 +232,14 @@ class TestMopVectorBackfill:
         vb = report["mop"]["vector_backfill"]
         assert vb["episodes"] == 2
         assert vb["cues"] == 1
-        assert vb["missing_before"] == {"episodes": 5, "cues": 3}
+        # Cue missing_before is WINDOW-SCOPED now (bounded probes: a global
+        # count would need the unbounded find_cues_by_group listing).
+        assert vb["missing_before"] == {"episodes": 5, "cues": 1}
         assert vb["budgets"] == {"episodes": 2, "cues": 1}
         assert len(search.indexed_episode_ids) == 2
         assert len(search.indexed_cue_ids) == 1
+        # The probe budget bounds graph reads too.
+        assert graph.cue_probe_calls == 1
 
     @pytest.mark.asyncio
     async def test_dry_run_skips_with_label(self, engram_home: Path):
@@ -291,8 +315,11 @@ class TestMopVectorBackfill:
 
     @pytest.mark.asyncio
     async def test_partial_cue_failure_counts_failed(self, engram_home: Path):
-        graph = FakeGraphStore(cue_rows=[_cue_row("ep1"), _cue_row("ep2")])
-        search = FakeSearchIndex(failing_cue_ids={"ep1"})
+        graph = FakeGraphStore(
+            episodes=[_episode("ep1"), _episode("ep2")],
+            cue_rows=[_cue_row("ep1"), _cue_row("ep2")],
+        )
+        search = FakeSearchIndex(episode_vecs={"ep1", "ep2"}, failing_cue_ids={"ep1"})
 
         report = await _run_mop(graph, search)
 
@@ -448,6 +475,137 @@ class TestBackfillFunctionEdgeCases:
 
         assert result.indexed_ids == ["ep2", "ep3"]
         assert result.cursor_next == (300.0, "ep3")
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_probe_budget_bounds_graph_reads(self):
+        """The drain must never issue the unbounded bulk cue listing
+        (find_cues_by_group measured 20s+ loop-blocking on an 8.7k-cue brain)
+        and max_cues must bound the per-episode probes, oldest first."""
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        graph = FakeGraphStore(
+            episodes=[_episode(f"ep{i}", created=float(i)) for i in range(10)],
+            cue_rows=[_cue_row(f"ep{i}") for i in range(10)],
+        )
+        search = CensusSearchIndex()
+
+        result = await backfill_missing_cue_vectors(graph, search, "g", max_cues=3)
+
+        assert graph.bulk_cue_calls == 0
+        assert graph.cue_probe_calls == 3
+        assert result.indexed_ids == ["ep0", "ep1", "ep2"]
+        assert result.cursor_next == (2.0, "ep2")
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_old_cueless_episode_advances_cursor(self):
+        """Old episodes with no cue are final — the cursor must pass them or
+        a mostly-cueless brain would grind the same probes every window."""
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        graph = FakeGraphStore(
+            episodes=[_episode("ep1", created=100.0), _episode("ep2", created=200.0)],
+            cue_rows=[_cue_row("ep2")],
+        )
+        search = CensusSearchIndex()
+
+        result = await backfill_missing_cue_vectors(graph, search, "g")
+
+        assert result.indexed_ids == ["ep2"]
+        assert result.cursor_next == (200.0, "ep2")
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_young_cueless_episode_stops_cursor(self):
+        """A young episode's cue may still be written by capture — the cursor
+        must not advance past it (the cue would be stranded forever)."""
+        import time as _time
+
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        graph = FakeGraphStore(
+            episodes=[
+                _episode("ep1", created=100.0),
+                _episode("ep2", created=_time.time()),
+            ],
+            cue_rows=[_cue_row("ep1")],
+        )
+        search = CensusSearchIndex()
+
+        result = await backfill_missing_cue_vectors(graph, search, "g")
+
+        assert result.indexed_ids == ["ep1"]
+        assert result.cursor_next == (100.0, "ep1")
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_failed_index_blocks_cursor_advancement(self):
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        graph = FakeGraphStore(
+            episodes=[_episode("ep1", created=100.0), _episode("ep2", created=200.0)],
+            cue_rows=[_cue_row("ep1"), _cue_row("ep2")],
+        )
+        search = CensusSearchIndex(failing_cue_ids={"ep1"})
+
+        result = await backfill_missing_cue_vectors(graph, search, "g")
+
+        assert result.indexed_ids == ["ep2"]
+        assert result.failed == 1
+        assert result.cursor_next is None  # ep1 retried next window
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_probe_exception_stops_window_early(self):
+        """A failing native probe must not grind the rest of the window."""
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        class ProbeFailStore(FakeGraphStore):
+            async def get_episode_cue(self, episode_id, group_id):
+                self.cue_probe_calls += 1
+                raise RuntimeError("native cue probe timed out")
+
+        graph = ProbeFailStore(
+            episodes=[_episode("ep1", created=100.0), _episode("ep2", created=200.0)],
+        )
+        search = CensusSearchIndex()
+
+        result = await backfill_missing_cue_vectors(graph, search, "g")
+
+        assert graph.cue_probe_calls == 1
+        assert (result.indexed, result.failed) == (0, 1)
+        assert result.cursor_next is None
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_cursor_prevents_reprobing_across_windows(self):
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        graph = FakeGraphStore(
+            episodes=[_episode("ep1", created=100.0), _episode("ep2", created=200.0)],
+            cue_rows=[_cue_row("ep1"), _cue_row("ep2")],
+        )
+        search = CensusSearchIndex()
+
+        r1 = await backfill_missing_cue_vectors(graph, search, "g", max_cues=1)
+        r2 = await backfill_missing_cue_vectors(
+            graph, search, "g", max_cues=1, cursor=r1.cursor_next
+        )
+
+        assert search.indexed_cue_ids == ["ep1", "ep2"]
+        assert r2.cursor_next == (200.0, "ep2")
+        assert graph.cue_probe_calls == 2  # no re-probing
+
+    @pytest.mark.asyncio
+    async def test_cue_drain_dry_run_probes_but_never_indexes_or_advances(self):
+        from engram.storage.index_completeness import backfill_missing_cue_vectors
+
+        graph = FakeGraphStore(
+            episodes=[_episode("ep1", created=100.0)], cue_rows=[_cue_row("ep1")]
+        )
+        search = CensusSearchIndex()
+
+        result = await backfill_missing_cue_vectors(graph, search, "g", dry_run=True)
+
+        assert result.attempted == 1
+        assert result.indexed == 0
+        assert search.indexed_cue_ids == []
+        assert result.cursor_next is None
 
     @pytest.mark.asyncio
     async def test_exact_probe_mode_ignores_cursor_and_sets_none(self):

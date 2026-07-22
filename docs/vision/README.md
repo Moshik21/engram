@@ -34,7 +34,7 @@ Best for:
 
 Explains the neuroscience and cognitive-science ideas Engram borrows from:
 engram traces, cue-dependent recall, consolidation, reconsolidation, forgetting,
-and activation-based retrieval.
+and usage-based ranking with activation-based forgetting.
 
 Best for:
 

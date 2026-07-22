@@ -2506,6 +2506,11 @@ class HelixGraphStore:
         return cues
 
     async def _fetch_episode_cues_bulk(self, group_id: str | None) -> list[dict] | None:
+        # BOUNDS WARNING: find_cues_by_group / find_cues_all take no k/limit —
+        # the native call materializes every cue row and measured 20s+ on an
+        # 8.7k-cue brain as a loop-blocking sync call that ignores deadlines.
+        # Stats-path use only. Budgeted work (the mop cue-vector drain) must
+        # list episodes and probe cues by id (get_episode_cue, ~74ms) instead.
         try:
             if group_id:
                 return await self._query("find_cues_by_group", {"gid": group_id})

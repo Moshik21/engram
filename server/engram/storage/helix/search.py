@@ -14,10 +14,13 @@ results also require post-hoc group filtering.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import re
 import time
 from functools import partial
+from pathlib import Path
 from threading import Lock
 from typing import Any
 
@@ -123,6 +126,54 @@ _BM25_BREAKER_CANCEL_STRIKE_MS = 100.0
 _BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
 _BM25_BREAKER_RETRY_AFTER_SECONDS = 300.0  # half-open probe interval
 
+# Persisted breaker state (sidecar JSON in ~/.engram, beside the activation
+# snapshot): without it every fresh shell serves 2-4 min of degraded recall
+# re-collecting its 2 strikes while zombie BM25 calls drain. A persisted OPEN
+# younger than this pre-arms the breaker at construct; older is stale (brains
+# get repaired/reindexed — never skip BM25 forever on ancient evidence).
+_BM25_BREAKER_STATE_FILENAME = "bm25-breaker-state.json"
+_BM25_BREAKER_STATE_MAX_AGE_SECONDS = 24 * 3600.0
+
+
+def _bm25_breaker_state_path() -> Path:
+    """Sidecar path for persisted breaker state.
+
+    Resolves ~/.engram the same way the activation snapshot does
+    (ENGRAM_HOME override honored) — NEVER inside the graph data dir, which
+    only the process holding the flock may open.
+    """
+    from engram.storage.memory.activation import activation_snapshot_path
+
+    return activation_snapshot_path().parent / _BM25_BREAKER_STATE_FILENAME
+
+
+def _read_persisted_breaker_states() -> dict[str, Any]:
+    """All persisted per-key breaker states; {} when absent or corrupt."""
+    path = _bm25_breaker_state_path()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:  # silent-ok: no sidecar = no persisted opens
+        return {}
+    except (OSError, ValueError):  # silent-ok: corrupt sidecar = closed start (spec'd)
+        logger.warning(
+            "BM25 breaker sidecar unreadable (%s): starting closed",
+            path,
+            exc_info=True,
+        )
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _write_persisted_breaker_states(states: dict[str, Any]) -> None:
+    path = _bm25_breaker_state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(states, sort_keys=True), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:  # silent-ok: persistence is best-effort; in-process breaker still protects
+        logger.warning("BM25 breaker sidecar write failed (%s)", path, exc_info=True)
+
 
 class Bm25CircuitBreaker:
     """Process-level breaker that stops launch-and-abandon native BM25 calls.
@@ -143,6 +194,8 @@ class Bm25CircuitBreaker:
         open_after: int = _BM25_BREAKER_OPEN_AFTER,
         retry_after_seconds: float = _BM25_BREAKER_RETRY_AFTER_SECONDS,
         clock=time.monotonic,
+        persist: bool = False,
+        wall_clock=time.time,
     ) -> None:
         self.key = key
         self._budget_ms = budget_ms
@@ -150,15 +203,66 @@ class Bm25CircuitBreaker:
         self._open_after = open_after
         self._retry_after_seconds = retry_after_seconds
         self._clock = clock
+        self._persist = persist
+        self._wall_clock = wall_clock
         self._consecutive_over_budget = 0
         self._opened_at: float | None = None
         self._half_open_probe = False
+        self._pre_armed = False
         self._stats = {
             "overBudgetCalls": 0,
             "skippedCalls": 0,
             "opens": 0,
             "closes": 0,
         }
+        if persist:
+            self._pre_arm_from_persisted_state()
+
+    def _pre_arm_from_persisted_state(self) -> None:
+        """Start OPEN when a fresh-enough persisted open exists for this key.
+
+        The first query of a new shell then already skips BM25 (no 2-4 min of
+        degraded recall re-collecting strikes); the half-open probe path still
+        allows recovery if the brain got faster. Missing/corrupt sidecar or a
+        stale entry = normal closed start.
+        """
+        entry = _read_persisted_breaker_states().get(self.key)
+        if not isinstance(entry, dict):
+            return
+        opened_at_wall = entry.get("opened_at_wall")
+        if not isinstance(opened_at_wall, (int, float)) or isinstance(opened_at_wall, bool):
+            return
+        age = self._wall_clock() - float(opened_at_wall)
+        if age < 0 or age >= _BM25_BREAKER_STATE_MAX_AGE_SECONDS:
+            return
+        self._opened_at = self._clock()
+        self._pre_armed = True
+        logger.warning(
+            "BM25 circuit breaker pre-armed from persisted state (key=%s, "
+            "persisted open %.0fs ago): native BM25 lanes skipped from the "
+            "first query; half-open probe in %.0fs",
+            self.key,
+            age,
+            self._retry_after_seconds,
+        )
+
+    def _persist_open_state(self, elapsed_ms: float) -> None:
+        if not self._persist:
+            return
+        states = _read_persisted_breaker_states()
+        states[self.key] = {
+            "opened_at_wall": self._wall_clock(),
+            "last_elapsed_ms": round(float(elapsed_ms), 1),
+        }
+        _write_persisted_breaker_states(states)
+
+    def _clear_persisted_state(self) -> None:
+        if not self._persist:
+            return
+        states = _read_persisted_breaker_states()
+        if self.key in states:
+            del states[self.key]
+            _write_persisted_breaker_states(states)
 
     @property
     def is_open(self) -> bool:
@@ -198,6 +302,7 @@ class Bm25CircuitBreaker:
             if probing:
                 # Failed probe: restart the open window.
                 self._opened_at = self._clock()
+                self._persist_open_state(elapsed_ms)
                 logger.warning(
                     "BM25 circuit breaker RE-OPENED after failed probe "
                     "(key=%s, elapsed=%.0fms, cancelled=%s): skipping native "
@@ -210,6 +315,7 @@ class Bm25CircuitBreaker:
             elif self._opened_at is None and self._consecutive_over_budget >= self._open_after:
                 self._opened_at = self._clock()
                 self._stats["opens"] += 1
+                self._persist_open_state(elapsed_ms)
                 logger.warning(
                     "BM25 circuit breaker OPEN after %d consecutive over-budget "
                     "native BM25 calls (key=%s, last=%.0fms, cancelled=%s): "
@@ -228,7 +334,9 @@ class Bm25CircuitBreaker:
         self._consecutive_over_budget = 0
         if self._opened_at is not None:
             self._opened_at = None
+            self._pre_armed = False
             self._stats["closes"] += 1
+            self._clear_persisted_state()
             logger.warning(
                 "BM25 circuit breaker CLOSED (key=%s, probe=%.0fms): native BM25 lanes re-enabled",
                 self.key,
@@ -239,6 +347,7 @@ class Bm25CircuitBreaker:
         """JSON-serializable counters for the storage diagnostics dict."""
         return {
             "open": self.is_open,
+            "preArmed": self._pre_armed,
             "consecutiveOverBudget": self._consecutive_over_budget,
             **self._stats,
         }
@@ -256,7 +365,12 @@ def _get_bm25_breaker(key: str) -> Bm25CircuitBreaker:
     with _BM25_BREAKERS_LOCK:
         breaker = _BM25_BREAKERS.get(key)
         if breaker is None:
-            breaker = Bm25CircuitBreaker(key)
+            # Registry-created breakers (native transport only — the search
+            # index constructor is the sole production entry point) persist
+            # open-state across processes so fresh shells pre-arm instead of
+            # re-collecting strikes. Lite/HTTP never construct a breaker, so
+            # they never read or write the sidecar.
+            breaker = Bm25CircuitBreaker(key, persist=True)
             _BM25_BREAKERS[key] = breaker
         return breaker
 

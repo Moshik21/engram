@@ -1,7 +1,7 @@
 ---
 name: engram-brain
 description: Native local memory for OpenClaw agents: Capture, Cue, Project, Recall, and Consolidate conversations into a private Helix-backed brain.
-version: 0.3.4
+version: 0.3.5
 homepage: https://github.com/Moshik21/engram
 user-invocable: true
 metadata: {"openclaw":{"requires":{"anyBins":["curl"]},"envVars":[{"name":"ANTHROPIC_API_KEY","required":false,"description":"Optional richer entity extraction; deterministic extraction works without it."},{"name":"ENGRAM_GROUP_ID","required":false,"description":"Optional brain namespace for multi-brain setups."}],"emoji":"\ud83e\udde0","homepage":"https://github.com/Moshik21/engram","install":[{"kind":"shell","command":"curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw","bins":["engram","engramctl"]}],"tags":["memory","knowledge-graph","mcp","recall","long-term-memory","cognitive-architecture"]}}
@@ -247,10 +247,11 @@ down.
 
 ## Memory Features
 
-- **Activation-aware retrieval**: Memories accessed more frequently and recently rank higher
-- **Knowledge graph**: Entities and relationships are extracted and connected
+- **Deep episode recall**: hybrid vector + BM25 search over episodes and cues; durable facts (Decisions, Preferences, identity) surface in a reserved lane regardless of raw match strength
+- **Usage learning (gated)**: genuinely *used* memories can earn a bounded rank tiebreak; surfacing alone never boosts rank (echo-guarded, default off until organic usage data exists)
+- **Knowledge graph**: Entities and relationships are extracted and connected (depth tier; the proven benefit is surfacing related episodes)
 - **Offline consolidation**: cold-brain cycles triage, merge, calibrate, infer, adjudicate evidence and edges, replay, prune noise, compact, reflect, reindex, embed the graph, run microglia cleanup and immunity, and discover dream associations (15 phases; consumers run the bounded 2h mop, not the full pipeline)
-- **Memory maturation**: Entities graduate from episodic (recent) to semantic (durable) over time
+- **Memory tiers**: identity-core entities are promoted to the durable semantic tier (slower decay, longer prune horizon)
 - **Prospective memory**: Set intentions that fire when related topics come up
 - **Dream associations**: Cross-domain creative connections discovered during consolidation
 
@@ -301,7 +302,7 @@ GET http://localhost:8100/api/consolidation/status
 
 ## Proactive Notifications
 
-Engram can push memory discoveries without being asked. Consolidation events (dream associations, entity merges, schema patterns, maturation milestones) and approaching intention deadlines produce notifications automatically.
+Engram can push memory discoveries without being asked. Consolidation events (dream associations, entity merges) and approaching intention deadlines produce notifications automatically.
 
 Enabled by `conservative` and `standard` profiles.
 

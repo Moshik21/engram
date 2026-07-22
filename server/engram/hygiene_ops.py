@@ -20,9 +20,9 @@ logger = logging.getLogger(__name__)
 # RF M4.2: per-window budget for syncing activation counters onto graph rows.
 _ACTIVATION_SNAPSHOT_SYNC_MAX = 5000
 
-# Per-window budgets for the durable vector-debt drain. Episode vectors are
-# written only at projection and cue capture-indexing is best-effort, so
-# shell+quiet installs regrow vector debt forever without this drain (deep
+# Per-window budgets for the durable vector-debt drain. Capture-time indexing
+# (capture_service) is now the PRIMARY episode/cue vector writer; this drain
+# is the safety net for capture-time failures and pre-existing debt (deep
 # recall autopsy 2026-07: 1/8876 episode vectors brain-wide). index_episode
 # measured ~0.21 eps/s on real dogfood episodes (full-content embed + chunk
 # embeds), so 50 episodes ≈ 4 min of the 2h window — capacity ~600/day

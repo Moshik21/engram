@@ -1433,6 +1433,34 @@ class ActivationConfig(BaseModel):
             "cue vector indexing; 0 indexes as soon as the background lane is free."
         ),
     )
+    capture_episode_vector_index_enabled: bool = Field(
+        default=True,
+        description=(
+            "Embed and index episode content at capture time (core tier). "
+            "Episode vectors were previously written only at projection, so "
+            "shell installs (which never project) regrew a vector-less brain; "
+            "capture is now the primary writer and the mop vector backfill is "
+            "the safety net."
+        ),
+    )
+    capture_episode_vector_index_timeout_ms: int = Field(
+        default=1000,
+        ge=0,
+        le=30000,
+        description=(
+            "Max background episode vector indexing wait after live capture has "
+            "acknowledged; 0 disables the background timeout."
+        ),
+    )
+    capture_episode_vector_index_quiet_period_ms: int = Field(
+        default=0,
+        ge=0,
+        le=30000,
+        description=(
+            "Minimum quiet period after a live capture before starting best-effort "
+            "episode vector indexing; 0 indexes as soon as the background lane is free."
+        ),
+    )
     cue_index_outbox_enabled: bool = Field(
         default=True,
         description="Persist cue-vector indexing work before running it in the background",
@@ -2964,6 +2992,7 @@ class ActivationConfig(BaseModel):
             _set("cue_layer_enabled", True)
             _set("cue_vector_index_enabled", True)
             _set("capture_cue_vector_index_quiet_period_ms", 1000)
+            _set("capture_episode_vector_index_quiet_period_ms", 1000)
             _set("cue_recall_enabled", True)
             _set("cue_policy_learning_enabled", True)
             _set("targeted_projection_enabled", True)
