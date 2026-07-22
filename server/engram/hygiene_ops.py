@@ -7,6 +7,7 @@ cue_only queues an actual consumer under mop-only scheduling.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -28,6 +29,10 @@ _ACTIVATION_SNAPSHOT_SYNC_MAX = 5000
 # against ~50/day organic inflow. Cues index at ~5/s; 400 ≈ 80s.
 _VECTOR_BACKFILL_EPISODES_MAX = 50
 _VECTOR_BACKFILL_CUES_MAX = 400
+# Wall-clock bounds per drain (first live mop ground past the runner deadline
+# on compounding 20s native listing timeouts; see the timeout handler below).
+_VECTOR_BACKFILL_EPISODES_SECONDS_MAX = 600.0
+_VECTOR_BACKFILL_CUES_SECONDS_MAX = 240.0
 
 
 def _hygiene_state_path() -> Path:
@@ -446,20 +451,31 @@ async def execute_hygiene_mop(
 
         ep_backfill = cue_backfill = None
         try:
-            ep_backfill = await backfill_missing_episode_vectors(
-                graph_store,
-                search_index,
-                group_id,
-                max_episodes=_VECTOR_BACKFILL_EPISODES_MAX,
-                cursor=_cursor(group_cursors.get("episodes")),
+            # Per-drain wall-clock bounds: the first live mop with these
+            # drains ground past the runner's 1800s deadline (20s native
+            # listing timeouts compounding on the saturated pool). wait_for
+            # bounds the grind case; it cannot preempt a loop-blocking sync
+            # native call — that failure mode is tracked as a follow-up.
+            ep_backfill = await asyncio.wait_for(
+                backfill_missing_episode_vectors(
+                    graph_store,
+                    search_index,
+                    group_id,
+                    max_episodes=_VECTOR_BACKFILL_EPISODES_MAX,
+                    cursor=_cursor(group_cursors.get("episodes")),
+                ),
+                timeout=_VECTOR_BACKFILL_EPISODES_SECONDS_MAX,
             )
             _persist_cursor("episodes", ep_backfill.cursor_next)
-            cue_backfill = await backfill_missing_cue_vectors(
-                graph_store,
-                search_index,
-                group_id,
-                max_cues=_VECTOR_BACKFILL_CUES_MAX,
-                cursor=_cursor(group_cursors.get("cues")),
+            cue_backfill = await asyncio.wait_for(
+                backfill_missing_cue_vectors(
+                    graph_store,
+                    search_index,
+                    group_id,
+                    max_cues=_VECTOR_BACKFILL_CUES_MAX,
+                    cursor=_cursor(group_cursors.get("cues")),
+                ),
+                timeout=_VECTOR_BACKFILL_CUES_SECONDS_MAX,
             )
             _persist_cursor("cues", cue_backfill.cursor_next)
             mop["vector_backfill"] = {
@@ -483,6 +499,17 @@ async def execute_hygiene_mop(
             )
             mop["vector_backfill"] = {
                 "status": "provider_unavailable",
+                "episodes": ep_backfill.indexed if ep_backfill else 0,
+            }
+        except TimeoutError:
+            logger.warning(
+                "mop vector backfill exceeded its wall-clock bound "
+                "(episodes=%ss cues=%ss) — window closed early, cursor kept",
+                _VECTOR_BACKFILL_EPISODES_SECONDS_MAX,
+                _VECTOR_BACKFILL_CUES_SECONDS_MAX,
+            )
+            mop["vector_backfill"] = {
+                "status": "timeout",
                 "episodes": ep_backfill.indexed if ep_backfill else 0,
             }
         except Exception:
