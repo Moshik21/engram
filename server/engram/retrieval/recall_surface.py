@@ -1198,6 +1198,9 @@ async def _run_fast_recall_fallback(
     if value and not filtered:
         return [], "filtered"
     filtered = _prefer_project_context_results(filtered, project_path=project_path)
+    # Post-merge clamp: preference/merge steps can grow the list past the
+    # caller's limit (gate-rerun measured n=13 for limit=10).
+    filtered = filtered[: max(1, int(limit or 1))]
     return filtered, "hit" if filtered else "miss"
 
 

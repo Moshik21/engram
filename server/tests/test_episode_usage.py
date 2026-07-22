@@ -510,3 +510,95 @@ class TestUndatedEpisodeNoBoost:
         base = cfg.weight_semantic * 0.5
         assert by_id["ep_undated"].score == pytest.approx(base)
         assert by_id["ep_dated"].score > by_id["ep_undated"].score
+
+
+class TestEpisodeUsageSkipCache:
+    """The per-process cue-usage marker (gate-rerun latency fix): after 3
+    all-zero probes the tiebreaker skips its cue reads; the write-side scan
+    re-arms it; finding usage makes it sticky-True."""
+
+    def setup_method(self):
+        from engram.retrieval import pipeline
+
+        pipeline._EPISODE_USAGE_SEEN.clear()
+
+    def teardown_method(self):
+        from engram.retrieval import pipeline
+
+        pipeline._EPISODE_USAGE_SEEN.clear()
+
+    @pytest.mark.asyncio
+    async def test_three_empty_probes_stop_cue_reads(self):
+        from engram.retrieval import pipeline
+        from engram.retrieval.scorer import ScoredResult
+
+        reads = []
+
+        class Store:
+            async def get_episode_cue(self, episode_id, group_id):
+                reads.append(episode_id)
+                return None
+
+        cfg = ActivationConfig(usage_ranking_enabled=True)
+
+        def cands():
+            return [
+                ScoredResult(
+                    node_id="ep1",
+                    score=0.5,
+                    semantic_similarity=0.5,
+                    activation=0.0,
+                    spreading=0.0,
+                    edge_proximity=0.0,
+                    exploration_bonus=0.0,
+                )
+            ]
+
+        for expected_reads in (1, 2, 3, 3, 3):
+            await pipeline._apply_episode_usage_tiebreaker(
+                cands(), [], graph_store=Store(), group_id="g1", now=1000.0, cfg=cfg
+            )
+            assert len(reads) == expected_reads
+
+        # Write-side invalidation re-arms the reads.
+        pipeline.note_group_cue_usage_written("g1")
+        await pipeline._apply_episode_usage_tiebreaker(
+            cands(), [], graph_store=Store(), group_id="g1", now=1000.0, cfg=cfg
+        )
+        assert len(reads) == 4
+
+    @pytest.mark.asyncio
+    async def test_found_usage_is_sticky_and_reads_continue(self):
+        from datetime import datetime, timezone
+
+        from engram.retrieval import pipeline
+        from engram.retrieval.scorer import ScoredResult
+
+        reads = []
+
+        class Cue:
+            usage_used_count = 0.3
+            usage_last_used_at = datetime.fromtimestamp(900.0, tz=timezone.utc)
+
+        class Store:
+            async def get_episode_cue(self, episode_id, group_id):
+                reads.append(episode_id)
+                return Cue()
+
+        cfg = ActivationConfig(usage_ranking_enabled=True)
+        for i in range(5):
+            sr = ScoredResult(
+                node_id="ep1",
+                score=0.5,
+                semantic_similarity=0.5,
+                activation=0.0,
+                spreading=0.0,
+                edge_proximity=0.0,
+                exploration_bonus=0.0,
+            )
+            await pipeline._apply_episode_usage_tiebreaker(
+                [sr], [], graph_store=Store(), group_id="g2", now=1000.0, cfg=cfg
+            )
+            assert sr.score > 0.5  # tiebreaker applied every time
+            assert len(reads) == i + 1
+        assert pipeline._EPISODE_USAGE_SEEN["g2"] is True

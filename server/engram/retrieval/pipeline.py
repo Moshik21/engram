@@ -186,6 +186,26 @@ def _candidate_pool_has_zero_semantic_score(
     )
 
 
+# Per-process, per-group marker for whether any cue-level usage exists.
+# None = unknown (probe via reads), int = consecutive all-zero probes seen,
+# True = usage known to exist (sticky; set by reads finding usage AND by the
+# write side when the citation scan bumps a cue in this process). After
+# _EPISODE_USAGE_PROBES_BEFORE_SKIP all-zero probes the tiebreaker skips its
+# cue reads entirely — the gate-rerun measured the sequential reads at ~+2.6s
+# per recall (~8x) on the native brain even with an EMPTY usage store.
+# Staleness direction is safe: a missed marker means u=0, i.e. flag-off
+# ranking; cross-process bumps (the cold brain) are picked up on the shell
+# restart that follows every mop window.
+_EPISODE_USAGE_SEEN: dict[str, bool | int] = {}
+_EPISODE_USAGE_PROBES_BEFORE_SKIP = 3
+_EPISODE_USAGE_READ_CONCURRENCY = 8
+
+
+def note_group_cue_usage_written(group_id: str) -> None:
+    """Write-side invalidation: the citation scan bumped a cue's usage."""
+    _EPISODE_USAGE_SEEN[group_id] = True
+
+
 async def _apply_episode_usage_tiebreaker(
     episode_candidates: list[ScoredResult],
     cue_candidates: list[ScoredResult],
@@ -204,25 +224,56 @@ async def _apply_episode_usage_tiebreaker(
     Runs ONLY under usage_ranking_enabled, BEFORE Step 5.05, so the
     environmental temporal factor multiplies on top:
     final = rrf x (1 + beta_route*u_episode) x (1 + temporal_cue_boost).
+
+    Cue reads are concurrent (bounded) and skipped entirely once repeated
+    probes verify the group has no cue usage this process — see
+    _EPISODE_USAGE_SEEN above for the latency measurement and the safe
+    staleness direction.
     """
-    u_by_episode: dict[str, float] = {}
+    seen = _EPISODE_USAGE_SEEN.get(group_id)
+    if isinstance(seen, int) and seen >= _EPISODE_USAGE_PROBES_BEFORE_SKIP:
+        return
+
+    unique_ids: list[str] = []
+    id_set: set[str] = set()
     for sr in [*episode_candidates, *cue_candidates]:
-        u = u_by_episode.get(sr.node_id)
-        if u is None:
-            u = 0.0
+        if sr.node_id not in id_set:
+            id_set.add(sr.node_id)
+            unique_ids.append(sr.node_id)
+    if not unique_ids:
+        return
+
+    semaphore = asyncio.Semaphore(_EPISODE_USAGE_READ_CONCURRENCY)
+
+    async def _read(episode_id: str):
+        async with semaphore:
             try:
-                cue = await graph_store.get_episode_cue(sr.node_id, group_id)
+                return episode_id, await graph_store.get_episode_cue(episode_id, group_id)
             except Exception:
                 # silent-ok: a cue-read miss only forfeits the usage tiebreaker
                 # for this episode; recall must never fail on it.
                 logger.debug("Episode-u cue read failed", exc_info=True)
-                cue = None
-            if cue is not None and cue.usage_used_count > 0.0 and cue.usage_last_used_at:
-                last_dt = cue.usage_last_used_at
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=timezone.utc)
-                u = compute_u_values(cue.usage_used_count, last_dt.timestamp(), now, cfg)
-            u_by_episode[sr.node_id] = u
+                return episode_id, None
+
+    pairs = await asyncio.gather(*(_read(episode_id) for episode_id in unique_ids))
+    u_by_episode: dict[str, float] = {}
+    for episode_id, cue in pairs:
+        u = 0.0
+        if cue is not None and cue.usage_used_count > 0.0 and cue.usage_last_used_at:
+            last_dt = cue.usage_last_used_at
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            u = compute_u_values(cue.usage_used_count, last_dt.timestamp(), now, cfg)
+        u_by_episode[episode_id] = u
+
+    if any(u > 0.0 for u in u_by_episode.values()):
+        _EPISODE_USAGE_SEEN[group_id] = True
+    elif _EPISODE_USAGE_SEEN.get(group_id) is not True:
+        seen_count = _EPISODE_USAGE_SEEN.get(group_id)
+        _EPISODE_USAGE_SEEN[group_id] = (seen_count if isinstance(seen_count, int) else 0) + 1
+
+    for sr in [*episode_candidates, *cue_candidates]:
+        u = u_by_episode.get(sr.node_id, 0.0)
         if u > 0.0:
             sr.score *= 1.0 + cfg.usage_beta_route * u
 

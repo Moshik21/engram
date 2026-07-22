@@ -560,6 +560,12 @@ async def record_observed_usage_events(
             group_id=group_id,
         )
         fired_ids.append(f"cue::{cue_entry.episode_id}")
+    if fired_ids:
+        # Invalidate the episode-u skip cache: this group now has cue usage,
+        # so the ranking-side tiebreaker must resume its cue reads.
+        from engram.retrieval.pipeline import note_group_cue_usage_written
+
+        note_group_cue_usage_written(group_id)
     return fired_ids
 
 
