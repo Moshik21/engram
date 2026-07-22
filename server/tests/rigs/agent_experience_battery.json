@@ -1,0 +1,23 @@
+{
+  "description": "Agent-experience ground-truth battery: questions a working agent would ask its memory, with expected-answer tokens. Scored by containment in top-3 recall text. Seeded 2026-07-22 from a session where the grader held full ground truth.",
+  "scoring": "hit = any expected_tokens group fully present in top-3 surfaced text; wrong_hit = high-score result unrelated to question; miss = no group present",
+  "questions": [
+    {"id": "flip-condition", "q": "what is the flip condition for usage ranking", "expected_tokens": [["organic", "yield"], ["usage_ranking_enabled", "False"]], "result_2026_07_22": "HIT rank1 (same-day observation)"},
+    {"id": "recall-outage", "q": "what broke deep recall on the dogfood brain", "expected_tokens": [["vector", "index", "empty"], ["BM25", "timeout"]], "result_2026_07_22": "MISS (adjacent old dogfood-latency episodes)"},
+    {"id": "ts-kill", "q": "why was Thompson sampling removed", "expected_tokens": [["Thompson", "noise"], ["ts_", "deleted"]], "result_2026_07_22": "MISS (degraded -> project-file fallback)"},
+    {"id": "north-star", "q": "what is the product north star metric", "expected_tokens": [["LongMemEval", "not"], ["continuity"]], "result_2026_07_22": "HIT rank1-3 (golden decision corpus)"},
+    {"id": "deleted-phases", "q": "which consolidation phases were deleted", "expected_tokens": [["mature"], ["semanticize"], ["schema"]], "result_2026_07_22": "WEAK (generic merge-phase entity + raw triple)"},
+    {"id": "durable-lane", "q": "what does the durable result boost do in ranking", "expected_tokens": [["reserved", "lane"], ["type_rank"], ["2.5"]], "result_2026_07_22": "WRONG-HIT (flip-decision squatter entity at 0.99)"},
+    {"id": "fastembed-outage", "q": "what was the FastEmbed outage root cause", "expected_tokens": [["model.onnx"], ["interrupted", "download"]], "result_2026_07_22": "MISS (hook-noise episodes)"},
+    {"id": "vector-write-path", "q": "how are episode vectors written now capture or projection", "expected_tokens": [["capture-time"], ["outbox"]], "result_2026_07_22": "HIT (session-recent packet, 1h old)"},
+    {"id": "bm25-breaker", "q": "what does the BM25 circuit breaker do", "expected_tokens": [["skip", "BM25"], ["zombie"], ["over-budget"]], "result_2026_07_22": "MISS (task-notification noise episodes ranked top)"},
+    {"id": "founder-identity", "q": "who is the founder of Engram and what are his goals", "expected_tokens": [["Konner"], ["local"]], "result_2026_07_22": "MISS (current-session echo; identity_core never surfaced)"}
+  ],
+  "found_defects_2026_07_22": [
+    "bootstrap 500 on every session start: create_entity -> native 'BM25 document <id> already exists' (stale BM25 doc for re-created entity; write-path upsert/delete inconsistency)",
+    "squatter entities: milestone observations extracted into sentence-long entity names scoring 0.99 on unrelated ranking queries",
+    "hook-noise episodes retrievable: task-notification/command-output auto-observes now vector-indexed by the backfill and ranking top-3 on technical queries",
+    "answer locality: long multi-fact observations don't surface for their natural single-fact questions (chunking/cue gap)",
+    "identity_core content never surfaced for an identity question"
+  ]
+}
