@@ -168,12 +168,21 @@ def recall_budget_for_profile(
             allow_graph_probe=bool(getattr(cfg, "recall_need_graph_probe_enabled", False)),
             timeout_degrades=timeout_degrades,
         )
+    explicit_wall_ms = _int(None, getattr(cfg, "recall_budget_explicit_ms", 4000))
+    explicit_search_ms = _int(None, getattr(cfg, "recall_budget_explicit_search_ms", 1500))
+    # M4 budget arithmetic: the deep-pipeline wait_for ceiling (max_search_ms) must
+    # be >= the sum of the serial substage caps it wraps (stats+primary+episode+cue+
+    # chunk+spread+materialize ~= 3925ms), or wait_for cancels the pipeline mid-flight
+    # and discards materialized candidates. Give it the WALL so the substages fit;
+    # recall_budget_explicit_search_ms stays ONLY the primary-search substage floor
+    # (candidate_pool), decoupled so raising the ceiling never inflates that floor.
+    deep_pipeline_uses_wall = bool(getattr(cfg, "recall_deep_pipeline_wall_budget_enabled", True))
     return RecallBudget.start(
         profile="explicit",
         surface=surface,
         mode=mode or "deep",
-        max_wall_ms=_int(None, getattr(cfg, "recall_budget_explicit_ms", 4000)),
-        max_search_ms=_int(None, getattr(cfg, "recall_budget_explicit_search_ms", 1500)),
+        max_wall_ms=explicit_wall_ms,
+        max_search_ms=explicit_wall_ms if deep_pipeline_uses_wall else explicit_search_ms,
         max_graph_ms=900,
         max_packet_ms=250,
         max_results=_int(max_results, 10),

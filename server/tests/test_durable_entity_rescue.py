@@ -111,6 +111,82 @@ class _Manager:
         self._graph = _Graph(entities)
 
 
+class _FakeBreaker:
+    def __init__(self, is_open: bool) -> None:
+        self.is_open = is_open
+
+
+class _BreakerGraph:
+    """Graph where exact-name misses and only the slow CONTAINS fanout hits."""
+
+    def __init__(self, entities: list[_Entity], breaker: _FakeBreaker | None) -> None:
+        self._entities = entities
+        self._breaker = breaker
+        self.find_candidates_calls = 0
+
+    async def find_entities_exact_name(
+        self, name: str, group_id: str, limit: int = 5
+    ) -> list[_Entity]:
+        return []
+
+    async def find_entity_candidates(
+        self, name: str, group_id: str, limit: int = 30
+    ) -> list[_Entity]:
+        self.find_candidates_calls += 1
+        needle = name.casefold()
+        return [e for e in self._entities if needle in e.name.casefold()]
+
+    def _bm25_breaker(self) -> _FakeBreaker | None:
+        return self._breaker
+
+
+class _BreakerManager:
+    def __init__(self, graph: _BreakerGraph) -> None:
+        self._graph = graph
+
+
+def _breaker_case(is_open: bool, fast_probe: bool) -> tuple[list[dict], int]:
+    entity = _Entity(
+        "dec_local",
+        "LongMemEval is not Engram north star",
+        "Decision",
+        "Product metric is multi-agent continuity",
+    )
+    graph = _BreakerGraph([entity], _FakeBreaker(is_open))
+    hits = asyncio.run(
+        _durable_entity_name_rescue(
+            _BreakerManager(graph),
+            group_id="default",
+            query="what strategy decisions did we make about LongMemEval north star?",
+            limit=5,
+            fast_probe_when_degraded=fast_probe,
+        )
+    )
+    return hits, graph.find_candidates_calls
+
+
+def test_durable_rescue_skips_slow_candidates_when_bm25_open():
+    # Breaker OPEN + pre-recall probe: skip find_entity_candidates entirely.
+    hits, calls = _breaker_case(is_open=True, fast_probe=True)
+    assert calls == 0
+    assert hits == []
+
+
+def test_durable_rescue_runs_candidates_when_bm25_closed():
+    # Breaker CLOSED: fanout runs and the durable Decision surfaces.
+    hits, calls = _breaker_case(is_open=False, fast_probe=True)
+    assert calls >= 1
+    assert any(h["entity"]["id"] == "dec_local" for h in hits)
+
+
+def test_durable_rescue_salvage_keeps_candidates_when_bm25_open():
+    # Post-timeout salvage (fast_probe_when_degraded=False) keeps the fanout even
+    # with the breaker open — deep recall already failed, so this is last resort.
+    hits, calls = _breaker_case(is_open=True, fast_probe=False)
+    assert calls >= 1
+    assert any(h["entity"]["id"] == "dec_local" for h in hits)
+
+
 def test_durable_rescue_prefers_strategy_decision_over_statement_noise():
     entities = [
         _Entity(

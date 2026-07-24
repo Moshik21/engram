@@ -1533,6 +1533,21 @@ class ActivationConfig(BaseModel):
             "unaffected. Kill switch for the ranking behavior."
         ),
     )
+    recall_rescue_fast_probe_when_bm25_open: bool = Field(
+        default=True,
+        description=(
+            "When the shared BM25 circuit breaker is OPEN, keep the durable-"
+            "entity rescue probes that run BEFORE the deep episode search on "
+            "the fast exact-name route only and skip find_entity_candidates. "
+            "find_entity_candidates still runs its slow CONTAINS/token/prefix "
+            "fanout (Phases 3-5) on the shared 4-thread native pool even with "
+            "BM25 skipped; on the 17GB brain those durable-first + rescue probes "
+            "burned ~1.25s + ~1.06s of the wall so the primary entity search "
+            "intermittently timed out and recall degraded. Exact-name lookup is "
+            "indexed and stays. Only affects pre-deep-recall probes; the post-"
+            "timeout salvage rescue keeps the full candidate fanout. Kill switch."
+        ),
+    )
     salience_gated_embedding_enabled: bool = Field(
         default=True,
         description=(
@@ -2019,7 +2034,10 @@ class ActivationConfig(BaseModel):
         le=30000,
         description=(
             "Wall-clock budget for explicit user/agent recall. Raised for loaded "
-            "native Helix brains so durable Decision rescue can finish."
+            "native Helix brains so durable Decision rescue can finish. With "
+            "recall_deep_pipeline_wall_budget_enabled (default) this wall is ALSO "
+            "the deep-pipeline wait_for ceiling (max_search_ms), so the serial "
+            "substage caps fit under it (see that flag's arithmetic)."
         ),
     )
     recall_budget_explicit_search_ms: int = Field(
@@ -2027,15 +2045,35 @@ class ActivationConfig(BaseModel):
         ge=100,
         le=30000,
         description=(
-            "Primary-recall budget (search + materialize + post-process) for "
-            "explicit user/agent recall before degraded fallback. Raised "
-            "650->1500->2200: on the 17GB dogfood brain the primary path is "
-            "stats ~250ms + vector search ~985ms + materialize (300ms cap) + "
-            "post-process, so 1500ms cancelled mid-materialize and the found "
-            "candidates were discarded for a 1.5s durable-rescue (total ~3s, "
-            "empty). 2200ms lets the primary COMPLETE and return real results "
-            "in ~1.7s — strictly better than the timed-out path on both "
-            "latency and quality. Healthy queries (<1s) are unaffected."
+            "Primary-SEARCH substage floor for explicit recall. On the native "
+            "transport a graph/stats preflight timeout must NOT poison the primary "
+            "entity search into a 100ms no-op, so candidate_pool floors the "
+            "primary-search timeout up to this value (never the deep-pipeline "
+            "wall). NOTE: this is NO LONGER the deep-pipeline wait_for ceiling — "
+            "that is now recall_budget_explicit_ms (the wall) when "
+            "recall_deep_pipeline_wall_budget_enabled is on. Kept separate so "
+            "raising the pipeline ceiling does not also inflate the primary floor "
+            "(which would let primary alone consume the whole wall on probe "
+            "timeout)."
+        ),
+    )
+    recall_deep_pipeline_wall_budget_enabled: bool = Field(
+        default=True,
+        description=(
+            "Give the explicit deep-recall pipeline the full remaining WALL "
+            "(recall_budget_explicit_ms) as its wait_for ceiling instead of the "
+            "old 2200ms sub-wall (recall_budget_explicit_search_ms). THE BUG this "
+            "fixes: the pipeline's serial substage caps sum to more than 2200ms, "
+            "so wait_for(manager.recall, 2200ms) cancelled mid-pipeline (during "
+            "chunk/materialize) even when every substage was inside its own cap, "
+            "discarding already-materialized candidates for an empty rescue. "
+            "ARITHMETIC (default caps, serial answer path): stats 1500 + primary "
+            "1500 + episode 250 + cue 150 + chunk 150 + spread 75 + materialize "
+            "300 = 3925ms <= wall 4000ms. The wall still bounds a genuinely-slow "
+            "query (min(wall_remaining, wall) = wall_remaining), so recall never "
+            "runs unbounded; healthy queries that finish before 2200ms are "
+            "byte-identical. Env kill switch: "
+            "ENGRAM_ACTIVATION__RECALL_DEEP_PIPELINE_WALL_BUDGET_ENABLED=0."
         ),
     )
     recall_fast_fallback_timeout_ms: int = Field(

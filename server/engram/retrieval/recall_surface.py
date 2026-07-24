@@ -648,6 +648,7 @@ async def _run_explicit_recall_with_budget(
         query=query,
         limit=limit,
         timeout_seconds=min(0.75, max(0.2, timeout_seconds * 0.4)),
+        fast_probe_when_degraded=True,
     )
     stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
     if durable_first and not _durable_first_short_circuit_allowed(query, durable_first):
@@ -775,6 +776,7 @@ async def _run_explicit_recall_with_budget(
                 group_id=group_id,
                 query=query,
                 limit=limit,
+                fast_probe_when_degraded=True,
             )
             stage_timings["durable_entity_rescue"] = _elapsed_ms(rescue_started)
             if rescue:
@@ -1358,6 +1360,7 @@ async def _durable_entity_name_rescue(
     query: str,
     limit: int,
     timeout_seconds: float = 1.0,
+    fast_probe_when_degraded: bool = False,
 ) -> list[dict[str, Any]]:
     """Bounded name lookup for durable entities when preflight times out.
 
@@ -1378,6 +1381,7 @@ async def _durable_entity_name_rescue(
                 query=query,
                 limit=limit,
                 timeout_seconds=timeout_seconds,
+                fast_probe_when_degraded=fast_probe_when_degraded,
             ),
             # Aggregate wall bound: per-probe timeouts alone allowed up to
             # 4 probes x ~1.9s of stacked waits (~7.6s theoretical) before
@@ -1440,6 +1444,7 @@ async def _durable_entity_name_rescue_inner(
     query: str,
     limit: int,
     timeout_seconds: float,
+    fast_probe_when_degraded: bool = False,
 ) -> list[dict[str, Any]]:
     from engram.extraction.promotion import (
         durable_result_boost,
@@ -1455,6 +1460,23 @@ async def _durable_entity_name_rescue_inner(
 
     _cfg = getattr(manager, "_cfg", None)
     _drop_triple_rescue = bool(getattr(_cfg, "recall_rescue_drop_triple_entities", True))
+
+    # When the BM25 breaker is OPEN, find_entity_candidates still runs its slow
+    # CONTAINS/token/prefix fanout (Phases 3-5) on the shared native pool even
+    # with BM25 skipped. For probes that run BEFORE the deep episode search that
+    # fanout eats the wall and times out the primary search. Skip it: exact-name
+    # (indexed, ~0.4s cap) stays, and the deep pipeline still covers a miss.
+    _skip_slow_candidates = False
+    if fast_probe_when_degraded and bool(
+        getattr(_cfg, "recall_rescue_fast_probe_when_bm25_open", True)
+    ):
+        _peek_breaker = getattr(graph, "_bm25_breaker", None) if graph is not None else None
+        if callable(_peek_breaker):
+            try:
+                _breaker = _peek_breaker()
+                _skip_slow_candidates = bool(_breaker is not None and _breaker.is_open)
+            except Exception:
+                _skip_slow_candidates = False
 
     tokens = _rescue_query_tokens(query)
     if not tokens:
@@ -1479,7 +1501,7 @@ async def _durable_entity_name_rescue_inner(
         if probes:
             return probes
         try:
-            if callable(find):
+            if callable(find) and not _skip_slow_candidates:
                 try:
                     value = find(name, group_id, limit=5)
                 except TypeError:

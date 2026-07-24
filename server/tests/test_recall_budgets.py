@@ -29,13 +29,16 @@ def test_recall_budget_profiles_keep_startup_cache_only() -> None:
     assert lite.allow_deep_recall is False
     assert lite.allow_embeddings is True
     assert explicit.budget_ms == 900
-    # Search default follows ActivationConfig.recall_budget_explicit_search_ms.
-    assert explicit.max_search_ms == 2200
+    # M4: the deep-pipeline wait_for ceiling (max_search_ms) is now the WALL, so the
+    # serial substage caps fit under it. recall_budget_explicit_search_ms is no longer
+    # the ceiling — it is only the primary-search substage floor (candidate_pool).
+    assert explicit.max_search_ms == 900
     assert explicit.max_results == 7
     assert explicit.allow_deep_recall is True
 
 
-def test_explicit_recall_search_budget_is_configurable() -> None:
+def test_explicit_recall_deep_pipeline_ceiling_follows_wall() -> None:
+    # Default (flag on): max_search_ms == the wall, decoupled from the search floor.
     cfg = ActivationConfig(
         recall_budget_explicit_ms=4000,
         recall_budget_explicit_search_ms=1500,
@@ -44,7 +47,45 @@ def test_explicit_recall_search_budget_is_configurable() -> None:
     explicit = recall_budget_for_profile(cfg, "explicit", surface="rest")
 
     assert explicit.budget_ms == 4000
-    assert explicit.max_search_ms == 1500
+    assert explicit.max_search_ms == 4000
+
+    # Kill switch restores the legacy sub-wall ceiling from the search-floor knob.
+    legacy = recall_budget_for_profile(
+        ActivationConfig(
+            recall_budget_explicit_ms=4000,
+            recall_budget_explicit_search_ms=1500,
+            recall_deep_pipeline_wall_budget_enabled=False,
+        ),
+        "explicit",
+        surface="rest",
+    )
+    assert legacy.max_search_ms == 1500
+
+
+def test_explicit_deep_pipeline_substage_caps_fit_wait_for_ceiling() -> None:
+    """M4 DoD: the serial substage caps must sum <= the deep-pipeline wait_for
+    ceiling (max_search_ms). Otherwise wait_for(manager.recall, ceiling) cancels
+    the pipeline mid-flight (during chunk/materialize) even when every substage is
+    inside its own cap, discarding already-materialized candidates for an empty
+    rescue."""
+    cfg = ActivationConfig()
+    explicit = recall_budget_for_profile(cfg, "explicit", surface="rest")
+
+    # The serial answer-producing critical path (see budgets.py M4 comment).
+    substage_caps_ms = (
+        cfg.retrieval_stats_timeout_ms
+        + cfg.retrieval_primary_search_timeout_ms
+        + cfg.retrieval_episode_search_timeout_ms
+        + cfg.retrieval_cue_search_timeout_ms
+        + cfg.retrieval_chunk_search_timeout_ms
+        + cfg.retrieval_spread_timeout_ms
+        + cfg.recall_primary_materialize_graph_timeout_ms
+    )
+
+    assert substage_caps_ms == 3925
+    assert substage_caps_ms <= explicit.max_search_ms
+    # And the ceiling never exceeds the wall, so a slow query stays bounded.
+    assert explicit.max_search_ms <= explicit.budget_ms
 
 
 def test_recall_budget_source_and_surface_inference() -> None:

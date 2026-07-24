@@ -469,6 +469,11 @@ class HelixSearchIndex:
         # Last query vector — reused by RelevanceScorer to avoid re-embedding
         self._last_query_vec: list[float] | None = None
 
+        # Per-recall query-embed memo (single entry, keyed by exact query text).
+        # The entity/episode/cue/chunk lanes each embed the same query string;
+        # this reuses one embed across all four lanes within a recall.
+        self._query_embed_memo: tuple[str, list[float]] | None = None
+
         # Fallback embedding provider (lazily initialized on primary failure)
         self._fallback_provider: EmbeddingProvider | None = None
         self._primary_consecutive_failures: int = 0
@@ -747,6 +752,28 @@ class HelixSearchIndex:
         vec = vecs[0]
         if vec and self._storage_dim > 0:
             vec = truncate_vectors([vec], self._storage_dim)[0]
+        return vec
+
+    async def _embed_query_cached(self, query: str) -> list[float]:
+        """Embed the recall query once and reuse across all lanes of a recall.
+
+        The entity / episode / cue / chunk lanes each embed the same query
+        string; without this memo the query is embedded 4x per recall. Keyed by
+        the exact query text (single entry, overwritten when the query changes)
+        so a different query — the next recall — always re-embeds and no vector
+        ever leaks to a different query. Group filtering happens in the vector
+        search, not the embedding, so the vector is group-independent and the
+        query-text key is sufficient. Only successful (non-empty) vectors are
+        cached, so an embedding failure preserves the original per-lane retry
+        behavior. Behavior-preserving: embedding is deterministic, so a reused
+        vector is byte-identical to a fresh embed.
+        """
+        memo = self._query_embed_memo
+        if memo is not None and memo[0] == query:
+            return memo[1]
+        vec = await self._embed_text(query)
+        if vec:
+            self._query_embed_memo = (query, vec)
         return vec
 
     async def _embed_texts(self, texts: list[str]) -> list[list[float]]:
@@ -1601,7 +1628,7 @@ class HelixSearchIndex:
 
         # Run embedding + BM25 concurrently
         query_vec, (fts_results, fts_rows) = await asyncio.gather(
-            self._embed_text(query),
+            self._embed_query_cached(query),
             self._bm25_search_entities(query, bm25_fetch_limit),
         )
         self._last_query_vec = query_vec
@@ -1669,7 +1696,7 @@ class HelixSearchIndex:
             return self._normalize_scores(fts_results[:limit])
 
         query_vec, (fts_results, fts_rows) = await asyncio.gather(
-            self._embed_text(query),
+            self._embed_query_cached(query),
             self._bm25_search_episodes(query, bm25_fetch_limit),
         )
         self._last_query_vec = query_vec
@@ -1773,7 +1800,7 @@ class HelixSearchIndex:
             return self._normalize_scores(fts_results[:limit])
 
         query_vec, (fts_results, fts_rows) = await asyncio.gather(
-            self._embed_text(query),
+            self._embed_query_cached(query),
             self._bm25_search_cues(query, bm25_fetch_limit),
         )
         self._last_query_vec = query_vec
@@ -1901,7 +1928,7 @@ class HelixSearchIndex:
             if not results:
                 # Fall back to client-side embedding. This is the primary path
                 # for PyO3 native transport.
-                query_vec = await self._embed_text(query)
+                query_vec = await self._embed_query_cached(query)
                 if not query_vec:
                     return []
                 if group_id:
