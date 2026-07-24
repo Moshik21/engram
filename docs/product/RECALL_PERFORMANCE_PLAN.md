@@ -128,6 +128,46 @@ Every milestone is flag-guarded and A/B'd against the live continuity gate (`uv 
 - **The reverted durable-first cap.** A prior attempt capped/short-circuited the `durable_entity_first` rescue (`recall_surface.py:644-651,1385`, timeout `min(0.75, max(0.2, 1500*0.4))=600 ms`, wall 2× → 1.2 s) to reclaim wall time before the deep pipeline. It was reverted because: (a) durable-first is the path that carries the continuity gate (B3, 819 ms live) and the entity-backed HITs — capping it regressed the questions that currently PASS to buy time for the ones that miss; (b) it attacked *serial tax before* the pipeline, not the *actual blocker* (BM25 inside the pipeline). Net: it traded a passing lane for a failing one. **Do not re-cap durable-first.** The correct target is BM25 + the chunk gate (M2/M3), which are orthogonal to durable-first and leave the continuity path untouched (it runs upstream of the deep pipeline in `recall_surface.py`).
 - **Raising the wall/timeouts to "let chunk finish."** Rejected — it makes recall slower without fixing the cause; the budget already exceeds the wall (M4) and the cost is BM25, not chunk. Recall is pure dead time before the model speaks and must stay under the 1 s flow threshold ([Nielsen response-time limits](https://www.nngroup.com/articles/response-times-3-important-limits/)).
 
+### Measured and ruled out — 2026-07-24: the cross-encoder re-ranker (BOTH paths)
+
+**Do not re-try re-ranking as an answer-locality fix.** Reordering cannot add an answer that retrieval never returned, and measurement shows that is exactly the situation.
+
+**Correction to the record first.** The note at `config.py:457-467` claimed flipping `reranker_provider` `noop`→`local` was "measured as a regression (battery 3/10, lost flip-condition and durable-lane)". That reading was invalid: the installed shell runs `consolidation_profile=quiet`, and the quiet preset force-disables the whole stage at `config.py:3020` (`_set("reranker_enabled", False)`). Effective live config was `enabled=False provider=noop episodes=False` — the provider value was inert, and 3/10 is inside the known 3–6 battery jitter. Arming the experiment at all required flipping `reranker_enabled` back on for `quiet`.
+
+**Arms measured** (live dogfood brain, 9248 episodes / 834 entities; battery `--against-live`, medians of 3+ runs):
+
+| Arm | Battery runs | Median | Battery wall | Continuity |
+|---|---|---|---|---|
+| Baseline (`noop`, stage off) | 1, 3, 3, 4, 3 | **3/10** | 8.8–17.0 s | PASS, recall_ms 328.7 |
+| A — `provider=local` + `rerank_episodes=True` (entity+episode, fetch-all) | 0, 2, 4 | **2/10** | 47.7–92.3 s | PASS, recall_ms 495.9 |
+| B — type-separated, fetch-bounded episode rerank | 3, 2, 1 | **2/10** | 22.8–68.0 s | not run (arm already failing) |
+| Baseline re-verified after revert | 2, 3, 3 | **3/10** | 12.9–22.7 s | PASS, recall_ms 314.7 |
+
+**Arm A never ran the cross-encoder.** The substage budget is `retrieval_reranker_timeout_ms=75` (`config.py:483`), but the ON path (`pipeline.py:1920-1978`) fetched every candidate before scoring — ~30 `get_entity` + ~50 `get_episode_by_id` round-trips on the native transport. Diagnostics: at 600 ms it reported `recallRerankerTimeout: 601 ms`; with the substage timeout disabled entirely it was killed by the parent budget at `recallRerankerCancelled: 824 / 1663 / 2035 ms`. The model itself is fine and fast — a standalone `TextCrossEncoder` load is 4.3 s (once, lazy) and scoring 35 mixed-length docs is 67–73 ms. **The cost was the document fetch, not the model.** Arm A's battery loss is therefore not a ranking effect at all; it is the ~600 ms/query of wasted substage plus abandoned background fetches contending with the native engine (battery wall 8.8–17 s → 47.7–92.3 s).
+
+**Arm B** made the path executable — type-separated (entity order untouched, so the durable reserved lane is never exposed to the short-snippet effect), capped at the 12 strongest episode/cue candidates, `chunk_context` reused when already in hand, and the candidates' own scores *permuted* into cross-encoder order rather than overwritten with raw logits (which would mix scales with the un-reranked tail). It completed — `recallRerankerEpisodeDocs: 12`, `recallReranker: 507–735 ms` — but still cost ~500 ms/query (the ≤12 episode fetches, not the ~40–70 ms of scoring) and did not help.
+
+**The kill shot — the answers are not in the candidate set.** Probing the live recall surface at `limit=25` on all ten battery questions returns only **5–7 rows**, and expected-answer containment lands as:
+
+```
+flip-condition       rows=7  answer_at_ranks=[]
+recall-outage        rows=6  answer_at_ranks=[]
+ts-kill              rows=7  answer_at_ranks=[]
+north-star           rows=7  answer_at_ranks=[6]
+deleted-phases       rows=7  answer_at_ranks=[0]
+durable-lane         rows=7  answer_at_ranks=[3]
+fastembed-outage     rows=7  answer_at_ranks=[]
+vector-write-path    rows=7  answer_at_ranks=[5]
+bm25-breaker         rows=6  answer_at_ranks=[]
+founder-identity     rows=5  answer_at_ranks=[0]
+```
+
+Five of ten questions — including **every** episode-answer question the hypothesis predicted would improve (`recall-outage`, `ts-kill`, `fastembed-outage`, `vector-write-path`, `bm25-breaker`) — have the answer nowhere in the returned set. A re-ranker is a permutation; it cannot create those rows. Of the five where the answer *is* present, two are already at rank 0. **A perfect oracle re-ranker over this pool scores 5/10** — a +2 ceiling that requires flawless ordering, against a measured −1. That is not a lever worth 500 ms/query.
+
+**What this redirects to.** The bottleneck is candidate generation and result depth, not ordering: `limit=25` yielding 5–7 rows is itself the finding. Chase M2/M3 (BM25 off the critical path, break the chunk gate) and the recall-depth question — why the pool collapses to <10 rows — before touching ranking again.
+
+**Measurement caveat, recorded honestly:** a concurrent session modified `storage/helix/native_transport.py`, `storage/helix/graph.py` and `storage/helix/client.py` at 11:13–11:15, inside the arm-A/arm-B window. Those edits may account for part of the latency degradation seen in the arms. They do **not** touch the containment result above, which was re-measured after reverting both arms and reproduces the 3/10 baseline median.
+
 ---
 
 ## 5. OPEN QUESTIONS / UPSTREAM (helix-py) ITEMS
@@ -145,3 +185,140 @@ Every milestone is flag-guarded and A/B'd against the live continuity gate (`uv 
 - Warm end-to-end recall p95 ≤ 300–500 ms, hard ceiling 1 s (matches Mem0 ~80 ms p50 / Zep p95 300–632 ms shipping baselines — [2026 agent-memory benchmark](https://dev.to/varun_pratapbhardwaj_b13/5-ai-agent-memory-systems-compared-mem0-zep-letta-supermemory-superlocalmemory-2026-benchmark-59p3)).
 - Chunk search FIRES on episode-answer queries (verify `stage_timings_ms` shows `search_episode_chunks` non-null).
 - Continuity gate 42/42 holds; battery episode-answer subset flips MISS→HIT; overall battery 3–5/10 → 7+/10.
+
+---
+
+## 6. M5 MEASURED (2026-07-24) — the brain is 56% dead pages; compaction shipped
+
+M5 above listed four structural options (companion store / prefetch / shard /
+quantize) and did not consider the simplest one: **the file is mostly free
+pages**. It is. Measured on a full clone of the dogfood brain
+(`~/.helix/engram-native-dogfood-axi`, clone-only — the live dir was never
+opened), one process at a time.
+
+### 6.1 Page census (raw `mdb_env_stat`/`mdb_stat` over the clone)
+
+```
+page_size     16,384            map_size      21,474,836,480 (20.00 GiB)
+last_pgno     1,111,897         allocated     18,217,336,832 (16.97 GiB)
+freelist entries 8,607          FREE pages    626,793 -> 10,269,376,512 (9.56 GiB) = 56.37%
+live pages (27 sub-dbs)         292,304 -> 4.46 GiB
+unaccounted                     192,801 -> 2.94 GiB (DUPSORT sub-btree pages mdb_stat omits)
+```
+
+Biggest real consumers: `bm25_reverse_index` 164,919 pg / 2.70 GiB (71.9 M
+postings), `nodes` 82,938 pg / 1.36 GiB, `vectors` 18,764 pg / 307 MB,
+`bm25_inverted_index` 15,711 pg / 257 MB.
+
+### 6.2 Compacting copy (`mdb_env_copy2` + `MDB_CP_COMPACT`)
+
+| | bytes | GiB |
+|---|---|---|
+| original | 18,217,336,832 | 16.97 |
+| compacted | 7,942,291,456 | 7.40 |
+| **saved** | **10,275,045,376** | **9.57 (56.4%)** |
+
+**Bloat ratio 2.29x**, 71 s for the raw copy (152 s end-to-end through the CLI,
+which also runs two exact full-graph stat scans). Compacted freelist: 0 entries.
+
+**The hypothesis is CONFIRMED in mechanism but the magnitude is 2.3x, not the
+~17x the plan guessed.** Real data is 7.4 GiB, not "under 1 GB" — the estimate
+omitted the BM25 reverse index (71.9 M postings) and the dupsort secondary
+indices. The 7.40 GiB result equals `4.46 + 2.94`, i.e. every "unaccounted"
+page was a live dupsort index page, not a leak.
+
+### 6.3 Why it still matters at 2.3x
+
+`hw.memsize` on this machine is **16.00 GiB**. 16.97 GiB cannot stay resident —
+eviction is guaranteed, which is the measured root cause of the 2.6 s cold BM25
+tax (§1). **7.40 GiB fits, with room for the model and the shell.** The gain is
+a threshold crossing, not a linear speedup.
+
+Paired cold measurements (page cache flushed by streaming the *other* file
+before each run):
+
+| workload | original | compacted | delta |
+|---|---|---|---|
+| full-graph scan (`get_stats exact`) | 12,043 ms | 3,405 ms | **3.5x** |
+| BM25 cold q1 / q2 | 659.5 / 743.7 ms | 483.8 / 525.3 ms | 1.36x / 1.42x |
+| BM25 warm | 26–33 ms | 29–39 ms | none |
+| vector cold / warm | 98.3 / 7.9 ms | 108.6 / 7.2 ms | none |
+
+Per-query cold BM25 only improves ~1.4x on this SSD (1.5 GB/s). The durable win
+is residency across a session, plus the 3.5x on whole-graph scans.
+
+### 6.4 Integrity evidence
+
+- All 27 LMDB sub-db entry counts byte-identical (71,904,360 / 1,331,961 /
+  23,222 / 12,197 / 3,579 / …).
+- Real stack (`ENGRAM_MODE=helix`, native, one process): entities 692, episodes
+  8930, relationships 276, cue_count 2823, projected_cue_count 717,
+  linked_entity_count 7421, `state_counts` (projected 4945, cue_only 3220,
+  scheduled 659, failed 19, merged 58, projecting 12, cued 16, queued 1) —
+  **identical on both copies**.
+- Vector search 10/10 entities+episodes, BM25 hit counts identical across three
+  probe queries.
+- Write path on the compacted copy: `create_entity` → readback → hard
+  `delete_entity` → readback `None`; entry counts returned identical.
+- Through the shipped CLI on the same clone: **41 integer counts compared, zero
+  mismatches.**
+
+### 6.5 What shipped
+
+`engram backup compact` — a compacting copy that is **verified before it is
+swapped in**, never in place, and never destructive (the original is renamed
+aside, not deleted).
+
+- `native/helix-repo/helix-python/src/lib.rs` — `HelixEngine.compact(dest_dir)`:
+  keeps `Arc<HelixGraphEngine>` on the pyclass and calls
+  `graph_env.copy_to_path(dest/data.mdb, CompactionOption::Enabled)` under
+  `py.allow_threads`. Graph, HNSW vectors and BM25 share one LMDB env, so a
+  single copy reclaims all three. Requires `make build-native`; the CLI says so
+  explicitly when the installed extension is older.
+- `server/engram/storage/helix/native_transport.py` `compact()` →
+  `client.py` `compact()` → `graph.py` `compact()` — thin pass-throughs;
+  non-native transports raise `ImportError`.
+- `server/engram/backup_cli.py` — `_compact()` plus the pure
+  `compare_brain_counts()` verification gate.
+- `server/tests/test_backup_compact.py` — 17 tests: the gate (a single lost
+  episode or nested projection state is a hard failure; empty stats cannot
+  silently pass), the guards (no `data.mdb`, non-empty staging, no disk
+  headroom, cross-volume `--apply`, shell up, stale extension), and the
+  copy/swap behaviour.
+
+Guards, in order: data dir must hold `data.mdb`; staging dir must be empty;
+free space ≥ source size + 2 GiB reserve; `--apply` requires staging on the
+same volume (the swap is a rename); exclusive access (shell down + brain flock)
+via `require_exclusive_local_access`; counts must match exactly or the swap is
+refused and the command exits 1.
+
+### 6.6 Live procedure (NOT yet run against the live brain)
+
+Needs a supervised window and founder greenlight. Roughly 3 minutes of work
+plus the copy; 17 GB of free disk required.
+
+```bash
+make build-native                       # picks up HelixEngine.compact()
+engramctl stop                          # shell must be down
+engram backup create --to /Volumes/ext  # external snapshot first
+cd server
+uv run engram backup compact            # stage + verify, no swap
+# read the report: bloat_ratio, saved_pct, verify OK
+uv run engram backup compact --apply    # swap in the verified copy
+engramctl start
+uv run engram continuity --against-live --organic   # gate must hold
+# only after the gate passes:  rm -rf ~/.helix/engram-native-dogfood-axi.pre-compact.*
+```
+
+Rollback: the pre-compact directory is a complete brain — stop the shell and
+rename it back.
+
+### 6.7 Follow-up: `db_max_size_gb` is a latent availability risk
+
+`native/helix-repo/helix-python/src/queries.rs:105` sets
+`db_max_size_gb: Some(20)`. The live file is at 16.97 / 20.00 GiB = **84.8% of
+map_size** — roughly 3 GiB of churn from a hard `MDB_MAP_FULL` write failure.
+Compaction drops that to 37%, which buys time but does not remove the ceiling.
+Raising `db_max_size_gb` costs nothing at rest (LMDB does not preallocate) and
+should be done in the same rebuild that ships `compact()`. Not changed here:
+untested, and out of scope for a measurement task.
