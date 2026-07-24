@@ -176,6 +176,25 @@ class NativeTransport:
             executor.shutdown(wait=True, cancel_futures=True)
         gc.collect()
 
+    async def compact(self, dest_dir: str) -> int:
+        """Write a compacting copy of the LMDB env to ``dest_dir/data.mdb``.
+
+        LMDB never returns freed pages to the OS, so a churned brain keeps
+        paying RAM residency for pages it no longer stores. Graph, HNSW and
+        BM25 share this one env, so a single copy reclaims all three. Callers
+        must already hold exclusive access (shell down + brain flock).
+        """
+        if self._engine is None or self._executor is None:
+            raise RuntimeError("NativeTransport not initialized")
+        compact = getattr(self._engine, "compact", None)
+        if compact is None:
+            raise ImportError(
+                "the installed helix_native has no compact(); "
+                "rebuild the extension with 'make build-native'"
+            )
+        loop = asyncio.get_event_loop()
+        return int(await loop.run_in_executor(self._executor, compact, dest_dir))
+
     async def health_check(self) -> None:
         """Verify the in-process engine is ready without scanning graph data."""
         if self._engine is None or self._executor is None:

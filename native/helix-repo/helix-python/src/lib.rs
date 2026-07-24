@@ -20,6 +20,7 @@ use helix_db::protocol::request::RequestType;
 
 #[pyclass]
 struct HelixEngine {
+    graph: Arc<HelixGraphEngine>,
     worker_pool: WorkerPool,
     router: Arc<HelixRouter>,
     rt: Arc<tokio::runtime::Runtime>,
@@ -109,7 +110,7 @@ impl HelixEngine {
 
         let worker_pool = WorkerPool::new(
             core_setter,
-            graph,
+            Arc::clone(&graph),
             Arc::clone(&router),
             Arc::clone(&rt),
         );
@@ -121,6 +122,7 @@ impl HelixEngine {
         );
 
         Ok(HelixEngine {
+            graph,
             worker_pool,
             router,
             rt,
@@ -199,6 +201,31 @@ impl HelixEngine {
     /// List all registered route names.
     fn list_routes(&self) -> Vec<String> {
         self.router.routes.keys().cloned().collect()
+    }
+
+    /// Write a compacting copy of the LMDB environment to `dest_dir/data.mdb`.
+    ///
+    /// LMDB never returns freed pages to the OS, so a brain that has seen heavy
+    /// write churn keeps paying (RAM residency, page faults) for pages it no
+    /// longer stores. The copy omits free pages and renumbers the rest; graph,
+    /// HNSW vectors and BM25 all live in this one env, so a single copy
+    /// reclaims all three. Returns the byte size of the written file.
+    ///
+    /// The caller must guarantee there are no concurrent writers (shell down +
+    /// brain flock held) — a copy taken under writes is not crash-consistent.
+    fn compact(&self, py: Python<'_>, dest_dir: String) -> PyResult<u64> {
+        let dest = std::path::PathBuf::from(&dest_dir).join("data.mdb");
+        py.allow_threads(|| {
+            let file = self
+                .graph
+                .storage
+                .graph_env
+                .copy_to_path(&dest, heed3::CompactionOption::Enabled)
+                .map_err(|e| PyRuntimeError::new_err(format!("Compaction failed: {e}")))?;
+            file.metadata()
+                .map(|meta| meta.len())
+                .map_err(|e| PyRuntimeError::new_err(format!("Cannot stat {dest:?}: {e}")))
+        })
     }
 
     /// Graceful shutdown.

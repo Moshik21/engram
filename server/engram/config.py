@@ -454,16 +454,29 @@ class ActivationConfig(BaseModel):
 
     # --- Re-ranker ---
     reranker_enabled: bool = Field(default=True)
-    # "local" = the fully-local FastEmbed cross-encoder (ms-marco-MiniLM), which
-    # is shipped and works, but is NOT the default: flipping noop->local was
-    # MEASURED AS A REGRESSION (agent-experience battery 3/10, and it knocked
-    # out two previously-reliable HITs: flip-condition and durable-lane).
-    # Root cause: the default rerank path reranks ENTITIES ONLY, on short
-    # "name: summary" snippets, and this cross-encoder scores short snippets
-    # terribly (measured -11.4 mean) while scoring full documents well (+1.1) —
-    # so it demotes good durable answers. The untested lever is the episode
-    # path (reranker_rerank_episodes below), which builds full-content
-    # documents; that must be measured green before "local" becomes default.
+    # "local" = the fully-local FastEmbed cross-encoder (ms-marco-MiniLM). It is
+    # shipped and works, but stays OFF by default — see the measured verdict in
+    # docs/product/RECALL_PERFORMANCE_PLAN.md ("cross-encoder re-ranker: measured
+    # and ruled out").
+    #
+    # CORRECTION (an earlier comment here claimed noop->local was "measured as a
+    # regression"): that claim was INVALID. The quiet profile force-sets
+    # reranker_enabled=False (see below, ~line 3020), so the flip was inert and
+    # the 3/10 reading sat inside the battery's known 3-6 jitter band. Properly
+    # armed, BOTH paths were then measured negative (entity-only and
+    # type-separated full-content episode reranking, 2/10 vs a 3/10 baseline) —
+    # but from latency thrash (fetching ~30 entities + ~50 episodes before
+    # scoring blew the substage budget), NOT from bad ordering. The
+    # cross-encoder itself is fast and discriminates well (35 mixed-length docs
+    # in ~70ms).
+    #
+    # WHY RE-RANKING CANNOT HELP TODAY: recall returns only 5-7 rows even at
+    # limit=25, and 5 of the 10 battery questions have their answer nowhere in
+    # that pool. A re-ranker is a permutation, so a PERFECT oracle re-ranker
+    # over this pool would still score 5/10. The binding constraint is candidate
+    # generation / result depth, not ordering. Fix retrieval depth first; only
+    # then is re-ranking worth re-measuring.
+    #
     # "cohere" needs COHERE_API_KEY (non-local); "noop" is a silent pass-through.
     reranker_provider: str = Field(default="noop", pattern="^(cohere|local|noop)$")
     reranker_local_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2")

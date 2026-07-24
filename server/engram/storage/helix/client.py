@@ -121,6 +121,15 @@ class HelixClient:
             await self._client.aclose()
             self._client = None
 
+    async def compact(self, dest_dir: str) -> int:
+        """Write a compacting copy of the store to ``dest_dir/data.mdb``.
+
+        Native transport only — the HTTP/gRPC lanes have no local LMDB env.
+        """
+        if self._native_transport is None:
+            raise ImportError("compaction requires the native transport (helix_native)")
+        return await self._native_transport.compact(dest_dir)
+
     # ------------------------------------------------------------------
     # Core query methods
     # ------------------------------------------------------------------

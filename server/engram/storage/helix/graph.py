@@ -940,6 +940,15 @@ class HelixGraphStore:
             self._config.port,
         )
 
+    async def compact(self, dest_dir: str) -> int:
+        """Write a compacting copy of the backing store to ``dest_dir/data.mdb``.
+
+        Returns the size in bytes of the written file. Native transport only.
+        """
+        if self._helix_client is None:
+            raise RuntimeError("HelixDB graph store not initialized")
+        return await self._helix_client.compact(dest_dir)
+
     async def close(self) -> None:
         """Close owned clients."""
         self._client = None
