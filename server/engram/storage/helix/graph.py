@@ -195,6 +195,17 @@ def _split_cue_usage_mentions(raw_json: Any) -> tuple[list, float, str | None]:
     return clean, used_count, last_used_at
 
 
+def _cue_usage_used_count(raw_json: Any) -> float:
+    """Read only the usage trailer's weighted count (stats path, no model build).
+
+    Cheap pre-filter: cues written before M5.1 (and every flag-off cue) carry no
+    trailer, so the substring probe skips the JSON parse for the common case.
+    """
+    if isinstance(raw_json, str) and _CUE_USAGE_KEY not in raw_json:
+        return 0.0
+    return _split_cue_usage_mentions(raw_json)[1]
+
+
 def _cue_model_payload(cue: EpisodeCue, now: str) -> dict[str, Any]:
     return {
         "episode_id": cue.episode_id,
@@ -2442,6 +2453,16 @@ class HelixGraphStore:
         cue_surfaced_count = sum(_as_int(cue.get("surfaced_count")) for cue in active_cues)
         cue_selected_count = sum(_as_int(cue.get("selected_count")) for cue in active_cues)
         cue_used_count = sum(_as_int(cue.get("used_count")) for cue in active_cues)
+        # M5.1 usage lives in the supporting_spans_json trailer, NOT in used_count:
+        # the legacy int only moves for interaction_type == "used", which the chat
+        # path stops emitting once recall_usage_feedback_enabled is on. Surface the
+        # live signal separately so the cue-usefulness gate can read a field that
+        # can actually move (P10).
+        cue_usage_values = [
+            _cue_usage_used_count(cue.get("supporting_spans_json")) for cue in active_cues
+        ]
+        cue_usage_used_count = sum(cue_usage_values)
+        cue_usage_used_episode_count = sum(1 for value in cue_usage_values if value > 0.0)
         cue_near_miss_count = sum(_as_int(cue.get("near_miss_count")) for cue in active_cues)
         total_policy_score = sum(_as_float(cue.get("policy_score")) for cue in active_cues)
         total_projection_attempts = sum(
@@ -2473,6 +2494,8 @@ class HelixGraphStore:
             "cue_surfaced_count": cue_surfaced_count,
             "cue_selected_count": cue_selected_count,
             "cue_used_count": cue_used_count,
+            "cue_usage_used_count": round(cue_usage_used_count, 4),
+            "cue_usage_used_episode_count": cue_usage_used_episode_count,
             "cue_near_miss_count": cue_near_miss_count,
             "avg_policy_score": (round(total_policy_score / cue_count, 4) if cue_count else 0.0),
             "avg_projection_attempts": (

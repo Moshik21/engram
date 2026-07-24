@@ -846,6 +846,16 @@ def _cue_summary(cue_metrics: Mapping[str, Any], episode_count: int) -> dict[str
     surfaced_count = _int(cue_metrics.get("cue_surfaced_count"))
     selected_count = _int(cue_metrics.get("cue_selected_count"))
     used_count = _int(cue_metrics.get("cue_used_count"))
+    # P10: cue_used_count sums the LEGACY int used_count, which only increments on
+    # interaction_type == "used". public_surface_policy sends "selected" instead
+    # whenever recall_usage_feedback_enabled is on, so on a live install the legacy
+    # counter is structurally incapable of moving while the M5.1 citation-scan
+    # signal lands in usage_used_count. Expose BOTH (the units differ: legacy is an
+    # event count, usage is a tier-weighted float) and let the gate read their
+    # union as an event count, counting each cue with recorded usage once.
+    usage_used_count = _float(cue_metrics.get("cue_usage_used_count"))
+    usage_used_episode_count = _int(cue_metrics.get("cue_usage_used_episode_count"))
+    effective_used_count = used_count + usage_used_episode_count
     near_miss_count = _int(cue_metrics.get("cue_near_miss_count"))
     episodes_without_cues = _int(
         cue_metrics.get("episodes_without_cues", max(episode_count - cue_count, 0))
@@ -862,9 +872,12 @@ def _cue_summary(cue_metrics: Mapping[str, Any], episode_count: int) -> dict[str
         "surfaced_count": surfaced_count,
         "selected_count": selected_count,
         "used_count": used_count,
+        "usage_used_count": usage_used_count,
+        "usage_used_episode_count": usage_used_episode_count,
+        "effective_used_count": effective_used_count,
         "near_miss_count": near_miss_count,
         "selected_rate": _ratio(selected_count, surfaced_count),
-        "used_rate": _ratio(used_count, surfaced_count),
+        "used_rate": _ratio(effective_used_count, surfaced_count),
         "near_miss_rate": _ratio(near_miss_count, surfaced_count),
         "avg_policy_score": _float(cue_metrics.get("avg_policy_score")),
         "projection_conversion_rate": _float(cue_metrics.get("cue_to_projection_conversion_rate")),

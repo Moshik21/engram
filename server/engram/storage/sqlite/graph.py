@@ -1888,6 +1888,21 @@ class SQLiteGraphStore:
                     SUM(
                         CASE
                             WHEN cue_text IS NOT NULL AND cue_text <> ''
+                            THEN coalesce(usage_used_count, 0.0)
+                            ELSE 0.0
+                        END
+                    ) AS cue_usage_used_count,
+                    SUM(
+                        CASE
+                            WHEN cue_text IS NOT NULL AND cue_text <> ''
+                                 AND coalesce(usage_used_count, 0.0) > 0.0
+                            THEN 1
+                            ELSE 0
+                        END
+                    ) AS cue_usage_used_episode_count,
+                    SUM(
+                        CASE
+                            WHEN cue_text IS NOT NULL AND cue_text <> ''
                             THEN near_miss_count
                             ELSE 0
                         END
@@ -1981,6 +1996,15 @@ class SQLiteGraphStore:
             "cue_surfaced_count": int(_row_value(cue_row, "cue_surfaced_count", 0) or 0),
             "cue_selected_count": int(_row_value(cue_row, "cue_selected_count", 0) or 0),
             "cue_used_count": int(_row_value(cue_row, "cue_used_count", 0) or 0),
+            # M5.1 usage is a separate column from the legacy used_count int: the
+            # legacy counter only moves for interaction_type == "used", which the
+            # chat path stops emitting under recall_usage_feedback_enabled (P10).
+            "cue_usage_used_count": round(
+                float(_row_value(cue_row, "cue_usage_used_count", 0.0) or 0.0), 4
+            ),
+            "cue_usage_used_episode_count": int(
+                _row_value(cue_row, "cue_usage_used_episode_count", 0) or 0
+            ),
             "cue_near_miss_count": int(_row_value(cue_row, "cue_near_miss_count", 0) or 0),
             "avg_policy_score": round(
                 float(_row_value(cue_row, "avg_policy_score", 0.0) or 0.0), 4

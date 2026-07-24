@@ -350,7 +350,18 @@ async def build_lifecycle_summary(
             "hitCount": _int_metric(cue_metrics, "cue_hit_count"),
             "surfacedCount": _int_metric(cue_metrics, "cue_surfaced_count"),
             "selectedCount": _int_metric(cue_metrics, "cue_selected_count"),
-            "usedCount": _int_metric(cue_metrics, "cue_used_count"),
+            # P10: usedCount is the UNION of the legacy int counter and the M5.1
+            # citation-scan signal. The legacy counter alone only moves on
+            # interaction_type == "used", which the chat path stops emitting once
+            # recall_usage_feedback_enabled is on — it reads zero forever live.
+            # legacyUsedCount keeps the old number visible for comparison.
+            "usedCount": (
+                _int_metric(cue_metrics, "cue_used_count")
+                + _int_metric(cue_metrics, "cue_usage_used_episode_count")
+            ),
+            "legacyUsedCount": _int_metric(cue_metrics, "cue_used_count"),
+            "usageUsedCount": _float_metric(cue_metrics, "cue_usage_used_count"),
+            "usageUsedEpisodeCount": _int_metric(cue_metrics, "cue_usage_used_episode_count"),
             "nearMissCount": _int_metric(cue_metrics, "cue_near_miss_count"),
             "avgPolicyScore": _float_metric(cue_metrics, "avg_policy_score"),
             "projectionConversionRate": _float_metric(

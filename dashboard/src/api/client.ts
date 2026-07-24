@@ -190,6 +190,12 @@ interface RawEvaluationReport {
     surfaced_count?: number;
     selected_count?: number;
     used_count?: number;
+    // P10: used_count is the legacy counter that stops moving once
+    // recall_usage_feedback_enabled is on; effective_used_count is the union
+    // with the live M5.1 citation-scan signal.
+    effective_used_count?: number;
+    usage_used_count?: number;
+    usage_used_episode_count?: number;
     near_miss_count?: number;
     selected_rate?: number;
     used_rate?: number;
@@ -1118,7 +1124,7 @@ export const api = {
         hitEpisodeRate: cue.hit_episode_rate ?? 0,
         surfacedCount: cue.surfaced_count ?? 0,
         selectedCount: cue.selected_count ?? 0,
-        usedCount: cue.used_count ?? 0,
+        usedCount: cue.effective_used_count ?? cue.used_count ?? 0,
         nearMissCount: cue.near_miss_count ?? 0,
         selectedRate: cue.selected_rate ?? 0,
         usedRate: cue.used_rate ?? 0,
