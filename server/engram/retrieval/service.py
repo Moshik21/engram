@@ -64,10 +64,20 @@ class RecallService:
         self._retrieve = retrieve_fn
         self._time = time_fn
         self._last_stage_timings_ms: dict[str, float] = {}
+        self._last_primary_results: list[dict[str, Any]] = []
 
     def last_stage_timings(self) -> dict[str, float]:
         """Return partial or complete timings from the latest recall attempt."""
         return dict(self._last_stage_timings_ms)
+
+    def last_partial_results(self) -> list[dict[str, Any]]:
+        """Return materialized primary results from the latest recall attempt.
+
+        Populated once primary materialization succeeds, before rerank/MMR
+        post-processing. Used to salvage candidates when a downstream stage is
+        cancelled by the caller's search-budget timeout.
+        """
+        return list(self._last_primary_results)
 
     async def recall(
         self,
@@ -97,6 +107,7 @@ class RecallService:
 
         stage_timings_ms: dict[str, float] = {}
         self._last_stage_timings_ms = stage_timings_ms
+        self._last_primary_results = []
         # Cue candidates that an episode candidate outscored at merge time: the
         # episode is surfaced (cue content stays unsurfaced), but the cue hit
         # must still drive promotion feedback. Maps episode node_id -> cue score.
@@ -175,6 +186,9 @@ class RecallService:
             stage_timings_ms["recall_materialize_cancelled"] = _elapsed_ms(materialize_started)
             raise
         stage_timings_ms["recall_materialize"] = _elapsed_ms(materialize_started)
+        # Salvage point: materialized candidates survive a later post-process
+        # cancellation so the caller can return them instead of discarding.
+        self._last_primary_results = list(primary_materialization.results)
 
         if suppressed_cue_scores:
             await self._record_suppressed_cue_feedback(

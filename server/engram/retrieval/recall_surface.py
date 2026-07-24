@@ -827,6 +827,40 @@ async def _run_explicit_recall_with_budget(
     except asyncio.TimeoutError:
         stage_timings["recall_search"] = _elapsed_ms(recall_started)
         stage_timings.update(_manager_recall_stage_timings(manager))
+        # Salvage: the primary search found and materialized candidates before a
+        # downstream stage exceeded the search budget. Return those candidates
+        # (degraded, best-effort) instead of destroying them for the durable /
+        # project-file rescue cascade. Rescue fires only on a genuine empty.
+        if _recall_return_partial_on_timeout_enabled(cfg):
+            partial_results = _manager_recall_partial_results(manager)
+            if partial_results:
+                partial_results = _prefer_project_context_results(
+                    partial_results, project_path=project_path
+                )
+                stage_timings["recall_partial_on_timeout"] = float(len(partial_results))
+                duration_ms = round((time.perf_counter() - started) * 1000, 4)
+                await _record_recall_budget_event(
+                    manager,
+                    group_id=group_id,
+                    operation_source=operation_source,
+                    budget=budget,
+                    status="degraded",
+                    skip_reason=None,
+                    duration_ms=duration_ms,
+                    timeout=True,
+                    budget_miss=True,
+                    result_count=len(partial_results),
+                )
+                return list(partial_results), _recall_budget_metadata(
+                    budget,
+                    status="degraded",
+                    duration_ms=duration_ms,
+                    timeout=True,
+                    budget_miss=True,
+                    stage_timings_ms=stage_timings,
+                    fallback_status="partial_on_timeout",
+                    fallback_result_count=len(partial_results),
+                )
         if fallback_status == "not_run":
             fallback_started = time.perf_counter()
             fallback_results, fallback_status = await _run_fast_recall_fallback(
@@ -1165,6 +1199,21 @@ def _manager_recall_stage_timings(manager: Any) -> dict[str, float]:
     return {
         str(key): float(value) for key, value in timings.items() if isinstance(value, int | float)
     }
+
+
+def _manager_recall_partial_results(manager: Any) -> list[dict]:
+    getter = getattr(manager, "get_last_recall_partial_results", None)
+    if not callable(getter):
+        return []
+    results = getter()
+    if inspect.isawaitable(results):
+        close = getattr(results, "close", None)
+        if callable(close):
+            close()
+        return []
+    if not isinstance(results, list):
+        return []
+    return [item for item in results if isinstance(item, dict)]
 
 
 async def _run_fast_recall_fallback(
@@ -1573,6 +1622,10 @@ def _fast_recall_preflight_enabled(cfg: Any) -> bool:
     return bool(getattr(cfg, "recall_fast_preflight_enabled", True)) and (
         _fast_recall_preflight_timeout_seconds(cfg) > 0
     )
+
+
+def _recall_return_partial_on_timeout_enabled(cfg: Any) -> bool:
+    return bool(getattr(cfg, "recall_return_partial_on_timeout", True))
 
 
 def _filter_fast_recall_fallback_results(

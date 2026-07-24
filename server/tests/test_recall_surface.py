@@ -2590,3 +2590,189 @@ async def test_api_recall_surface_registers_surfaced_cues_for_citation_scan() ->
     assert [entry.episode_id for entry in fired] == ["ep_kiln"]
     # ... while a verbatim parrot of the surfaced cue text stays masked.
     buffer.reset()
+
+
+def _partial_episode_result(episode_id: str) -> dict:
+    return {
+        "result_type": "episode",
+        "episode": {
+            "id": episode_id,
+            "content": "Battery episode candidate materialized before the budget overran.",
+            "source": "deep",
+            "created_at": None,
+        },
+        "score": 0.8,
+        "score_breakdown": {"semantic": 0.8},
+        "linked_entities": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_recall_returns_partial_candidates_on_late_stage_timeout() -> None:
+    # Primary search found + materialized candidates, then a downstream stage
+    # overran the budget (simulated via a slow recall that wait_for cancels).
+    # The salvaged candidates must be returned, and the durable/fast rescue
+    # cascade must NOT run.
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    partial = _partial_episode_result("ep_partial")
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_last_recall_stage_timings=Mock(return_value={}),
+        get_last_recall_partial_results=Mock(return_value=[partial]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="battery episode candidate",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"][0]["episode"]["id"] == "ep_partial"
+    assert result["lifecycle"]["fallbackStatus"] == "partial_on_timeout"
+    assert result["lifecycle"]["fallbackResultCount"] == 1
+    # Rescue cascade did not fire — the found candidates were preferred.
+    manager.fast_recall_fallback.assert_not_awaited()
+    group_id, sample = manager.record_memory_operation.call_args.args
+    assert sample.status == "degraded"
+    assert sample.timeout is True
+
+
+@pytest.mark.asyncio
+async def test_recall_runs_rescue_when_no_partial_candidates_on_timeout() -> None:
+    # Primary search found nothing before timing out: the rescue cascade must
+    # still run (the partial-return branch must not swallow the empty case).
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_last_recall_stage_timings=Mock(return_value={}),
+        get_last_recall_partial_results=Mock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="nomatch battery tail",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "degraded"
+    assert result["items"] == []
+    # Rescue cascade DID run because there were no usable candidates.
+    manager.fast_recall_fallback.assert_awaited_once_with(
+        query="nomatch battery tail",
+        group_id="native_brain",
+        limit=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_recall_kill_switch_discards_partial_and_runs_rescue() -> None:
+    # With the kill switch off, the pre-fix behavior is restored: partial
+    # candidates are discarded and the rescue cascade runs.
+    async def slow_recall(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return []
+
+    partial = _partial_episode_result("ep_partial")
+    manager = SimpleNamespace(
+        recall=AsyncMock(side_effect=slow_recall),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_last_recall_stage_timings=Mock(return_value={}),
+        get_last_recall_partial_results=Mock(return_value=[partial]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+            recall_return_partial_on_timeout=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="battery episode candidate",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["lifecycle"]["fallbackStatus"] != "partial_on_timeout"
+    manager.fast_recall_fallback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_recall_ok_under_budget_never_consults_partial_getter() -> None:
+    # Byte-identical healthy path: a recall that succeeds under budget must
+    # never read the partial-results salvage getter, so the flag cannot change
+    # the ok-path result.
+    deep_result = _partial_episode_result("ep_deep")
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[deep_result]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_last_recall_stage_timings=Mock(return_value={}),
+        get_last_recall_partial_results=Mock(return_value=[deep_result]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=False,
+            max_packets=0,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query="battery episode candidate",
+        limit=3,
+        operation_source="axi_recall",
+    )
+
+    assert result["status"] == "ok"
+    assert result["items"][0]["episode"]["id"] == "ep_deep"
+    assert result["lifecycle"]["fallbackStatus"] == "not_run"
+    manager.get_last_recall_partial_results.assert_not_called()
+    manager.fast_recall_fallback.assert_not_awaited()

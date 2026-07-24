@@ -248,6 +248,7 @@ class GraphManager:
         )
         self._last_near_misses: list[dict] = []
         self._last_recall_stage_timings_ms: dict[str, float] = {}
+        self._last_recall_partial_results: list[dict] = []
 
         # Surprise cache (Wave 3)
         if self._cfg.surprise_detection_enabled:
@@ -2055,6 +2056,7 @@ class GraphManager:
             )
         except asyncio.CancelledError:
             self._last_recall_stage_timings_ms = self._recall_service.last_stage_timings()
+            self._last_recall_partial_results = self._recall_service.last_partial_results()
             raise
         except Exception:
             duration_ms = round((time.perf_counter() - started) * 1000, 4)
@@ -2091,6 +2093,10 @@ class GraphManager:
     def get_last_recall_stage_timings(self) -> dict[str, float]:
         """Return the latest Recall stage timings collected below the facade."""
         return dict(self._last_recall_stage_timings_ms)
+
+    def get_last_recall_partial_results(self) -> list[dict]:
+        """Return materialized primary results salvaged from a cancelled recall."""
+        return list(self._last_recall_partial_results)
 
     def get_last_capture_stage_timings(self) -> dict[str, float]:
         """Return latest Capture-stage timings collected below the facade."""

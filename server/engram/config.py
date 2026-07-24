@@ -2083,6 +2083,16 @@ class ActivationConfig(BaseModel):
             "recall materialization. 0 disables the substage timeout."
         ),
     )
+    recall_return_partial_on_timeout: bool = Field(
+        default=True,
+        description=(
+            "When explicit recall exceeds its search budget but the primary "
+            "search already materialized episode/entity candidates, return those "
+            "candidates (degraded) instead of discarding them for the "
+            "durable-entity / project-file rescue cascade. Kill switch: set False "
+            "to restore the discard-then-rescue behavior."
+        ),
+    )
     recall_budget_chat_ms: int = Field(
         default=1200,
         ge=100,
