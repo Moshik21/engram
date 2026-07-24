@@ -954,6 +954,7 @@ async def reindex_sweep_episodes(
     limit: int = DEFAULT_EPISODE_SCAN_LIMIT,
     deadline_ts: float | None = None,
     machinery: Callable[[Any], bool] | None = None,
+    newest_first: bool = False,
 ) -> ReindexSweepResult:
     """One-time historical re-index of the coarse emergency-backfill corpus.
 
@@ -1001,13 +1002,19 @@ async def reindex_sweep_episodes(
         return result
 
     episodes = await get_episodes(group_id=group_id, limit=max(1, int(limit))) or []
+    # newest_first: recency-weighted one-time catch-up (recent memories are
+    # queried most). Ongoing debt-drain windows keep the default oldest-first
+    # fairness. Cursor comparison flips with the ordering.
     keyed = sorted(
-        ((_created_ts(getattr(ep, "created_at", None)), str(ep.id)), ep)
-        for ep in episodes
-        if getattr(ep, "deleted_at", None) is None and str(getattr(ep, "id", "") or "")
+        (
+            ((_created_ts(getattr(ep, "created_at", None)), str(ep.id)), ep)
+            for ep in episodes
+            if getattr(ep, "deleted_at", None) is None and str(getattr(ep, "id", "") or "")
+        ),
+        reverse=newest_first,
     )
     if cursor is not None:
-        keyed = [(key, ep) for key, ep in keyed if key > cursor]
+        keyed = [(key, ep) for key, ep in keyed if (key < cursor if newest_first else key > cursor)]
     if not keyed:
         result.complete = True
         result.cursor_next = cursor

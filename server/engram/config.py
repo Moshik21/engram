@@ -1521,6 +1521,20 @@ class ActivationConfig(BaseModel):
             "ENGRAM_ACTIVATION__SALIENCE_GATED_EMBEDDING_ENABLED=false."
         ),
     )
+    reindex_sweep_enabled: bool = Field(
+        default=False,
+        description=(
+            "Mop-time historical re-index sweep (M1.3): rewrites coarse "
+            "single-vector episodes with full+chunk vectors. DEFAULT OFF: on "
+            "the 17GB dogfood brain a recency-weighted 312-episode chunk "
+            "re-index raised continuity recall 438->819ms and dropped the "
+            "agent-experience battery 6->3/10, because the enlarged vector "
+            "index tips recall past its primary budget into an expensive "
+            "durable-entity-rescue fallback. Answer-locality chunking needs a "
+            "latency-aware redesign (two-stage retrieval or coarser chunks) "
+            "before this sweep runs unattended. Opt-in for experiments."
+        ),
+    )
     cue_index_outbox_enabled: bool = Field(
         default=True,
         description="Persist cue-vector indexing work before running it in the background",

@@ -161,7 +161,9 @@ def _debt(**overrides) -> HygieneDebtSnapshot:
     return HygieneDebtSnapshot(**{k: v for k, v in fields.items() if k in allowed})
 
 
-async def _run_mop(graph_store, search_index, *, dry_run: bool = False) -> dict:
+async def _run_mop(
+    graph_store, search_index, *, dry_run: bool = False, sweep_enabled: bool = True
+) -> dict:
     from engram.hygiene_ops import execute_hygiene_mop
 
     patches = (
@@ -195,7 +197,7 @@ async def _run_mop(graph_store, search_index, *, dry_run: bool = False) -> dict:
             graph_store=graph_store,
             activation_store=object(),
             search_index=search_index,
-            activation_cfg=ActivationConfig(),
+            activation_cfg=ActivationConfig(reindex_sweep_enabled=sweep_enabled),
             group_id="g",
             budget=100,
             dry_run=dry_run,
@@ -495,3 +497,60 @@ class TestReindexSweepFunction:
         assert result.reindexed == 1
         assert search.episode_ids_with_rows("episode").count("shorty") == 1
         assert search.episode_ids_with_rows("chunk") == []
+
+
+class TestReindexSweepNewestFirst:
+    async def test_newest_first_processes_recent_before_old(self):
+        # Three coarse (chunkless) substantive episodes at increasing ages.
+        graph = FakeGraphStore(
+            [
+                _episode("ep_old", created=100.0),
+                _episode("ep_mid", created=200.0),
+                _episode("ep_new", created=300.0),
+            ]
+        )
+        search = FakeSearchIndex()
+        for eid in ("ep_old", "ep_mid", "ep_new"):
+            search.seed_row("episode", eid)  # coarse row, no chunks
+
+        # Budget 1, newest_first: only the newest episode is re-indexed.
+        result = await reindex_sweep_episodes(
+            graph, search, "g", max_episodes=1, machinery=lambda ep: False, newest_first=True
+        )
+        assert search.index_episode_calls == ["ep_new"]
+        # Cursor is the newest key; a next window with it continues older.
+        nxt = await reindex_sweep_episodes(
+            graph,
+            search,
+            "g",
+            max_episodes=1,
+            cursor=result.cursor_next,
+            machinery=lambda ep: False,
+            newest_first=True,
+        )
+        assert search.index_episode_calls == ["ep_new", "ep_mid"]
+
+    async def test_oldest_first_default_unchanged(self):
+        graph = FakeGraphStore(
+            [_episode("ep_old", created=100.0), _episode("ep_new", created=300.0)]
+        )
+        search = FakeSearchIndex()
+        for eid in ("ep_old", "ep_new"):
+            search.seed_row("episode", eid)
+        result = await reindex_sweep_episodes(
+            graph, search, "g", max_episodes=1, machinery=lambda ep: False
+        )
+        assert search.index_episode_calls == ["ep_old"]
+
+
+class TestMopReindexSweepGate:
+    async def test_sweep_disabled_by_default(self):
+        graph = FakeGraphStore([_episode("ep1")])
+        search = FakeSearchIndex()
+        search.seed_row("episode", "ep1")
+        report = await _run_mop(graph, search, sweep_enabled=False)
+        assert report["mop"]["reindex_sweep"] == {
+            "skipped": True,
+            "reason": "reindex_sweep_enabled=False",
+        }
+        assert search.index_episode_calls == []  # never touched the index

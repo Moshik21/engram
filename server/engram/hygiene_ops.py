@@ -606,7 +606,11 @@ async def execute_hygiene_mop(
     # by-id probes). One-time — a completed sweep is marked and never re-runs.
     from engram.storage.index_completeness import reindex_sweep_episodes
 
-    if dry_run:
+    if not getattr(activation_cfg, "reindex_sweep_enabled", False):
+        # Default OFF: the chunk re-index enlarges the vector index and can
+        # tip recall past budget on large native brains (see the knob doc).
+        mop["reindex_sweep"] = {"skipped": True, "reason": "reindex_sweep_enabled=False"}
+    elif dry_run:
         mop["reindex_sweep"] = {"skipped": True, "reason": "dry_run"}
     elif embeddings_enabled is not True:
         mop["reindex_sweep"] = {
