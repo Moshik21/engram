@@ -2001,12 +2001,19 @@ class ActivationConfig(BaseModel):
         ),
     )
     recall_budget_explicit_search_ms: int = Field(
-        default=1500,
+        default=2200,
         ge=100,
         le=30000,
         description=(
-            "Search-stage budget for explicit user/agent recall before degraded "
-            "fallback. 650ms was too tight on multi-GB dogfood graphs."
+            "Primary-recall budget (search + materialize + post-process) for "
+            "explicit user/agent recall before degraded fallback. Raised "
+            "650->1500->2200: on the 17GB dogfood brain the primary path is "
+            "stats ~250ms + vector search ~985ms + materialize (300ms cap) + "
+            "post-process, so 1500ms cancelled mid-materialize and the found "
+            "candidates were discarded for a 1.5s durable-rescue (total ~3s, "
+            "empty). 2200ms lets the primary COMPLETE and return real results "
+            "in ~1.7s — strictly better than the timed-out path on both "
+            "latency and quality. Healthy queries (<1s) are unaffected."
         ),
     )
     recall_fast_fallback_timeout_ms: int = Field(

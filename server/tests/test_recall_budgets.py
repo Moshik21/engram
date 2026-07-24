@@ -30,7 +30,7 @@ def test_recall_budget_profiles_keep_startup_cache_only() -> None:
     assert lite.allow_embeddings is True
     assert explicit.budget_ms == 900
     # Search default follows ActivationConfig.recall_budget_explicit_search_ms.
-    assert explicit.max_search_ms == 1500
+    assert explicit.max_search_ms == 2200
     assert explicit.max_results == 7
     assert explicit.allow_deep_recall is True
 
