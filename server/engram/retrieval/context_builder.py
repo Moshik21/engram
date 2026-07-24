@@ -2400,6 +2400,17 @@ async def _list_durable_entities_by_type(
         return []
 
     hits: list[dict[str, Any]] = []
+
+    # Near-duplicate durable entities (same name, distinct ids — merge has not
+    # collapsed them yet) otherwise fill every briefing slot with one fact:
+    # observed live as "(1) Cold Decision hit… (2) Cold Decision hit… (3) Cold
+    # Decision hit…". Packet assembly only dedupes by entity id, so the name
+    # dedupe has to happen here.
+    def _name_key(name: str) -> str:
+        return " ".join(name.casefold().split())
+
+    identity_names: set[str] = set()
+
     # Identity core first (usually small and continuity-critical).
     if callable(get_identity):
         try:
@@ -2423,6 +2434,9 @@ async def _list_durable_entities_by_type(
                     continue
                 if not is_durable_recall_entity_type(et):
                     continue
+                if _name_key(name) in identity_names:
+                    continue
+                identity_names.add(_name_key(name))
                 hits.append(
                     {
                         "result_type": "entity",
@@ -2502,6 +2516,17 @@ async def _list_durable_entities_by_type(
                 }
             )
     hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    # Highest-scored row wins each name; the rest are near-duplicates that would
+    # repeat one fact across every briefing slot.
+    deduped: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for hit in hits:
+        key = _name_key(str((hit.get("entity") or {}).get("name") or ""))
+        if key in seen_names:
+            continue
+        seen_names.add(key)
+        deduped.append(hit)
+    hits = deduped
     if topic_terms:
         # Topic mode: hand the full bounded listing to the slot selector so
         # topic-relevant rows are not squeezed out by identity rows.

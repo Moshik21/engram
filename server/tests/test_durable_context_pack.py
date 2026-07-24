@@ -207,6 +207,25 @@ async def test_briefing_triple_filter_has_kill_switch():
 
 
 @pytest.mark.asyncio
+async def test_list_durable_entities_dedupes_repeated_names():
+    """One fact must not occupy every briefing slot (live: same Decision x3)."""
+    entities = [
+        _Entity("dup_a", "Cold Decision hit requires healthy search index", "Decision", "gate"),
+        _Entity("dup_b", "Cold Decision hit requires healthy search index", "Decision", "gate 2"),
+        _Entity("dup_c", "cold decision hit requires healthy search index", "Decision", "gate 3"),
+        _Entity("dec_sparse", "Prefer sparse agent promotion", "Decision", "sparse remember"),
+    ]
+    hits = await _list_durable_entities_by_type(
+        _Manager(entities),
+        group_id="default",
+        limit=3,
+    )
+    names = [h["entity"]["name"].casefold() for h in hits]
+    assert names.count("cold decision hit requires healthy search index") == 1
+    assert "prefer sparse agent promotion" in names
+
+
+@pytest.mark.asyncio
 async def test_durable_context_payload_surfaces_strategy_decisions():
     entities = [
         _Entity(
