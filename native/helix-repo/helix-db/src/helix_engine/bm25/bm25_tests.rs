@@ -228,6 +228,87 @@ mod tests {
         wtxn.commit().unwrap();
     }
 
+    // PATCHES.md #1: insert_doc is an idempotent upsert — a pre-existing doc
+    // at the id (orphan from a swallowed cascade-delete) is replaced, never
+    // an "already exists" error.
+    #[test]
+    fn test_insert_doc_replaces_stale_orphan() {
+        let (bm25, _temp_dir) = setup_bm25_config();
+        let doc_id = 7u128;
+
+        {
+            let mut wtxn = bm25.graph_env.write_txn().unwrap();
+            bm25.insert_doc(&mut wtxn, doc_id, "stale orphan content")
+                .unwrap();
+            wtxn.commit().unwrap();
+        }
+
+        // Re-insert at the same id (recycled/deterministic node id).
+        let mut wtxn = bm25.graph_env.write_txn().unwrap();
+        bm25.insert_doc(&mut wtxn, doc_id, "fresh entity content")
+            .unwrap();
+        wtxn.commit().unwrap();
+
+        let rtxn = bm25.graph_env.read_txn().unwrap();
+        let metadata_bytes = bm25.metadata_db.get(&rtxn, METADATA_KEY).unwrap().unwrap();
+        let metadata: BM25Metadata = bincode::deserialize(metadata_bytes).unwrap();
+        assert_eq!(metadata.total_docs, 1);
+
+        let arena = Bump::new();
+        let fresh = bm25.search(&rtxn, "fresh", 10, &arena).unwrap();
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0].0, doc_id);
+        let stale = bm25.search(&rtxn, "orphan", 10, &arena).unwrap();
+        assert!(stale.is_empty());
+    }
+
+    // PATCHES.md #1: the upsert also absorbs partially-deleted orphan shapes
+    // (postings already gone but reverse entries / doc length left behind by
+    // a historically swallowed delete_doc failure).
+    #[test]
+    fn test_insert_doc_absorbs_partial_delete_orphan() {
+        let (bm25, _temp_dir) = setup_bm25_config();
+        let doc_id = 9u128;
+
+        {
+            let mut wtxn = bm25.graph_env.write_txn().unwrap();
+            bm25.insert_doc(&mut wtxn, doc_id, "alpha beta gamma")
+                .unwrap();
+            // Simulate a partial delete: remove one posting + its df row but
+            // leave reverse entries and doc length in place.
+            let posting = PostingListEntry {
+                doc_id,
+                term_frequency: 1,
+            };
+            let posting_bytes = bincode::serialize(&posting).unwrap();
+            assert!(
+                bm25.inverted_index_db
+                    .delete_one_duplicate(&mut wtxn, b"alpha", &posting_bytes)
+                    .unwrap()
+            );
+            bm25.term_frequencies_db.delete(&mut wtxn, b"alpha").unwrap();
+            wtxn.commit().unwrap();
+        }
+
+        let mut wtxn = bm25.graph_env.write_txn().unwrap();
+        bm25.insert_doc(&mut wtxn, doc_id, "delta epsilon").unwrap();
+        wtxn.commit().unwrap();
+
+        let rtxn = bm25.graph_env.read_txn().unwrap();
+        let metadata_bytes = bm25.metadata_db.get(&rtxn, METADATA_KEY).unwrap().unwrap();
+        let metadata: BM25Metadata = bincode::deserialize(metadata_bytes).unwrap();
+        assert_eq!(metadata.total_docs, 1);
+
+        let arena = Bump::new();
+        let fresh = bm25.search(&rtxn, "delta", 10, &arena).unwrap();
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0].0, doc_id);
+        for term in ["alpha", "beta", "gamma"] {
+            let stale = bm25.search(&rtxn, term, 10, &arena).unwrap();
+            assert!(stale.is_empty(), "stale term '{term}' still searchable");
+        }
+    }
+
     #[test]
     fn test_search_single_term() {
         let (bm25, _temp_dir) = setup_bm25_config();

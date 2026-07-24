@@ -290,6 +290,26 @@ def main():
         help="Print machine-readable JSON instead of markdown",
     )
     battery_parser.add_argument(
+        "--fresh-agent",
+        action="store_true",
+        help="Run the M5.2 fresh-agent suite (scripted agent loop vs "
+        "project-file control) instead of the plain battery; requires "
+        "--against-live",
+    )
+    battery_parser.add_argument(
+        "--judge",
+        default="containment",
+        choices=["containment", "ollama"],
+        help="Fresh-agent grader (ollama is a future-stub; containment default)",
+    )
+    battery_parser.add_argument(
+        "--project-file",
+        action="append",
+        default=None,
+        help="Fresh-agent control-arm packet file (repeatable; defaults to "
+        "the fallback lane's project files)",
+    )
+    battery_parser.add_argument(
         "--require-machinery-clean",
         action="store_true",
         help="Exit nonzero when any machinery-class text appears in a top-3 "
@@ -582,6 +602,32 @@ def main():
         )
 
         battery_path = _Path(args.battery_path) if getattr(args, "battery_path", None) else None
+        if getattr(args, "fresh_agent", False):
+            from engram.evaluation.fresh_agent import (
+                format_fresh_agent_report,
+                run_fresh_agent_against_live,
+            )
+
+            if not getattr(args, "against_live", False):
+                print("battery --fresh-agent requires --against-live (live server)")
+                sys.exit(2)
+            project_files = [_Path(p) for p in args.project_file] if args.project_file else None
+            try:
+                result = run_fresh_agent_against_live(
+                    server_url=getattr(args, "server_url", "http://127.0.0.1:8100"),
+                    battery_path=battery_path,
+                    project_files=project_files,
+                    judge=getattr(args, "judge", "containment"),
+                )
+            except NotImplementedError as exc:
+                print(str(exc))
+                sys.exit(2)
+            if args.json:
+                print(_json.dumps(result, indent=2, default=str))
+            else:
+                print(format_fresh_agent_report(result))
+            failed = args.floor is not None and result.get("engram_score", 0) < args.floor
+            sys.exit(1 if failed else 0)
         if getattr(args, "against_live", False):
             result = run_battery_against_live(
                 server_url=getattr(args, "server_url", "http://127.0.0.1:8100"),

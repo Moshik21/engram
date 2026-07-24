@@ -1213,6 +1213,56 @@ class ActivationConfig(BaseModel):
     consolidation_cue_hygiene_enabled: bool = Field(default=True)
     consolidation_cue_hygiene_max_per_cycle: int = Field(default=200, ge=1, le=5000)
     consolidation_cue_hygiene_min_age_days: float = Field(default=14.0, ge=1.0, le=365.0)
+    # M4.1 usage-decay demotion (AGENT_EXPERIENCE D4 demotion-first; P5: the
+    # marker is forgetting evidence, never ranking evidence).
+    usage_decay_enabled: bool = Field(
+        default=True,
+        description=(
+            "Mop-time surfaced-never-used demotion pass (M4.1): chronic items "
+            "(surfaced >= usage_decay_min_surfaced, used == 0, older than "
+            "usage_decay_min_age_days) get an offline demotion marker the "
+            "ranker never reads"
+        ),
+    )
+    usage_decay_min_surfaced: int = Field(
+        default=12,
+        ge=1,
+        le=10000,
+        description="N_min surfaced events before chronic non-use is considered",
+    )
+    usage_decay_min_age_days: float = Field(
+        default=14.0,
+        ge=1.0,
+        le=365.0,
+        description="Minimum item age before chronic non-use may demote",
+    )
+    usage_decay_max_per_window: int = Field(
+        default=100,
+        ge=1,
+        le=5000,
+        description="Max demotion markers written per mop window",
+    )
+    usage_decay_prune_after_days: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=365.0,
+        description=(
+            "D4 measurement window: a demotion marker may feed prune-phase "
+            "eligibility only after it has aged this many days (episodic tier "
+            "only; identity_core/durable-class always exempt)"
+        ),
+    )
+    usage_decay_presenter_demotion_enabled: bool = Field(
+        default=False,
+        description=(
+            "EVAL-GATED presenter demotion of marker-carrying recall results "
+            "(recap-penalty style, engram.consolidation.usage_decay."
+            "demote_surfaced_never_used_results). Flipping to True requires an "
+            "agent-experience battery pass + a continuity PASS first. Off "
+            "(default) is byte-identical on every read path; the scorer never "
+            "reads the marker at any flag state (P5)"
+        ),
+    )
     consolidation_evidence_drain_max_per_cycle: int = Field(default=500, ge=1, le=10000)
     consolidation_evidence_drain_max_budget: int = Field(
         default=5000,

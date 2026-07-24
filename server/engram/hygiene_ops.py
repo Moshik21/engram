@@ -42,6 +42,19 @@ _INDEX_CONSISTENCY_ROWS_MAX = 2000
 _INDEX_CONSISTENCY_REPAIRS_MAX = 200
 _INDEX_CONSISTENCY_SECONDS_MAX = 120.0
 
+# M4.1 usage-decay wall-clock bound: episode listing + per-id cue probes
+# (~74ms each on native) dominate; the demotion budget itself is a config
+# knob (usage_decay_max_per_window).
+_USAGE_DECAY_SECONDS_MAX = 120.0
+
+# M1.3 historical re-index sweep (agent-experience D5): replace the coarse
+# emergency-backfill single vectors with real index_episode output (full +
+# chunk vectors) and de-index machinery-class episodes. index_episode measured
+# ~0.2 eps/s on real dogfood episodes, so 25 ≈ 2 min of the window. One-time:
+# cursor + complete flag persist in the hygiene state.
+_REINDEX_SWEEP_EPISODES_MAX = 25
+_REINDEX_SWEEP_SECONDS_MAX = 300.0
+
 
 def _hygiene_state_path() -> Path:
     home = Path(os.environ.get("ENGRAM_HOME", Path.home() / ".engram")).expanduser()
@@ -584,6 +597,127 @@ async def execute_hygiene_mop(
                 mop["index_consistency"]["write_conflicts"] = get_bm25_conflict_stats()
         except Exception:  # silent-ok: lite installs have no helix graph module
             logger.debug("bm25 conflict stats unavailable", exc_info=True)
+
+    # M1.3 historical re-index sweep (agent-experience D5): the 8,918-episode
+    # historical corpus carries coarse single vectors from the emergency
+    # backfill (1,200-char truncated, no chunks). Cursor-swept oldest-first:
+    # machinery episodes lose their vectors, substantive ones are re-indexed
+    # through the real index_episode (delete-then-index, exact via the M0.1
+    # by-id probes). One-time — a completed sweep is marked and never re-runs.
+    from engram.storage.index_completeness import reindex_sweep_episodes
+
+    if dry_run:
+        mop["reindex_sweep"] = {"skipped": True, "reason": "dry_run"}
+    elif embeddings_enabled is not True:
+        mop["reindex_sweep"] = {
+            "skipped": True,
+            "reason": (
+                "search index has no embedding support"
+                if embeddings_enabled is None
+                else "embeddings disabled"
+            ),
+        }
+    else:
+        state = _read_hygiene_state()
+        rs_all = state.get("reindex_sweep")
+        rs_all = dict(rs_all) if isinstance(rs_all, dict) else {}
+        rs_group = rs_all.get(group_id)
+        rs_group = dict(rs_group) if isinstance(rs_group, dict) else {}
+        rs_cursor: tuple[float, str] | None = None
+        raw_cursor = rs_group.get("cursor")
+        if isinstance(raw_cursor, (list, tuple)) and len(raw_cursor) == 2:
+            try:
+                rs_cursor = (float(raw_cursor[0]), str(raw_cursor[1]))
+            except (TypeError, ValueError):
+                rs_cursor = None
+        if rs_group.get("complete") is True:
+            mop["reindex_sweep"] = {"skipped": True, "reason": "sweep complete"}
+        else:
+            try:
+                rs_result = await asyncio.wait_for(
+                    reindex_sweep_episodes(
+                        graph_store,
+                        search_index,
+                        group_id,
+                        max_episodes=_REINDEX_SWEEP_EPISODES_MAX,
+                        cursor=rs_cursor,
+                        machinery=_machinery_skip,
+                        deadline_ts=time.monotonic() + _REINDEX_SWEEP_SECONDS_MAX,
+                    ),
+                    timeout=_REINDEX_SWEEP_SECONDS_MAX + 30.0,
+                )
+                if rs_result.cursor_next is not None:
+                    rs_group["cursor"] = list(rs_result.cursor_next)
+                if rs_result.complete:
+                    rs_group["complete"] = True
+                if rs_result.cursor_next is not None or rs_result.complete:
+                    rs_all[group_id] = rs_group
+                    state["reindex_sweep"] = rs_all
+                    _write_hygiene_state(state)
+                mop["reindex_sweep"] = rs_result.to_dict()
+                mop["reindex_sweep"]["budget"] = _REINDEX_SWEEP_EPISODES_MAX
+            except EmbeddingProviderUnavailableError:
+                logger.warning(
+                    "mop reindex sweep: embedding provider unavailable — "
+                    "window skipped, cursor kept",
+                    exc_info=True,
+                )
+                mop["reindex_sweep"] = {"status": "provider_unavailable"}
+            except TimeoutError:
+                logger.warning(
+                    "mop reindex sweep exceeded its wall-clock bound (%ss) — "
+                    "window closed early, cursor kept",
+                    _REINDEX_SWEEP_SECONDS_MAX,
+                )
+                mop["reindex_sweep"] = {"status": "timeout"}
+            except Exception:
+                logger.exception("mop reindex sweep failed")
+                mop["reindex_sweep"] = {"status": "error"}
+
+    # M4.1 usage-decay demotion (D4 demotion-first): chronic surfaced-never-
+    # used episodes/cues/entities get an offline demotion marker. P5: the
+    # marker is forgetting evidence — the ranker never reads it; consumers
+    # are the D4 prune feed (after usage_decay_prune_after_days) and the
+    # OFF-default eval-gated presenter demotion flag.
+    from engram.consolidation.usage_decay import run_usage_decay
+
+    if not getattr(activation_cfg, "usage_decay_enabled", True):
+        mop["usage_decay"] = {"skipped": True, "reason": "usage_decay_enabled=False"}
+    else:
+        state = _read_hygiene_state()
+        ud_all = state.get("usage_decay_cursors")
+        ud_all = dict(ud_all) if isinstance(ud_all, dict) else {}
+        ud_group = ud_all.get(group_id)
+        ud_group = dict(ud_group) if isinstance(ud_group, dict) else {}
+        try:
+            ud_result = await asyncio.wait_for(
+                run_usage_decay(
+                    graph_store,
+                    activation_store,
+                    group_id,
+                    cfg=activation_cfg,
+                    dry_run=bool(dry_run),
+                    cursors=ud_group,
+                    deadline_ts=time.monotonic() + _USAGE_DECAY_SECONDS_MAX,
+                ),
+                timeout=_USAGE_DECAY_SECONDS_MAX + 30.0,
+            )
+            if not dry_run and ud_result.cursors_next:
+                ud_group.update(ud_result.cursors_next)
+                ud_all[group_id] = ud_group
+                state["usage_decay_cursors"] = ud_all
+                _write_hygiene_state(state)
+            mop["usage_decay"] = ud_result.to_dict()
+        except TimeoutError:
+            logger.warning(
+                "mop usage-decay pass exceeded its wall-clock bound (%ss) — "
+                "window closed early, cursor kept",
+                _USAGE_DECAY_SECONDS_MAX,
+            )
+            mop["usage_decay"] = {"status": "timeout"}
+        except Exception:
+            logger.exception("mop usage-decay pass failed")
+            mop["usage_decay"] = {"status": "error"}
 
     after = await collect_hygiene_debt_from_store(graph_store, group_id)
     try:

@@ -39,11 +39,19 @@ if TYPE_CHECKING:
 #
 # Native AddN derives the node id from the business key, and BM25 docs are
 # keyed by that node id. A stale orphan BM25 doc (cascade-delete failure —
-# helix-db swallows bm25.delete_doc errors with a println) makes every
-# re-create of the same key 500 forever: the bootstrap-500 defect class.
-# HelixQL has NO way to delete a doc whose node is gone (DROP N fails on
-# absent nodes; M0.4), so the reconcile ladder is: adopt the existing row if
-# one exists, else re-key ONCE deterministically, then surface as debt.
+# helix-db historically swallowed bm25.delete_doc errors with a println)
+# made every re-create of the same key 500 forever: the bootstrap-500 defect
+# class. HelixQL has NO way to delete a doc whose node is gone (DROP N fails
+# on absent nodes; M0.4), so the reconcile ladder is: adopt the existing row
+# if one exists, else re-key ONCE deterministically, then surface as debt.
+#
+# 2026-07-21 (Lane F): the root cause is fixed upstream in the vendored
+# helix-db (native/helix-repo/PATCHES.md #1/#2) — BM25 insert is now an
+# idempotent upsert that absorbs orphan docs in-engine, and cascade-delete
+# failures propagate instead of being swallowed. On native transport this
+# reconcile ladder is a NEVER-FIRES safety net (conflict stats staying zero
+# is the expected state); it is kept as defense in depth for HTTP-transport
+# lanes, which run unpatched helix-db builds.
 # ---------------------------------------------------------------------------
 
 _BM25_REKEY_SUFFIX = "~bm25r"
@@ -962,6 +970,12 @@ class HelixGraphStore:
         new doc id) with a loud warning. A conflict on the re-keyed id — or
         any second failure — raises and stays on the debt scoreboard via
         :func:`get_bm25_conflict_stats`; never a silent 500 loop.
+
+        Since the vendored BM25 idempotent-upsert patch (Lane F, 2026-07-21;
+        native/helix-repo/PATCHES.md #1) the native engine absorbs doc
+        conflicts at insert, so this path never fires on native transport —
+        any nonzero conflict count there is a regression signal. Kept as
+        defense in depth for HTTP-transport lanes (unpatched helix-db).
         """
         try:
             return await self._query(endpoint, payload), external_id

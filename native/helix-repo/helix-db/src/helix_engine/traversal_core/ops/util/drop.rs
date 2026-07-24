@@ -1,8 +1,11 @@
-use crate::helix_engine::{
-    bm25::bm25::BM25,
-    storage_core::{HelixGraphStorage, storage_methods::StorageMethods},
-    traversal_core::traversal_value::TraversalValue,
-    types::GraphError,
+use crate::{
+    debug_println,
+    helix_engine::{
+        bm25::bm25::BM25,
+        storage_core::{HelixGraphStorage, storage_methods::StorageMethods},
+        traversal_core::traversal_value::TraversalValue,
+        types::GraphError,
+    },
 };
 use heed3::RwTxn;
 
@@ -24,12 +27,20 @@ where
                 match item {
                     TraversalValue::Node(node) => match storage.drop_node(txn, &node.id) {
                         Ok(_) => {
+                            // PATCHES.md #2: propagate BM25 delete failures.
+                            // The historical println-and-continue here left
+                            // orphan docs at reusable node ids — the
+                            // bootstrap-500 collision class. Erroring aborts
+                            // the txn, keeping graph and index consistent.
                             if let Some(bm25) = &storage.bm25
                                 && let Err(e) = bm25.delete_doc(txn, node.id)
                             {
-                                println!("failed to delete doc from bm25: {e}");
+                                return Err(GraphError::New(format!(
+                                    "failed to delete BM25 doc for dropped node {}: {e}",
+                                    node.id
+                                )));
                             }
-                            println!("Dropped node: {:?}", node.id);
+                            debug_println!("Dropped node: {:?}", node.id);
                             Ok(())
                         }
                         Err(e) => Err(e),

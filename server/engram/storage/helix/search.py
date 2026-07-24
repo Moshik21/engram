@@ -1426,7 +1426,7 @@ class HelixSearchIndex:
                 chunks = self._chunk_by_rounds(episode.content)
 
                 # 2. Fall back to topic segmentation for non-conversational text
-                if not chunks and self._topic_segmentation:
+                if len(chunks) <= 1 and self._topic_segmentation:
                     try:
                         chunks = await self._segment_by_topic(
                             episode.content,
@@ -1435,8 +1435,13 @@ class HelixSearchIndex:
                     except Exception:
                         chunks = []
 
-                # 3. Last resort: size-based chunking
-                if not chunks:
+                # 3. Size-based last resort whenever the smarter strategies did
+                # not actually split the content. A single-segment topic result
+                # is NOT a chunking — the prior `if not chunks` gate let it
+                # through, so every prose episode silently got ZERO chunk
+                # vectors (measured: 0 chunk rows corpus-wide on the dogfood
+                # brain), which is the answer-locality defect this fixes.
+                if len(chunks) <= 1:
                     chunks = self._chunk_text(episode.content)
                 if len(chunks) > 1:  # Only chunk if content actually splits
                     # Check if native transport (server-side Embed() won't work)

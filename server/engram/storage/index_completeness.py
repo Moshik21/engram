@@ -899,3 +899,245 @@ async def run_index_consistency_drain(
     report["repairs_remaining_budget"] = repairs_left
     report["cursors_next"] = {k: int(cursors.get(k, 0)) for k in kinds if k in CONSISTENCY_KINDS}
     return report
+
+
+# ----------------------------------------------------------------------
+# M1.3 historical re-index sweep (agent-experience goal, D5)
+# ----------------------------------------------------------------------
+
+REINDEX_SWEEP_DEFAULT_BUDGET = 25
+
+
+@dataclass
+class ReindexSweepResult:
+    """Outcome of one historical re-index sweep window."""
+
+    group_id: str
+    scanned: int = 0
+    reindexed: int = 0
+    deindexed_machinery: int = 0
+    skipped_capture_indexed: int = 0
+    failed: int = 0
+    rows_deleted: int = 0
+    cursor_next: tuple[float, str] | None = None
+    complete: bool = False
+    stopped: str | None = None
+    skipped_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "scanned": self.scanned,
+            "reindexed": self.reindexed,
+            "deindexed_machinery": self.deindexed_machinery,
+            "skipped_capture_indexed": self.skipped_capture_indexed,
+            "failed": self.failed,
+            "rows_deleted": self.rows_deleted,
+            "cursor": list(self.cursor_next) if self.cursor_next is not None else None,
+            "complete": self.complete,
+        }
+        if self.stopped:
+            out["stopped"] = self.stopped
+        if self.skipped_reason:
+            out["skipped"] = True
+            out["reason"] = self.skipped_reason
+        return out
+
+
+async def reindex_sweep_episodes(
+    graph_store: Any,
+    search_index: Any,
+    group_id: str,
+    *,
+    max_episodes: int = REINDEX_SWEEP_DEFAULT_BUDGET,
+    dry_run: bool = False,
+    cursor: tuple[float, str] | None = None,
+    limit: int = DEFAULT_EPISODE_SCAN_LIMIT,
+    deadline_ts: float | None = None,
+    machinery: Callable[[Any], bool] | None = None,
+) -> ReindexSweepResult:
+    """One-time historical re-index of the coarse emergency-backfill corpus.
+
+    The 2026-07-21 emergency backfill wrote ONE vector per episode from
+    1,200-char truncated text; the designed ``index_episode`` path writes a
+    full-content vector plus per-chunk vectors. This sweep walks episodes
+    oldest-first under a per-window budget and, per episode:
+
+    - MACHINERY (``machinery`` predicate, default salience gate): delete its
+      EpisodeVec and chunk rows — stored and BM25-reachable, out of semantic
+      space (D2/D5 de-index).
+    - already capture-indexed (>=1 chunk row present): SKIP. The coarse
+      backfill wrote 0 chunks and the real capture path writes >=1 for
+      chunkable content, so chunk presence discriminates post-punch-list
+      captures from coarse rows. Short episodes (content below the chunk
+      threshold) are indistinguishable and get one harmless delete+re-embed.
+    - SUBSTANTIVE, no chunks: delete the coarse EpisodeVec rows FIRST, then
+      re-index through the REAL ``index_episode`` (delete-then-index — the
+      by-id probes make this exact; AddV appends, so a skipped delete would
+      grow duplicates).
+
+    Cursor: persisted ``(created_ts, episode_id)``, advanced over a contiguous
+    prefix of FINAL outcomes only — failures are retried next window.
+    ``complete`` turns True when the sweep has passed the newest episode with
+    every outcome final; the caller persists it so the sweep never re-runs
+    (new episodes are capture-indexed properly).
+
+    Requires the exact M0.1 by-id row surfaces; without them the window is
+    skipped with a reason (never an inexact sweep). Raises
+    :class:`EmbeddingProviderUnavailableError` before any re-index work when
+    the provider cannot embed (loud, mop-nonfatal); pure de-index windows do
+    not need the provider and proceed.
+    """
+    result = ReindexSweepResult(group_id=group_id)
+    if machinery is None:
+        from engram.ingestion.salience import vector_index_exempt
+
+        machinery = vector_index_exempt
+
+    get_episodes = getattr(graph_store, "get_episodes", None)
+    find_rows = getattr(search_index, "find_vector_rows_by_episode_ids", None)
+    delete_row = getattr(search_index, "delete_vector_row", None)
+    if not callable(get_episodes) or not callable(find_rows) or not callable(delete_row):
+        result.skipped_reason = "store/index lacks episode listing or by-id vector row surface"
+        return result
+
+    episodes = await get_episodes(group_id=group_id, limit=max(1, int(limit))) or []
+    keyed = sorted(
+        ((_created_ts(getattr(ep, "created_at", None)), str(ep.id)), ep)
+        for ep in episodes
+        if getattr(ep, "deleted_at", None) is None and str(getattr(ep, "id", "") or "")
+    )
+    if cursor is not None:
+        keyed = [(key, ep) for key, ep in keyed if key > cursor]
+    if not keyed:
+        result.complete = True
+        result.cursor_next = cursor
+        return result
+    window = keyed[: max(0, int(max_episodes))]
+    if not window:
+        return result
+    tail_reached = len(window) == len(keyed)
+
+    ids = [key[1] for key, _ep in window]
+    try:
+        chunk_rows = await find_rows("chunk", ids, group_id)
+        vec_rows = await find_rows("episode", ids, group_id)
+    except ByIdVectorProbeUnavailableError:
+        result.skipped_reason = "by-id vector probes unavailable (pre-M0.1 engine)"
+        return result
+    except Exception:
+        logger.warning(
+            "reindex sweep: window row probe failed — window skipped, cursor kept",
+            exc_info=True,
+        )
+        result.skipped_reason = "vector row probe failed"
+        return result
+
+    chunks_by_ep: dict[str, list[dict]] = {}
+    for row in chunk_rows or []:
+        eid = str(row.get("episode_id") or "")
+        if eid:
+            chunks_by_ep.setdefault(eid, []).append(row)
+    vecs_by_ep: dict[str, list[dict]] = {}
+    for row in vec_rows or []:
+        eid = str(row.get("episode_id") or "")
+        if eid:
+            vecs_by_ep.setdefault(eid, []).append(row)
+
+    is_machinery = {key[1]: bool(machinery(ep)) for key, ep in window}
+    needs_embed = any(
+        not is_machinery[key[1]] and key[1] not in chunks_by_ep for key, _ep in window
+    )
+    if needs_embed and not dry_run:
+        await ensure_embedding_provider_healthy(search_index)
+
+    stats = getattr(search_index, "_embed_stats", None)
+    prefix_intact = True
+    cursor_candidate: tuple[float, str] | None = None
+
+    async def _delete_rows(doomed: list[tuple[str, dict]]) -> tuple[int, bool]:
+        deleted = 0
+        ok_all = True
+        for kind, row in doomed:
+            helix_id = row.get("id") or row.get("_id")
+            if helix_id is None:
+                ok_all = False
+                continue
+            if await delete_row(kind, helix_id):
+                deleted += 1
+            else:
+                ok_all = False
+        return deleted, ok_all
+
+    for key, ep in window:
+        if deadline_ts is not None and time.monotonic() >= deadline_ts:
+            result.stopped = "deadline"
+            break
+        eid = key[1]
+        result.scanned += 1
+
+        if is_machinery[eid]:
+            doomed = [("episode", r) for r in vecs_by_ep.get(eid, [])] + [
+                ("chunk", r) for r in chunks_by_ep.get(eid, [])
+            ]
+            if dry_run:
+                if doomed:
+                    result.deindexed_machinery += 1
+                continue
+            deleted, ok_all = await _delete_rows(doomed)
+            result.rows_deleted += deleted
+            if ok_all:
+                if doomed:
+                    result.deindexed_machinery += 1
+                if prefix_intact:
+                    cursor_candidate = key
+            else:
+                result.failed += 1
+                prefix_intact = False
+            continue
+
+        if eid in chunks_by_ep:
+            # Chunk presence == already indexed by the real capture path.
+            result.skipped_capture_indexed += 1
+            if not dry_run and prefix_intact:
+                cursor_candidate = key
+            continue
+
+        if dry_run:
+            result.reindexed += 1  # planned
+            continue
+
+        deleted, ok_all = await _delete_rows([("episode", r) for r in vecs_by_ep.get(eid, [])])
+        result.rows_deleted += deleted
+        if not ok_all:
+            # Indexing after a failed delete would duplicate — retry next window.
+            result.failed += 1
+            prefix_intact = False
+            continue
+        stat_failed_before = (
+            int(stats.get("episodes_failed", 0)) if isinstance(stats, dict) else None
+        )
+        try:
+            await search_index.index_episode(ep)
+        except Exception:
+            result.failed += 1
+            prefix_intact = False
+            logger.warning("reindex sweep: index_episode failed for %s", eid, exc_info=True)
+            continue
+        if (
+            stat_failed_before is not None
+            and isinstance(stats, dict)
+            and int(stats.get("episodes_failed", 0)) > stat_failed_before
+        ):
+            # index_episode swallows embed failures internally (log + stat);
+            # the stats delta keeps a half-broken provider from a clean report.
+            result.failed += 1
+            prefix_intact = False
+            continue
+        result.reindexed += 1
+        if prefix_intact:
+            cursor_candidate = key
+
+    if not dry_run:
+        result.cursor_next = cursor_candidate
+        result.complete = tail_reached and prefix_intact and result.stopped is None
+    return result

@@ -672,6 +672,67 @@ impl HBM25Config {
             .sum()
     }
 
+    /// Best-effort removal of whatever BM25 state exists at `doc_id`,
+    /// tolerating the partially-deleted shapes left behind by historically
+    /// swallowed `delete_doc` failures (see PATCHES.md #1). Unlike
+    /// `delete_doc`, a missing posting / df row / metadata row is NOT an
+    /// error here: the caller is about to re-bind `doc_id` to a node that
+    /// now legitimately owns it, so any stale state is garbage to clear,
+    /// not an invariant to defend.
+    ///
+    /// Returns `true` when stale state was found and purged.
+    fn purge_stale_doc(&self, txn: &mut RwTxn, doc_id: u128) -> Result<bool, GraphError> {
+        let reverse_entries = self.reverse_entries_rw(txn, doc_id)?;
+        let doc_length = self.doc_lengths_db.get(txn, &doc_id)?;
+        if reverse_entries.is_empty() && doc_length.is_none() {
+            return Ok(false);
+        }
+
+        for entry in &reverse_entries {
+            let term_bytes = entry.term.as_bytes();
+            let posting_entry = PostingListEntry {
+                doc_id,
+                term_frequency: entry.term_frequency,
+            };
+            let posting_bytes = bincode::serialize(&posting_entry)?;
+            let deleted =
+                self.inverted_index_db
+                    .delete_one_duplicate(txn, term_bytes, &posting_bytes)?;
+            if !deleted {
+                // Partial-delete orphan: this posting is already gone.
+                // Skip the df decrement so counts don't go negative.
+                continue;
+            }
+            if let Some(current_df) = self.term_frequencies_db.get(txn, term_bytes)? {
+                if current_df <= 1 {
+                    self.term_frequencies_db.delete(txn, term_bytes)?;
+                } else {
+                    self.term_frequencies_db
+                        .put(txn, term_bytes, &(current_df - 1))?;
+                }
+            }
+        }
+
+        self.reverse_index_db.delete(txn, &doc_id)?;
+        self.doc_lengths_db.delete(txn, &doc_id)?;
+
+        if let Some(doc_length) = doc_length
+            && let Some(mut metadata) = self.read_metadata(txn)?
+            && metadata.total_docs > 0
+        {
+            metadata.avgdl = if metadata.total_docs > 1 {
+                (metadata.avgdl * metadata.total_docs as f64 - doc_length as f64)
+                    / (metadata.total_docs - 1) as f64
+            } else {
+                0.0
+            };
+            metadata.total_docs -= 1;
+            self.write_metadata(txn, &metadata)?;
+        }
+
+        Ok(true)
+    }
+
     fn insert_new_document_from_reverse_entries(
         &self,
         txn: &mut RwTxn,
@@ -780,10 +841,14 @@ impl HBM25Config {
         properties: &ImmutablePropertiesMap<'_>,
         label: &str,
     ) -> Result<(), GraphError> {
-        if !matches!(self.doc_state(txn, doc_id)?, DocState::Absent) {
-            return Err(GraphError::New(format!(
-                "BM25 document {doc_id} already exists"
-            )));
+        // Idempotent upsert (PATCHES.md #1): a pre-existing doc at this id is
+        // stale content from a deleted (or re-ingested) node — node ids are
+        // deterministic, so the inserting node legitimately owns the id.
+        // Replace instead of erroring "already exists".
+        if self.purge_stale_doc(txn, doc_id)? {
+            eprintln!(
+                "bm25: replaced stale document {doc_id} during node insert (idempotent upsert)"
+            );
         }
 
         let term_counts = self.term_counts_for_node(properties, label)?;
@@ -817,10 +882,11 @@ impl BM25 for HBM25Config {
     }
 
     fn insert_doc(&self, txn: &mut RwTxn, doc_id: u128, doc: &str) -> Result<(), GraphError> {
-        if !matches!(self.doc_state(txn, doc_id)?, DocState::Absent) {
-            return Err(GraphError::New(format!(
-                "BM25 document {doc_id} already exists"
-            )));
+        // Idempotent upsert (PATCHES.md #1): see insert_doc_for_node.
+        if self.purge_stale_doc(txn, doc_id)? {
+            eprintln!(
+                "bm25: replaced stale document {doc_id} during insert (idempotent upsert)"
+            );
         }
 
         let term_counts = self.term_counts(doc);
