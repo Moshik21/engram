@@ -406,6 +406,15 @@ def main():
 
     configure_loop_parser(loop_parser)
 
+    # --- cues (operator; historical cue backfill) ---
+    cues_parser = subparsers.add_parser(
+        "cues",
+        help="Cue operator commands: backfill pre-cue-layer episodes (dry run by default)",
+    )
+    from engram.cues_cli import configure_cues_parser
+
+    configure_cues_parser(cues_parser)
+
     # --- backup (operator; native data dir + state snapshot) ---
     backup_parser = subparsers.add_parser(
         "backup",
@@ -725,6 +734,14 @@ def main():
         from engram.loop_cli import run_loop_command
 
         sys.exit(run_loop_command(args))
+
+    # --- cues (historical cue backfill) ---
+    if args.command == "cues":
+        import asyncio
+
+        from engram.cues_cli import run_cues_command
+
+        sys.exit(asyncio.run(run_cues_command(args)))
 
     # --- backup ---
     if args.command == "backup":
