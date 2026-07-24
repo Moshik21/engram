@@ -204,10 +204,7 @@ def test_scanner_is_not_inert() -> None:
     assert "avg_latency_ms" in keys, "scanner missed a hardcoded avg_* rate"
     assert "lastSeenAt" not in keys, "None must stay legal — absent is the honest encoding"
 
-    honest = (
-        "def empty_summary():\n"
-        '    return {"count": 0, "avg": 0.0, "p95": 0.0}\n'
-    )
+    honest = 'def empty_summary():\n    return {"count": 0, "avg": 0.0, "p95": 0.0}\n'
     assert scan_source(honest) == [], "all-literal constants are honest, not fabrications"
 
 

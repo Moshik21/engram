@@ -108,8 +108,7 @@ async def test_helix_stats_surface_m51_usage_from_the_span_trailer(monkeypatch):
     store = HelixGraphStore(HelixDBConfig())
 
     usage_trailer = (
-        '[{"_engram_cue_usage": {"used_count": 0.6, '
-        '"last_used_at": "2026-07-24T12:00:00+00:00"}}]'
+        '[{"_engram_cue_usage": {"used_count": 0.6, "last_used_at": "2026-07-24T12:00:00+00:00"}}]'
     )
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
