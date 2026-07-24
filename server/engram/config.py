@@ -454,6 +454,17 @@ class ActivationConfig(BaseModel):
 
     # --- Re-ranker ---
     reranker_enabled: bool = Field(default=True)
+    # "local" = the fully-local FastEmbed cross-encoder (ms-marco-MiniLM), which
+    # is shipped and works, but is NOT the default: flipping noop->local was
+    # MEASURED AS A REGRESSION (agent-experience battery 3/10, and it knocked
+    # out two previously-reliable HITs: flip-condition and durable-lane).
+    # Root cause: the default rerank path reranks ENTITIES ONLY, on short
+    # "name: summary" snippets, and this cross-encoder scores short snippets
+    # terribly (measured -11.4 mean) while scoring full documents well (+1.1) —
+    # so it demotes good durable answers. The untested lever is the episode
+    # path (reranker_rerank_episodes below), which builds full-content
+    # documents; that must be measured green before "local" becomes default.
+    # "cohere" needs COHERE_API_KEY (non-local); "noop" is a silent pass-through.
     reranker_provider: str = Field(default="noop", pattern="^(cohere|local|noop)$")
     reranker_local_model: str = Field(default="Xenova/ms-marco-MiniLM-L-6-v2")
     reranker_top_n: int = Field(default=10, ge=1, le=50)

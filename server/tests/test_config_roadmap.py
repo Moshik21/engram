@@ -29,6 +29,9 @@ class TestRoadmapConfigDefaults:
     def test_reranker_defaults(self):
         cfg = ActivationConfig()
         assert cfg.reranker_enabled is True
+        # Stays "noop": flipping to the local cross-encoder measured worse
+        # (battery regression) because the default path reranks short entity
+        # snippets, which this model scores badly. See config.py.
         assert cfg.reranker_provider == "noop"
         assert cfg.reranker_top_n == 10
 

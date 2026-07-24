@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -94,13 +95,40 @@ class FastEmbedReranker(RerankerProvider):
     """Local cross-encoder reranker via fastembed (ONNX runtime)."""
 
     def __init__(self, model: str = "Xenova/ms-marco-MiniLM-L-6-v2") -> None:
-        from fastembed.rerank.cross_encoder import TextCrossEncoder
+        # LAZY: the ONNX cross-encoder session is created on first rerank, not
+        # here. Eager creation at startup contended with the embedder's + native
+        # engine's concurrent ONNX/model loads under the LaunchAgent and failed
+        # InferenceSession init (worked standalone). Mirrors the embedder's lazy
+        # pattern; the model is downloaded once and cached.
+        self._model_name = model
+        self._model: Any | None = None
+        self._load_failed = False
 
-        from engram.embeddings.provider import default_fastembed_cache_dir
+    def _ensure_model(self) -> bool:
+        if self._model is not None:
+            return True
+        if self._load_failed:
+            return False
+        try:
+            from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-        cache_dir = default_fastembed_cache_dir()
-        self._model = TextCrossEncoder(model_name=model, cache_dir=cache_dir)
-        logger.info("FastEmbedReranker ready: model=%s, cache=%s", model, cache_dir)
+            from engram.embeddings.provider import default_fastembed_cache_dir
+
+            cache_dir = default_fastembed_cache_dir()
+            self._model = TextCrossEncoder(model_name=self._model_name, cache_dir=cache_dir)
+            logger.info("FastEmbedReranker ready: model=%s, cache=%s", self._model_name, cache_dir)
+            return True
+        except Exception:
+            # Loud, non-fatal: recall falls back to the pre-rerank order rather
+            # than failing. A repaired cache is retried on the next process.
+            self._load_failed = True
+            logger.error(
+                "FastEmbedReranker model load failed (model=%s); reranking disabled "
+                "for this process — recall keeps its pre-rerank order",
+                self._model_name,
+                exc_info=True,
+            )
+            return False
 
     async def rerank(
         self,
@@ -114,6 +142,12 @@ class FastEmbedReranker(RerankerProvider):
         import asyncio
 
         top_n = min(top_n, len(documents))
+        if not await asyncio.to_thread(self._ensure_model):
+            # Load failed — preserve input order (NoopReranker semantics).
+            return [
+                (eid, 1.0 - i / max(len(documents), 1))
+                for i, (eid, _) in enumerate(documents[:top_n])
+            ]
         texts = [text for _, text in documents]
 
         scores = await asyncio.to_thread(lambda: list(self._model.rerank(query, texts)))

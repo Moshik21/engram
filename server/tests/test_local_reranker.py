@@ -24,8 +24,13 @@ class TestCreateReranker:
         r = create_reranker(api_key="test-key", provider="cohere")
         assert isinstance(r, CohereReranker)
 
-    def test_local_without_fastembed(self, monkeypatch):
-        """When fastembed is not installed, falls back to NoopReranker."""
+    @pytest.mark.asyncio
+    async def test_local_without_fastembed(self, monkeypatch):
+        """Model load is lazy, so a missing fastembed surfaces at rerank time.
+
+        The failure is non-fatal: rerank degrades to the input order instead of
+        breaking recall.
+        """
         import builtins
 
         real_import = builtins.__import__
@@ -37,7 +42,9 @@ class TestCreateReranker:
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
         r = create_reranker(provider="local")
-        assert isinstance(r, NoopReranker)
+        docs = [("e1", "hello world"), ("e2", "foo bar"), ("e3", "baz qux")]
+        result = await r.rerank("hello", docs, top_n=2)
+        assert [eid for eid, _ in result] == ["e1", "e2"]
 
     def test_noop_explicit(self):
         r = create_reranker(provider="noop")
