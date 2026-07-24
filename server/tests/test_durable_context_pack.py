@@ -225,6 +225,214 @@ async def test_list_durable_entities_dedupes_repeated_names():
     assert "prefer sparse agent promotion" in names
 
 
+# ---------------------------------------------------------------------------
+# Prose-fragment squatters (task #17 / P12)
+# ---------------------------------------------------------------------------
+
+# Names observed live winning briefing slots, plus the census scrap classes.
+FRAGMENT_NAMES_MUST_DROP = [
+    'use X")',
+    "I'll make sure",
+    'X not Y")',
+    "the user stated'",
+    "it.",
+    "If you",
+    "Right now the benchmark",
+    "MCP Contract\n\nOpenClaw should",
+    "MACHINES/STATUS",
+    "onnx/model_quantized.onnx",
+    "N/A",
+    "arm-B/G2",
+    "6379/0",
+    "7a04e113-4e1d-4b53-8a7e-9584b69f11ef/tasks",
+]
+
+# Real durable facts. A predicate that drops ANY of these is a failure even if
+# it cleans up every fragment — a false positive silently deletes a memory.
+DURABLE_NAMES_MUST_SURVIVE = [
+    "Cold Decision hit requires healthy search index",
+    "GOLDEN_DECISION_1783643390: LongMemEval is not product north star",
+    "Konner Moshier",
+    "decision: use lite for smoke tests",
+    "LongMemEval is not Engram north star",
+    "Prefer sparse agent promotion",
+    "Prefer markdown handoffs until proven",
+    "Engram public launch path",
+    # Adversarial keeps: shapes a careless rule would eat.
+    "The Engram Project",
+    "The New York Times",
+    "engram/server",
+    "Right to repair",
+    "I/O latency budget",
+    "Konner's laptop",
+    'Engram "native" mode',
+    "Node2Vec (n=50)",
+    "Anthropic Inc.",
+    "Use the cold brain for hygiene",
+]
+
+
+@pytest.mark.parametrize("name", FRAGMENT_NAMES_MUST_DROP)
+def test_prose_fragment_predicate_drops_observed_scrap(name: str):
+    from engram.extraction.promotion import is_prose_fragment_entity
+
+    assert is_prose_fragment_entity(name) is True
+
+
+@pytest.mark.parametrize("name", DURABLE_NAMES_MUST_SURVIVE)
+def test_prose_fragment_predicate_keeps_real_memories(name: str):
+    from engram.extraction.promotion import is_prose_fragment_entity
+
+    assert is_prose_fragment_entity(name) is False
+
+
+def _fragment_entities() -> list[_Entity]:
+    """Prose fragments ahead of the real prose Decisions in list order."""
+    return [
+        _Entity("frag_quote", 'use X")', "Decision", "agent report text"),
+        _Entity("frag_first_person", "I'll make sure", "Decision", "agent report text"),
+        _Entity("frag_lead", "the user stated'", "Decision", "agent report text"),
+        _Entity(
+            "dec_index",
+            "Cold Decision hit requires healthy search index",
+            "Decision",
+            "Product continuity fails if get_context cannot surface graph Decisions",
+        ),
+        _Entity(
+            "dec_sparse",
+            "Prefer sparse agent promotion",
+            "Decision",
+            "Passive observe plus sparse remember keeps the graph high signal",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_durable_entities_drops_prose_fragments():
+    """Sentence scrap must never take a briefing slot from a real Decision.
+
+    Live regression pin: after the relationship triples were removed, prose
+    fragments extracted from agent report text became the dominant squatter and
+    the briefing was still ~2/3 junk.
+    """
+    hits = await _list_durable_entities_by_type(
+        _Manager(_fragment_entities()),
+        group_id="default",
+        limit=2,
+    )
+    names = [h["entity"]["name"] for h in hits]
+    assert 'use X")' not in names
+    assert "I'll make sure" not in names
+    assert "the user stated'" not in names
+    # Freed slots go to real prose Decisions, not to a shorter briefing.
+    assert "Cold Decision hit requires healthy search index" in names
+    assert "Prefer sparse agent promotion" in names
+
+
+@pytest.mark.asyncio
+async def test_durable_briefing_excludes_prose_fragments():
+    invalidate_durable_context_cache()
+    payload = await _durable_context_payload_from_manager(
+        _Manager(_fragment_entities()),
+        group_id="fragment_group",
+        topic_hint=None,
+        project_path="/Users/konnermoshier/Engram",
+        format="briefing",
+        budget=_budget(),
+        started=time.perf_counter(),
+    )
+    invalidate_durable_context_cache("fragment_group")
+    assert payload is not None
+    blob = payload["context"] + json_packets(payload)
+    assert "Key memor" in payload["context"]
+    assert "I'll make sure" not in blob
+    assert "the user stated" not in blob
+    assert "Cold Decision hit requires healthy search index" in blob
+
+
+@pytest.mark.asyncio
+async def test_prose_fragment_filter_has_kill_switch(monkeypatch):
+    monkeypatch.setenv("ENGRAM_DROP_PROSE_FRAGMENT_ENTITIES", "0")
+    hits = await _list_durable_entities_by_type(
+        _Manager(_fragment_entities()),
+        group_id="default",
+        limit=5,
+    )
+    names = [h["entity"]["name"] for h in hits]
+    assert "I'll make sure" in names
+
+
+@pytest.mark.asyncio
+async def test_list_durable_entities_dedupes_identical_summaries_under_distinct_names():
+    """One FACT must not fill every slot just because it wears several names.
+
+    The name dedupe cannot see this: the rows have distinct names and an
+    identical summary body. Observed live as three briefing slots restating the
+    same decision.
+    """
+    shared = "Product continuity fails if get_context cannot surface graph Decisions"
+    entities = [
+        _Entity("dup_a", "Cold Decision hit requires healthy search index", "Decision", shared),
+        _Entity("dup_b", "Search index health gates cold Decision hits", "Decision", shared),
+        _Entity("dup_c", "Healthy index is required for Decision recall", "Decision", shared),
+        _Entity(
+            "dec_sparse",
+            "Prefer sparse agent promotion",
+            "Decision",
+            "Passive observe plus sparse remember keeps the graph high signal",
+        ),
+    ]
+    hits = await _list_durable_entities_by_type(
+        _Manager(entities),
+        group_id="default",
+        limit=3,
+    )
+    summaries = [h["entity"]["summary"] for h in hits]
+    assert summaries.count(shared) == 1
+    names = [h["entity"]["name"] for h in hits]
+    assert "Prefer sparse agent promotion" in names
+
+
+@pytest.mark.asyncio
+async def test_summary_dedupe_keeps_rows_with_short_shared_labels():
+    """Guard the dedupe knob: short shared summaries are labels, not facts."""
+    entities = [
+        _Entity("a", "Prefer lite for smoke tests", "Decision", "gate"),
+        _Entity("b", "Prefer native for the dogfood brain", "Decision", "gate"),
+    ]
+    hits = await _list_durable_entities_by_type(
+        _Manager(entities),
+        group_id="default",
+        limit=5,
+    )
+    names = [h["entity"]["name"] for h in hits]
+    assert "Prefer lite for smoke tests" in names
+    assert "Prefer native for the dogfood brain" in names
+
+
+def test_packet_summary_collapses_repeated_clauses():
+    """merge_entity_attributes appends '; {new}' forever; packets repeated it.
+
+    Observed live: "Cold Decision hit...; Cold Decision hit...; Cold Decision
+    hit..." — one packet restating its own title three times.
+    """
+    from engram.retrieval.packets import _packet_summary
+
+    clause = "Cold Decision hit requires a healthy search index"
+    entity = {"name": "Cold Decision hit", "summary": "; ".join([clause] * 3)}
+    summary = _packet_summary("fact_packet", entity, [])
+    assert summary.count("Cold Decision hit") == 1
+
+    # Distinct clauses are updates, not noise — they must all survive.
+    entity_two = {
+        "name": "Cold Decision hit",
+        "summary": f"{clause}; index rebuilt 2026-07-24; breaker pre-armed",
+    }
+    kept = _packet_summary("fact_packet", entity_two, [])
+    assert "index rebuilt 2026-07-24" in kept
+    assert "breaker pre-armed" in kept
+
+
 @pytest.mark.asyncio
 async def test_durable_context_payload_surfaces_strategy_decisions():
     entities = [

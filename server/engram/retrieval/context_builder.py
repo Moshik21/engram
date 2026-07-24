@@ -38,6 +38,13 @@ SESSION_RECENT_PACKET_SCOPE = "session_recent"
 # the first cold pack within a short TTL. Independent of packet-cache config.
 _DURABLE_CONTEXT_PROCESS_CACHE_TTL_SECONDS = 45.0
 _DURABLE_CONTEXT_HARD_BUDGET_SECONDS = 2.0
+# Durable-listing summary dedupe: two entities with distinct names but the same
+# summary body are one fact, and must not take two briefing slots. The word
+# floor keeps short shared labels ("gate", "sparse remember") from collapsing
+# genuinely different rows; the prefix bound tolerates the "; "-appended tail
+# that merge_entity_attributes adds over time.
+_SUMMARY_DEDUPE_MIN_WORDS = 5
+_SUMMARY_DEDUPE_PREFIX_CHARS = 160
 # key -> (expires_at_monotonic, packets, entity_ids)
 _durable_context_process_cache: dict[
     tuple[str, str],
@@ -2350,7 +2357,9 @@ async def _list_durable_entities_by_type(
     from engram.extraction.promotion import (
         durable_result_boost,
         is_durable_recall_entity_type,
+        is_prose_fragment_entity,
         is_relationship_triple_entity,
+        prose_fragment_filter_enabled,
     )
     from engram.retrieval.recall_surface import _is_decision_statement_noise
 
@@ -2361,13 +2370,19 @@ async def _list_durable_entities_by_type(
     # filter, so triples squatted "key memories to carry forward". Dropped at
     # the source (not after slot allocation) so real prose Decisions fill the
     # freed slots. Shares the rescue kill switch — same predicate, same class.
+    _cfg = _manager_activation_config(manager)
     drop_triples = bool(
         getattr(
-            _manager_activation_config(manager),
+            _cfg,
             "recall_rescue_drop_triple_entities",
             True,
         )
     )
+    # Second squatter class: prose fragments sliced out of agent report text
+    # ('use X")', "I'll make sure", "the user stated'", "it."). No colons and no
+    # "->", so the triple predicate never matched them, and once the triples
+    # were gone they took over the briefing. Same treatment, own kill switch.
+    drop_fragments = prose_fragment_filter_enabled(_cfg)
 
     graph = getattr(manager, "_graph", None) or getattr(manager, "graph_store", None)
     find_by_type = getattr(graph, "find_entities_by_type", None) if graph is not None else None
@@ -2409,7 +2424,17 @@ async def _list_durable_entities_by_type(
     def _name_key(name: str) -> str:
         return " ".join(name.casefold().split())
 
+    def _summary_key(summary: str) -> str:
+        """Normalized prefix of a fact-shaped summary, or '' when not one."""
+        words = summary.casefold().split()
+        if len(words) < _SUMMARY_DEDUPE_MIN_WORDS:
+            return ""
+        return " ".join(words)[:_SUMMARY_DEDUPE_PREFIX_CHARS]
+
     identity_names: set[str] = set()
+    # The identity branch can return early (before the shared dedupe below), so
+    # it has to enforce the summary key itself or one fact still fills the pack.
+    identity_summaries: set[str] = set()
 
     # Identity core first (usually small and continuity-critical).
     if callable(get_identity):
@@ -2432,11 +2457,18 @@ async def _list_durable_entities_by_type(
                     continue
                 if drop_triples and is_relationship_triple_entity(name, summary):
                     continue
+                if drop_fragments and is_prose_fragment_entity(name):
+                    continue
                 if not is_durable_recall_entity_type(et):
                     continue
                 if _name_key(name) in identity_names:
                     continue
+                identity_summary_key = _summary_key(summary)
+                if identity_summary_key and identity_summary_key in identity_summaries:
+                    continue
                 identity_names.add(_name_key(name))
+                if identity_summary_key:
+                    identity_summaries.add(identity_summary_key)
                 hits.append(
                     {
                         "result_type": "entity",
@@ -2486,6 +2518,8 @@ async def _list_durable_entities_by_type(
             et = str(row.get("entity_type") or row.get("type") or entity_type)
             if drop_triples and is_relationship_triple_entity(name, str(row.get("summary") or "")):
                 continue
+            if drop_fragments and is_prose_fragment_entity(name):
+                continue
             if not is_durable_recall_entity_type(et):
                 continue
             eid = str(row.get("id") or "")
@@ -2518,13 +2552,28 @@ async def _list_durable_entities_by_type(
     hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
     # Highest-scored row wins each name; the rest are near-duplicates that would
     # repeat one fact across every briefing slot.
+    #
+    # The name key alone is not enough. The live failure is one FACT under
+    # SEVERAL names — distinct fragment names ("use X\")", "I'll make sure")
+    # carrying an identical summary body, so every briefing slot restates the
+    # same thing. The summary key closes that hole. It only fires on
+    # fact-shaped summaries (>= _SUMMARY_DEDUPE_MIN_WORDS words) so that short
+    # shared labels ("gate", "sparse remember") and empty summaries still
+    # produce distinct rows.
     deduped: list[dict[str, Any]] = []
     seen_names: set[str] = set()
+    seen_summaries: set[str] = set()
     for hit in hits:
-        key = _name_key(str((hit.get("entity") or {}).get("name") or ""))
+        entity = hit.get("entity") or {}
+        key = _name_key(str(entity.get("name") or ""))
         if key in seen_names:
             continue
+        summary_key = _summary_key(str(entity.get("summary") or ""))
+        if summary_key and summary_key in seen_summaries:
+            continue
         seen_names.add(key)
+        if summary_key:
+            seen_summaries.add(summary_key)
         deduped.append(hit)
     hits = deduped
     if topic_terms:

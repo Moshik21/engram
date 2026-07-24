@@ -297,6 +297,218 @@ def is_relationship_triple_entity(name: str | None, summary: str | None = None) 
     return bool(_TRIPLE_SUMMARY_RE.match(summary or ""))
 
 
+# ---------------------------------------------------------------------------
+# Prose-fragment squatters (the class after relationship triples)
+# ---------------------------------------------------------------------------
+# Extraction slices agent report text into "Decision"/"Concept" entities whose
+# names are sentence scrap: 'use X")', "I'll make sure", "the user stated'",
+# "it.", "If you", "Right now the benchmark". They carry no fact, but they are
+# durable-typed, so they win session-start briefing slots from real memories.
+# `is_relationship_triple_entity` never matched them (no colons, no "->"), so
+# once the triples were removed (09813eb / d85de36) these became the dominant
+# briefing squatter.
+#
+# CONSERVATIVE BY CONSTRUCTION. A false positive silently deletes a real memory
+# from the briefing, which is strictly worse than leaving one junk row. Every
+# rule below has to be unambiguous on its own — "reads informally" is not a
+# rule. Shapes that a real memory could plausibly take (e.g. "engram/server",
+# "The Engram Project", "decision: use lite for smoke tests") are KEPT on
+# purpose, even when that means letting some scrap through.
+
+# Function words. A name that both starts and ends inside this set, with no
+# capitalized content token to anchor it, is a truncated sentence, not a name.
+_FUNCTION_WORDS: frozenset[str] = frozenset(
+    {
+        # determiners / articles
+        "a", "an", "the", "this", "that", "these", "those", "some", "any",
+        "no", "every", "each", "all", "both", "either", "neither",
+        # prepositions
+        "of", "in", "on", "at", "to", "for", "with", "from", "by", "as",
+        "into", "onto", "about", "over", "under", "between", "through",
+        "during", "without", "within", "after", "before", "than", "until",
+        "upon", "against", "toward", "towards", "per", "via",
+        # conjunctions
+        "and", "or", "but", "so", "because", "if", "while", "when", "unless",
+        "although", "though", "since", "whether", "nor", "yet",
+        # pronouns
+        "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us",
+        "them", "my", "your", "his", "its", "our", "their", "mine", "yours",
+        "theirs", "who", "whom", "whose", "which", "what",
+        # auxiliaries / modals
+        "is", "are", "was", "were", "be", "been", "being", "am", "do", "does",
+        "did", "have", "has", "had", "will", "would", "shall", "should",
+        "can", "could", "may", "might", "must",
+        # adverbial glue
+        "not", "very", "just", "only", "also", "too", "then", "there", "here",
+        "now", "still", "even", "already",
+    }
+)  # fmt: skip
+
+# Conversational bigram openers. Precise on purpose: "right now the benchmark"
+# is scrap, but "Right to repair" is a real concept — only the bigram fires.
+_FRAGMENT_OPENING_BIGRAMS: frozenset[str] = frozenset(
+    {
+        "right now",
+        "so far",
+        "for now",
+        "in fact",
+        "of course",
+        "by the",
+        "as well",
+        "that said",
+        "in short",
+        "at this",
+    }
+)
+
+# First person openers. Case-insensitive but the lookahead keeps "I/O latency"
+# (a real technology name) out.
+_FIRST_PERSON_OPENER_RE = re.compile(r"^i(?:['’](?:m|ll|ve|d))?(?=[\s,.:;!?]|$)", re.I)
+
+# Trailing abbreviations that legitimately end in a period.
+_TERMINAL_ABBREVIATIONS: frozenset[str] = frozenset(
+    {
+        "inc", "ltd", "corp", "co", "llc", "plc", "jr", "sr", "st", "dr",
+        "mr", "mrs", "ms", "prof", "etc", "vs", "no", "approx", "dept",
+        "univ", "u.s", "u.k", "ph.d", "e.g", "i.e",
+    }
+)  # fmt: skip
+
+_EDGE_PUNCT = "\"'‘’“”.,;:!?()[]{}<>*_-—– "
+_FILE_EXTENSION_RE = re.compile(r"\.[a-z0-9]{1,6}$", re.I)
+
+
+def _fragment_tokens(text: str) -> list[str]:
+    return [tok for tok in text.split() if tok]
+
+
+def _bare_word(token: str) -> str:
+    return token.strip(_EDGE_PUNCT).casefold()
+
+
+def _has_capitalized_anchor(tokens: list[str], start: int) -> bool:
+    """True when some token from ``start`` onward looks like a proper noun.
+
+    A capitalized content token is what separates "The Engram Project" (real)
+    from "the user stated" (scrap), so it vetoes the function-word rules.
+    """
+    for token in tokens[start:]:
+        stripped = token.strip(_EDGE_PUNCT)
+        if len(stripped) >= 2 and stripped[0].isupper():
+            return True
+    return False
+
+
+def _is_slash_scrap(name: str) -> bool:
+    """Bare path/slash scrap: one token containing '/' plus corroborating shape.
+
+    Deliberately does NOT fire on the ``owner/repo`` shape ("engram/server",
+    "anthropics/claude-code"), which a real Project entity can legitimately
+    use. That leaves two-segment lowercase scrap ("no-go/depth",
+    "insert/update") in the graph — an accepted miss, because no name-only
+    signal separates it from a repo slug.
+    """
+    if "/" not in name or any(ch.isspace() for ch in name):
+        return False
+    if name.casefold().strip(".") in {"n/a", "na"}:
+        return True
+    segments = [seg for seg in name.split("/") if seg]
+    if len(segments) >= 3:
+        return True
+    if any(any(ch.isdigit() for ch in seg) for seg in segments):
+        return True
+    if any(_FILE_EXTENSION_RE.search(seg) for seg in segments):
+        return True
+    letters = [ch for ch in name if ch.isalpha()]
+    if letters and all(ch.isupper() for ch in letters):
+        return True
+    return False
+
+
+def is_prose_fragment_entity(name: str | None) -> bool:
+    """True when an entity name is sentence scrap rather than a memory.
+
+    Name-only on purpose: the summary of a fragment entity is often a real
+    sentence, so summary text cannot arbitrate. See the module comment for the
+    conservatism contract.
+    """
+    raw = str(name or "")
+    if not raw.strip():
+        return False
+    if "\n" in raw or "\r" in raw:
+        # Entity names never span lines; this is a captured paragraph.
+        return True
+
+    text = " ".join(raw.split())
+    stripped = text.strip()
+
+    # Unbalanced delimiters — the name was cut out of the middle of a quotation.
+    if stripped.count('"') % 2 == 1:
+        return True
+    for opener, closer in (("(", ")"), ("[", "]"), ("{", "}")):
+        if stripped.count(opener) != stripped.count(closer):
+            return True
+    for quote in ("'", "’"):
+        # Only a DANGLING quote counts; "Konner's laptop" is a real name.
+        if (stripped.startswith(quote) or stripped.endswith(quote)) and stripped.count(
+            quote
+        ) % 2 == 1:
+            return True
+
+    if _is_slash_scrap(stripped):
+        return True
+
+    tokens = _fragment_tokens(stripped)
+    if not tokens:
+        return False
+
+    # Terminal sentence punctuation ("it.", "…make sure!").
+    if stripped[-1] in ".!?":
+        tail = tokens[-1].rstrip(".!?").casefold()
+        if tail and tail not in _TERMINAL_ABBREVIATIONS:
+            return True
+
+    first = _bare_word(tokens[0])
+    last = _bare_word(tokens[-1])
+
+    # Bare function word standing alone ("The", "it", "should").
+    if len(tokens) == 1:
+        return bool(first) and first in _FUNCTION_WORDS
+
+    if _FIRST_PERSON_OPENER_RE.match(stripped):
+        return True
+
+    anchored = _has_capitalized_anchor(tokens, 1)
+
+    if not anchored and " ".join((first, _bare_word(tokens[1]))) in _FRAGMENT_OPENING_BIGRAMS:
+        return True
+
+    # Opens on a function word and never reaches a proper noun.
+    if not anchored and first in _FUNCTION_WORDS:
+        return True
+
+    # Dangles on a function word ("If you", "…OpenClaw should").
+    if last in _FUNCTION_WORDS:
+        return True
+
+    return False
+
+
+def prose_fragment_filter_enabled(config: object | None = None) -> bool:
+    """Kill switch for the prose-fragment squatter filter (default ON).
+
+    Reads ``ENGRAM_DROP_PROSE_FRAGMENT_ENTITIES`` first so an operator can
+    disable the filter without a config edit, then the ActivationConfig field
+    ``recall_drop_prose_fragment_entities`` when it exists.
+    """
+    import os
+
+    override = os.environ.get("ENGRAM_DROP_PROSE_FRAGMENT_ENTITIES")
+    if override is not None and override.strip():
+        return override.strip().casefold() not in {"0", "false", "no", "off"}
+    return bool(getattr(config, "recall_drop_prose_fragment_entities", True))
+
+
 def is_auto_capture_source(source: str | None) -> bool:
     if not source:
         return False

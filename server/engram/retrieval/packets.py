@@ -371,8 +371,33 @@ def _packet_title(packet_type: str, entity_name: str) -> str:
     return f"{labels.get(packet_type, 'Memory')}: {entity_name}"
 
 
+def _dedupe_summary_clauses(summary: str) -> str:
+    """Collapse clauses repeated verbatim inside one entity summary.
+
+    ``merge_entity_attributes`` appends every re-extraction as ``f"{old}; {new}"``,
+    so an entity that gets restated across episodes accumulates the same
+    sentence several times. Truncating that at 180 chars produced packets that
+    repeated their own title three times ("Cold Decision hit…; Cold Decision
+    hit…; Cold Decision hit…"). Only EXACT (whitespace/case-normalized) repeats
+    are dropped — near-duplicate clauses can carry a real update and are kept.
+    """
+    if "; " not in summary:
+        return summary
+    kept: list[str] = []
+    seen: set[str] = set()
+    for clause in summary.split("; "):
+        key = " ".join(clause.split()).casefold()
+        if not key:
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(clause.strip())
+    return "; ".join(kept) if kept else summary
+
+
 def _packet_summary(packet_type: str, entity: dict, evidence_lines: list[str]) -> str:
-    summary = (entity.get("summary") or "").strip()
+    summary = _dedupe_summary_clauses((entity.get("summary") or "").strip())
     if packet_type == "open_loop_packet" and evidence_lines:
         return f"Pending thread around {entity['name']}. {evidence_lines[0]}"
     if packet_type == "state_packet" and summary:
