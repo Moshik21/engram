@@ -206,7 +206,8 @@ the battery score table below is filled.
 | Baseline 2026-07-22 | 3/10 (1 weak, 1 wrong-hit) |
 | Post phase-1+2, bootstrap healed (2026-07-24) | **6/10**, B4 machinery-clean |
 | Post recency chunk re-index (2026-07-24) | **3/10** — regressed by recall latency (see assessment), NOT mechanisms |
-| Blocked at | latency ceiling (native HNSW + durable-rescue fallback cascade); B1 ≥7 unmet |
+| Post salvage-on-timeout fix 2277e2e (2026-07-24) | **5/10** — recovered part of the regression |
+| Blocked at | B1 ≥7 unmet: 1500ms cancel lands DURING materialize (stats 249 + search 985 + materialize-cap 300 = 1534ms), so post-materialize salvage is empty. Full fix = pre-materialize capture + bounded salvage-materialize, and two-stage chunk retrieval. Battery jittery 3-6 at the latency boundary. |
 
 
 ## Session completion assessment (2026-07-24)
