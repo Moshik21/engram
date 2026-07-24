@@ -322,3 +322,153 @@ Compaction drops that to 37%, which buys time but does not remove the ceiling.
 Raising `db_max_size_gb` costs nothing at rest (LMDB does not preallocate) and
 should be done in the same rebuild that ships `compact()`. Not changed here:
 untested, and out of scope for a measurement task.
+
+---
+
+## 7. M6 MEASURED AND NOT SHIPPED (2026-07-24) — two-stage recall
+
+Built the two-stage retrieval path (retrieve deep, rerank precisely with the
+local cross-encoder, return small) end to end, measured it against the
+agent-experience battery, and **reverted it**. The mechanism works and is
+verified; the battery could not resolve whether it helps, because the
+instrument's own variance turned out to be larger than the effect. Recording
+the numbers so this is not re-litigated from assumptions a fourth time.
+
+### 7.1 What the investigations established first (these still hold)
+
+- **The answer is usually IN the pool.** For 3 of 5 battery misses the answer
+  episode was retrieved, scored, then discarded by the 5-row cut — sighted at
+  ranks 10, 19, 42 of ~40-60 candidates. For 2 (`ts-kill`, `flip-condition`) it
+  never came back at all, not even when the query *was its own opening
+  sentence*, while control episodes returned at rank 1 under the identical
+  probe. That is an index/embedding gap, a separate black hole. Ceiling for any
+  ranking work: 7/10, not 10/10.
+- **The surfaced score could not support a shape-aware cut.** It was purely
+  positional (RRF, `0.4 x 61/(60+rank)`), and the two fused lanes' raw scores
+  run on *opposite* scales — episode search descends with rank (real cosine),
+  chunk search ascends (`_extract_chunk_score`, `pipeline.py`). A
+  fraction-of-top cutoff read off that field reads rank, not relevance.
+- **All three surfaces are one code path.** REST, MCP and axi converge on
+  `_run_explicit_recall_with_budget` with identical budgets, and this install
+  has no MCP server configured — the live integration is `engram axi hook-run`
+  over REST. The battery's surface IS the agent's surface.
+- **The battery reads the TOP 3** (`engram/evaluation/battery.py`, `limit=3`).
+  Raising caps alone cannot move it. Depth is necessary but not sufficient.
+
+### 7.2 What was built (reconstructable from here)
+
+- `_rerank_episode_pool` / `_maybe_rerank_episode_pool` in
+  `engram/retrieval/pipeline.py`: rank the whole episode/cue candidate pool with
+  the FastEmbed cross-encoder and write a squashed 0..1 relevance back onto the
+  candidates, so the passage-first top-k cut selects by relevance instead of by
+  two incomparable lane scales.
+- Affordability, which is the entire difference from the attempts that measured
+  negative before (they lost to *latency thrash*, not bad ordering):
+  1. **Reuse the chunk passage already retrieved** rather than re-fetching. It
+     is by construction the query-local span. Measured live:
+     `recallRerankerFetch = 0.9-1.7ms`, `recallRerankerDocCoverage = 1.0`.
+     Document assembly is essentially free.
+  2. **Cap documents by count AND characters** (40 x 600 chars).
+  3. **A substage timeout that can actually finish** (75ms -> 1000ms). At 75ms
+     the rerank always timed out and its result was discarded — it cost latency
+     and bought nothing, which is what the old "measured and ruled out" verdict
+     was really measuring.
+- `engram/retrieval/recall_shape.py`: honest N-of-M disclosure
+  (`"returned 7 of 44 candidates; ask again with a higher limit if the answer is
+  not here"`), an output-**token** budget wired into the RecallBudget's own
+  `max_output_tokens` (previously carried and never enforced), and a **relative**
+  score cutoff, all floored by `recall_shape_min_results` so they can never
+  remove the top-k a caller reads.
+- `quiet` profile flip: `reranker_enabled=True`, `reranker_provider="local"`,
+  `reranker_rerank_episodes=True`, kill switch
+  `ENGRAM_ACTIVATION__RERANKER_PROVIDER=noop`.
+
+Full suite green (5,099 passed), ruff clean, plus 8 new rerank tests and 16 new
+shaping tests. Working patch saved off-tree for this session only.
+
+### 7.3 Cross-encoder cost table (measured, reusable)
+
+| documents | chars/doc | warm latency |
+|---|---|---|
+| 40 | 400 | 418ms |
+| 40 | 600 | 360ms |
+| 48 | 600 | 442ms |
+| 48 | 800 | 632ms |
+| 60 | 800 | 857ms |
+| 50 | ~2400 (400 words) | 2,650ms |
+| 80 | ~2400 (400 words) | 5,033ms |
+
+In-process, contending with the embedder, the 40x600 case measures 520-960ms.
+Against a 4000ms recall wall that already spends ~2,900ms, this is the entire
+budget envelope. **Depth is bounded by rerank cost, not by search cost.**
+
+### 7.4 The result: the instrument cannot resolve the effect
+
+Interleaved A/B, identical code state, restart + warm before each arm:
+
+| arm | battery runs | median |
+|---|---|---|
+| OFF (session start) | 4, 3, 3 | 3 |
+| OFF (at HEAD 3caba69) | 4, 4, 3 | 4 |
+| **OFF (A/B arm 1)** | 4, 4, 4, 4, 4 | **4** |
+| **ON (A/B arm 1)** | 3, 4, 4, 4, 4 | **4** |
+| **OFF (A/B arm 2)** | 3, 2, 3 | **3** |
+| **ON (A/B arm 2)** | 1, 4, 4 | **4** |
+| ON (warmed, earlier state) | 5, 5, 5, 4, 4 | 5 |
+| ON (post-restart, same code) | 3, 3, 3, 3, 3 | 3 |
+
+The same build measured 5,5,5,4,4 and 3,3,3,3,3 twenty minutes apart, and 1 to 4
+inside a single arm. The hit SET changes run to run (`durable-lane`,
+`deleted-phases`, `north-star` appearing and vanishing) because rescue lanes
+race the wall: `cache_satisfied`, `fast_preflight_hit`, `durable_entity_first`
+and `partial_on_timeout` each serve a different response, and only one of them
+reaches the deep pipeline at all.
+
+`north-star` looked like a regression in the ON arm. It is not: it is served by
+`fast_preflight_hit` with `n=1` and no hit **in both arms** — a lane the rerank
+never touches.
+
+**Decision rule applied:** the battery median did not improve (4 vs 4 in the
+tightest paired comparison), so the change was reverted despite the mechanism
+being verified.
+
+### 7.5 What DID hold up, and is worth rebuilding on
+
+- **`bm25-breaker` moved from never-hit to always-hit.** It hit 5/5 in the ON
+  arm and 0/13 across every OFF arm. It is exactly the question the
+  investigation flagged as found-but-ranked-low (ranks 19, 36, 44). That is a
+  mechanism-attributable win, not jitter.
+- **Fresh-agent suite** (a less jittery instrument): engram score 4 -> 5, lift
+  vs the project-file control -2 -> -1.
+- **Token cost is real and unpaid.** Engram surfaced 79,066 chars against the
+  project-file control's 13,275 (before: 56,086) — roughly 6x the context for
+  one fewer correct answer. The relative score floor was inert on live
+  distributions (top 0.400 / min 0.256, ratio 0.64, far above a 0.05 floor), so
+  the shaping disclosed honestly but trimmed nothing.
+
+### 7.6 Two real bugs found on the way — independently actionable
+
+1. **The recall graph gate starves the rerank (and anything else that needs
+   episode content).** `GatedGraphStore` blocks `get_episode_by_id` whenever the
+   stats/graph probe timed out, which is *most* queries on this brain
+   (`recall_stats_timeout` fires routinely). The content fetch was answered with
+   `None` in 0.11ms, collapsing document coverage to 0.2-0.55 on exactly the
+   questions whose candidates carried no chunk passage. Reading through the gate
+   under an explicit bound took coverage to 1.0 and is what moved `bm25-breaker`
+   from rank 19/36/44 to rank 1-2. The gate is protecting against unbounded
+   latency by silently returning wrong answers to bounded callers.
+2. **The pipeline skips Step 5.5 entirely when the entity lane is empty**
+   (`pipeline.py`, the `if not candidates:` early return). That is the ordinary
+   path for the *default* episode-vector tier
+   (`passage_first_entity_budget=0`), so the core tier's reranking — and any
+   future stage-5.5 work — is unreachable there. Any rerank must be shared by
+   both call sites.
+
+### 7.7 Before re-attempting this: fix the instrument
+
+The battery cannot currently distinguish a +1 effect from noise, and this knob
+has now been mis-measured three times because of it. The blocker is not the
+ranker; it is that four rescue lanes race the wall and a different one wins each
+run. Either pin the lane under test (a `deep_pipeline_only` measurement mode) or
+report per-question hit rate over N runs instead of a single median, before
+spending more effort on ranking.
