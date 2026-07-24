@@ -116,6 +116,96 @@ async def test_list_durable_entities_skips_decision_statement_scrap():
     assert all("decision_statement" not in n for n in names)
 
 
+def _triple_entities() -> list[_Entity]:
+    """Two relationship triples ahead of the real prose Decisions in list order."""
+    return [
+        _Entity(
+            "trip_name",
+            "Engram:full_mode_default_behavior:rework",
+            "Decision",
+            "Engram -> full_mode_default_behavior -> rework",
+        ),
+        _Entity(
+            "trip_summary",
+            "Engram public launch path",
+            "Decision",
+            "Engram -> public_launch_path -> OpenClaw",
+        ),
+        _Entity(
+            "dec_index",
+            "Cold Decision hit requires healthy search index",
+            "Decision",
+            "Product continuity fails if get_context cannot surface graph Decisions",
+        ),
+        _Entity(
+            "dec_sparse",
+            "Prefer sparse agent promotion",
+            "Decision",
+            "Passive observe + sparse remember",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_durable_entities_drops_relationship_triples():
+    """Graph-edge triples must never take a briefing slot from a prose Decision.
+
+    Regression pin for the live session-start defect: two of three "key memories
+    to carry forward" were relationship triples (09813eb / d85de36 removed the
+    same squatters from the rescue and reserved lane; this is the briefing).
+    """
+    hits = await _list_durable_entities_by_type(
+        _Manager(_triple_entities()),
+        group_id="default",
+        limit=2,
+    )
+    names = [h["entity"]["name"] for h in hits]
+    summaries = [h["entity"]["summary"] for h in hits]
+    assert "Engram:full_mode_default_behavior:rework" not in names
+    assert all("->" not in s for s in summaries)
+    # Freed slots go to real prose Decisions, not to a shorter briefing.
+    assert "Cold Decision hit requires healthy search index" in names
+    assert "Prefer sparse agent promotion" in names
+
+
+@pytest.mark.asyncio
+async def test_durable_briefing_excludes_relationship_triples():
+    invalidate_durable_context_cache()
+    payload = await _durable_context_payload_from_manager(
+        _Manager(_triple_entities()),
+        group_id="triple_group",
+        topic_hint=None,
+        project_path="/Users/konnermoshier/Engram",
+        format="briefing",
+        budget=_budget(),
+        started=time.perf_counter(),
+    )
+    invalidate_durable_context_cache("triple_group")
+    assert payload is not None
+    blob = payload["context"] + json_packets(payload)
+    assert "Key memor" in payload["context"]
+    assert "->" not in blob
+    assert "full_mode_default_behavior" not in blob
+    assert "Cold Decision hit requires healthy search index" in blob
+
+
+@pytest.mark.asyncio
+async def test_briefing_triple_filter_has_kill_switch():
+    from engram.config import ActivationConfig
+
+    class _KeepTriplesManager(_Manager):
+        def get_activation_config(self) -> ActivationConfig:
+            return ActivationConfig(recall_rescue_drop_triple_entities=False)
+
+    hits = await _list_durable_entities_by_type(
+        _KeepTriplesManager(_triple_entities()),
+        group_id="default",
+        limit=4,
+    )
+    names = [h["entity"]["name"] for h in hits]
+    assert "Engram:full_mode_default_behavior:rework" in names
+
+
 @pytest.mark.asyncio
 async def test_durable_context_payload_surfaces_strategy_decisions():
     entities = [

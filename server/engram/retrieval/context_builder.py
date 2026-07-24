@@ -2347,8 +2347,27 @@ async def _list_durable_entities_by_type(
     returned so the topic-aware slot selector can rank it. Same probes, no new
     scan types.
     """
-    from engram.extraction.promotion import durable_result_boost, is_durable_recall_entity_type
+    from engram.extraction.promotion import (
+        durable_result_boost,
+        is_durable_recall_entity_type,
+        is_relationship_triple_entity,
+    )
     from engram.retrieval.recall_surface import _is_decision_statement_noise
+
+    # Relationship-triple entities (name "X:Y:Z" / summary "X -> Y -> Z") are
+    # graph EDGES the decision_materializer renders as Decisions. They were
+    # already removed from the durable rescue (09813eb) and the durable
+    # reserved lane (d85de36); the session-start briefing listing never got the
+    # filter, so triples squatted "key memories to carry forward". Dropped at
+    # the source (not after slot allocation) so real prose Decisions fill the
+    # freed slots. Shares the rescue kill switch — same predicate, same class.
+    drop_triples = bool(
+        getattr(
+            _manager_activation_config(manager),
+            "recall_rescue_drop_triple_entities",
+            True,
+        )
+    )
 
     graph = getattr(manager, "_graph", None) or getattr(manager, "graph_store", None)
     find_by_type = getattr(graph, "find_entities_by_type", None) if graph is not None else None
@@ -2400,6 +2419,8 @@ async def _list_durable_entities_by_type(
                     summary = str(getattr(ent, "summary", "") or "")
                 if not eid or not name or _is_decision_statement_noise(name):
                     continue
+                if drop_triples and is_relationship_triple_entity(name, summary):
+                    continue
                 if not is_durable_recall_entity_type(et):
                     continue
                 hits.append(
@@ -2449,6 +2470,8 @@ async def _list_durable_entities_by_type(
                     "activation_score": 0.0,
                 }
             et = str(row.get("entity_type") or row.get("type") or entity_type)
+            if drop_triples and is_relationship_triple_entity(name, str(row.get("summary") or "")):
+                continue
             if not is_durable_recall_entity_type(et):
                 continue
             eid = str(row.get("id") or "")
