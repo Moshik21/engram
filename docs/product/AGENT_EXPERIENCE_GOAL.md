@@ -88,34 +88,34 @@ not to indexing.
 
 ### M0 — Keystone primitive + index-integrity immune drain [UNBLOCKS EVERYTHING]
 
-- [ ] **M0.1 By-id probes in schema.hx**: `find_episode_vectors_by_ids`,
+- [x] **M0.1 By-id probes in schema.hx**: `find_episode_vectors_by_ids`,
       `find_cue_vectors_by_ids`, `find_bm25_doc_by_id` (entity/episode/cue) —
       mirrors the existing `find_entity_vectors_by_ids`. Requires D1 regen
       window. DoD: probes return exact presence for known-written ids
       (the ANN-census under-reporting instrument bug dies here).
-- [ ] **M0.2 Consistency drain** in the hygiene mop: bounded cursor-driven
+- [x] **M0.2 Consistency drain** in the hygiene mop: bounded cursor-driven
       diff of graph rows vs index docs, both directions — orphan BM25 docs
       (the bootstrap-500 root), vector-less rows, duplicate vectors (the
       drains/backfill created known duplicates on clone paths). Repairs
       logged with counts; debt scoreboard row. DoD: mop report carries
       `index_consistency`; the live brain's stale `create_entity` BM25 doc is
       repaired; bootstrap returns 200 on a fresh session.
-- [ ] **M0.3 Write-conflict self-healing**: deterministic state-conflict
+- [x] **M0.3 Write-conflict self-healing**: deterministic state-conflict
       errors on native writes (doc-already-exists class) attempt one
       reconcile-and-retry, then surface as hygiene debt — never a silent 500
       loop. DoD: test with a planted stale doc; bootstrap-500 regression test.
-- [ ] **M0.4 Vector-delete capability check** (feeds D2): can helix native
+- [x] **M0.4 Vector-delete capability check** (feeds D2): can helix native
       remove/replace HNSW vectors and BM25 docs? Document the answer with a
       probe script; it decides M1's noise treatment.
 
 ### M1 — Write-side attention + honest re-index [P1]
 
-- [ ] **M1.1 Machinery-class detection at capture**: cheap deterministic
+- [x] **M1.1 Machinery-class detection at capture**: cheap deterministic
       classifier (protocol frames, tool-use ids, task-notification shapes,
       exit-code dumps) → episode `salience_class` field. Zero LLM. DoD:
       classifier corpus test on real hook captures from the dogfood brain;
       false-positive rate measured on genuine content.
-- [ ] **M1.2 Salience-gated embedding**: machinery-class episodes are stored
+- [x] **M1.2 Salience-gated embedding**: machinery-class episodes are stored
       and BM25/grep-reachable but get NO capture-time vectors; the mop drain
       skips them. Existing noise handled per D2. DoD: fresh-install smoke
       extended — noise episode stored but absent from vector space; battery
@@ -126,7 +126,7 @@ not to indexing.
       duplicates). DoD: sampled episodes show chunk vectors; battery
       answer-locality questions (recall-outage, fastembed-outage, ts-kill)
       re-scored.
-- [ ] **M1.4 Squatter guard**: extraction commit policy caps entity names at
+- [x] **M1.4 Squatter guard**: extraction commit policy caps entity names at
       6 tokens (excess folds into summary); observation-sourced entities
       require ≥2-episode corroboration before full ranking weight (extends
       the existing proper-name gate). DoD: the live squatter entity is
@@ -134,12 +134,12 @@ not to indexing.
 
 ### M2 — Question-space observe [P2; accelerates the RF flip]
 
-- [ ] **M2.1 Protocol**: `axi observe` accepts anticipated questions (shape
+- [x] **M2.1 Protocol**: `axi observe` accepts anticipated questions (shape
       per D3). Each becomes a cue record embedded in question-space pointing
       at the episode; agent-proposed entities accepted on the same call
       (agent-as-extractor for indexing). DoD: contract test; skill +
       client-packs updated (clawhub republish reminder).
-- [ ] **M2.2 Recall integration**: question-cues compete in the cue lane
+- [x] **M2.2 Recall integration**: question-cues compete in the cue lane
       (existing machinery — cue_recall path, M5.1 usage substrate). No new
       ranking paths. DoD: battery question stored WITH proposed questions is
       recalled at rank 1 by its natural question; cue_hit_count grows in
@@ -152,7 +152,7 @@ not to indexing.
 
 ### M3 — Durable candidate feeder [P—identity]
 
-- [ ] **M3.1** identity_core + durable-class entities (bounded: ≤64) are
+- [x] **M3.1** identity_core + durable-class entities (bounded: ≤64) are
       always present in the candidate pool (zero search cost; scoring
       decides). Flag `durable_candidate_feeder_enabled`, default off until
       battery + continuity show no regression, then flip. DoD: battery
@@ -161,7 +161,7 @@ not to indexing.
 
 ### M4 — Surfaced-never-used decay [P5; needs accumulated data]
 
-- [ ] **M4.1** Track surfaced/used ratio per episode/entity from the existing
+- [x] **M4.1** Track surfaced/used ratio per episode/entity from the existing
       usage substrate (surfaced counts exist; used counts exist). Mop-time
       consumer per D4 (demotion recommended first). Bounded, tier-aware,
       identity/durable exempt. DoD: planted chronic-surfaced-never-used items
@@ -170,11 +170,11 @@ not to indexing.
 
 ### M5 — The suites become the gate [P6]
 
-- [ ] **M5.1 Battery rig**: `agent_experience_battery.json` gets a scored
+- [x] **M5.1 Battery rig**: `agent_experience_battery.json` gets a scored
       runner (containment@3 over the axi recall surface + get_context),
       CI-runnable against a seeded corpus, dogfood-runnable against live.
       DoD: score reported per milestone lands in this doc.
-- [ ] **M5.2 Fresh-agent suite** (the advanced one): a scripted
+- [x] **M5.2 Fresh-agent suite** (the advanced one): a scripted
       Sonnet-level agent with EMPTY context + only Engram tools answers the
       battery + novel questions; measured against a no-memory control:
       answerability lift, token cost, tool-call count. This replaces the
@@ -204,8 +204,59 @@ the battery score table below is filled.
 | Checkpoint | Battery score |
 |---|---|
 | Baseline 2026-07-22 | 3/10 (1 weak, 1 wrong-hit) |
-| Post-M0 | — |
-| Post-M1 | — |
-| Post-M2 | — |
-| Post-M3 | — |
-| Final | — |
+| Post phase-1+2, bootstrap healed (2026-07-24) | **6/10**, B4 machinery-clean |
+| Post recency chunk re-index (2026-07-24) | **3/10** — regressed by recall latency (see assessment), NOT mechanisms |
+| Blocked at | latency ceiling (native HNSW + durable-rescue fallback cascade); B1 ≥7 unmet |
+
+
+## Session completion assessment (2026-07-24)
+
+Committed b906316 (phase 1) → 200fcaf (phase 2) → 2fbd4c9 (live window).
+Suite 5032+ green, ruff clean, CI green through 200fcaf.
+
+**Landed + verified (mechanisms all work):** M0 keystone (by-id probes,
+consistency drain, write-conflict self-heal, capability check — all live on
+the regenerated 198-route binary); M1.1/M1.2/M1.4 (machinery classifier
+0 FP / 1.00 recall, salience-gated embedding, squatter guard); M2.1/M2.2
+(question-space observe, e2e verbatim + paraphrase recall); M3.1 (durable
+feeder, flag-off byte-identical); M4.1 (surfaced-never-used decay, P5
+boundary pinned — zero retrieval refs); M5.1/M5.2 (battery + fresh-agent
+runners).
+
+**LIVE PROOF:**
+- **B2 PASS** — bootstrap 500→200. The BM25 upsert heals orphan docs on
+  first re-create (`replaced stale document ... idempotent upsert`). The
+  months-long every-session 500 is dead.
+- **B4 PASS** — battery machinery-clean, 0 machinery-class episodes in any
+  top-3 (hook-noise pollution eliminated).
+- **B5 PASS** — flag-off byte-identity pinned for every ranking-adjacent
+  path (durable feeder, usage decay).
+- **B3** — continuity still PASSES live (819ms < 2000ms); RF gate suite
+  green.
+
+**BLOCKED — B1 (battery ≥7/10) NOT met; the honest finding:**
+Battery went 3→6 (bootstrap heal + machinery-clean + squatter/feeder), then
+6→3 after the recency-weighted 312-episode chunk re-index. Root cause is
+NOT the mechanisms: the enlarged vector index raised recall 438→819ms,
+tipping episode queries past the 1500ms primary budget into an expensive
+**durable-entity-rescue fallback (1.5s)** that discards the ~44 found
+candidates and degrades. The battery is **latency-gated**. The vector
+search itself is fine (~985ms, finds candidates); the fixed pipeline
+overhead (stats 250ms + preflight 250ms) + the fallback cascade is the
+ceiling.
+
+**M1.3 PARKED** (built + tested, gated `reindex_sweep_enabled=False`): the
+chunk answer-locality fix is correct in principle but exposes the recall
+latency ceiling on large native brains; it needs a latency-aware redesign
+(two-stage retrieval — main vector lane first, chunk lane only on miss — or
+coarser chunking) before running unattended. Left ON it would grow the
+index corpus-wide and risk the continuity gate. This becomes the head of
+the answer-locality task (#14) and folds into the recall-latency /
+fallback-cascade work.
+
+**Net:** this program made Engram markedly more RELIABLE (bootstrap heal,
+machinery-clean, index-integrity immune drain, self-healing BM25) and built
+every write-side-attention mechanism, but the retrieval-QUALITY battery is
+now provably blocked by a recall-latency ceiling (native HNSW + fallback
+cascade at 17GB scale) — the same infrastructure frontier as the original
+deep-recall saga, one layer up. That ceiling is the true next lever.
