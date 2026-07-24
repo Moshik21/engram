@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import heapq
 import json
 import logging
 import random
@@ -92,6 +93,13 @@ def _parse_dt(value: str | None) -> datetime | None:
     # silent-ok: stored-field parse tolerance; malformed value degrades to None
     except (ValueError, TypeError):
         return None
+
+
+def _episode_status_value(raw: Any) -> str:
+    """Status string of a raw episode row, matching _dict_to_episode's coercion."""
+    if isinstance(raw, EpisodeStatus):
+        return raw.value
+    return str(raw or "pending")
 
 
 def _json_list(value: Any) -> list:
@@ -2747,21 +2755,45 @@ class HelixGraphStore:
         else:
             all_eps = await self._query("find_episodes_all", {})
 
-        episodes = [self._dict_to_episode(d, group_id) for d in all_eps]
-        if source:
-            episodes = [e for e in episodes if e.source == source]
-        if status:
-            episodes = [e for e in episodes if e.status.value == status]
+        # Bounded materialisation. The engine has no ordered/bounded episode
+        # page route (find_episodes_by_group_limited is RANGE(0, n) in LMDB
+        # key order, i.e. arbitrary), so the raw group rows still arrive in
+        # full — but ONLY the requested page is ever hydrated into Episode
+        # models. Hydrating every row decrypted, pydantic-validated and
+        # json-parsed the whole store on every page for a listing that keeps
+        # content[:200]; that is the memory profile that took the shell down
+        # on GET /api/episodes?limit=200 against a ~9.3k-episode brain.
+        fallback_created_at = utc_now()
+        eligible = 0
 
-        episodes.sort(key=lambda e: e.created_at or utc_now(), reverse=True)
+        def _candidates():
+            nonlocal eligible
+            for row in all_eps:
+                # Preserve the id-cache warming that _dict_to_episode used to
+                # do for every scanned row (cheap; avoids cold group scans).
+                self._cache_episode(
+                    self._extract_helix_id(row),
+                    row.get("episode_id", ""),
+                    row.get("group_id") or group_id,
+                )
+                if source and row.get("source") != source:
+                    continue
+                if status and _episode_status_value(row.get("status")) != status:
+                    continue
+                created_at = _parse_dt(row.get("created_at")) or fallback_created_at
+                if cursor and created_at.isoformat() >= cursor:
+                    continue
+                eligible += 1
+                yield created_at, row
 
-        # Apply cursor
-        if cursor:
-            episodes = [e for e in episodes if e.created_at.isoformat() < cursor]
+        # nlargest over a generator keeps a heap of `limit` entries — the
+        # selection itself never grows with the store. Ties keep first-seen
+        # order, matching the previous stable `sort(..., reverse=True)`.
+        page = heapq.nlargest(limit, _candidates(), key=lambda item: item[0])
 
-        result_eps = episodes[:limit]
+        result_eps = [self._dict_to_episode(row, group_id) for _created_at, row in page]
         next_cursor = None
-        if len(episodes) > limit:
+        if eligible > limit:
             next_cursor = result_eps[-1].created_at.isoformat() if result_eps else None
 
         return result_eps, next_cursor
