@@ -8,6 +8,7 @@ from typing import Any
 from engram.extraction.promotion import (
     durable_result_boost,
     is_durable_recall_entity_type,
+    is_relationship_triple_entity,
 )
 
 _CURRENT_STATE_TOKENS = {"now", "current", "currently"}
@@ -75,10 +76,19 @@ def prefer_durable_facts(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         entity = result.get("entity") or {}
         entity_type = str(entity.get("type") or entity.get("entity_type") or "")
         base_score = float(result.get("score") or 0.0)
-        durable_boost = durable_result_boost(entity_type) if result_type == "entity" else 0.0
+        # Relationship-triple entities (graph edges the materializer renders as
+        # Decisions) are excluded from the durable reserved lane: they
+        # name-match common query tokens and would bury answer episodes. They
+        # still surface as regular entities on their own score.
+        is_triple = result_type == "entity" and is_relationship_triple_entity(
+            str(entity.get("name") or ""), str(entity.get("summary") or "")
+        )
+        durable_boost = (
+            durable_result_boost(entity_type) if result_type == "entity" and not is_triple else 0.0
+        )
 
         # Type priority: durable entity > other entity > episode > cue
-        if result_type == "entity" and is_durable_recall_entity_type(entity_type):
+        if result_type == "entity" and is_durable_recall_entity_type(entity_type) and not is_triple:
             type_rank = 3
         elif result_type == "entity":
             type_rank = 2

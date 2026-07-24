@@ -214,3 +214,43 @@ class TestStageComposition:
         assert ActivationConfig(usage_beta_route=0.30).usage_beta_route == 0.30
         with pytest.raises(ValueError):
             ActivationConfig(usage_beta_route=0.31)
+
+
+class TestTripleEntitiesExcludedFromDurableLane:
+    """Relationship-triple entities (graph edges the materializer renders as
+    Decisions) must NOT get the durable RESERVED lane (type_rank 3 +
+    score-independent boost) — they name-match common query tokens and would
+    otherwise dominate. They drop to regular-entity ranking on their own
+    score. Real prose Decisions keep the lane."""
+
+    def _triple(self, score: float) -> dict:
+        return {
+            "result_type": "entity",
+            "entity": {
+                "name": "Engram:recall_profile:all",
+                "type": "Decision",
+                "summary": "Engram -> recall_profile -> all",
+            },
+            "score": score,
+        }
+
+    def test_real_prose_decision_beats_triple_despite_lower_score(self):
+        # The triple lost the reserved lane, so a real prose Decision at a much
+        # LOWER score still outranks it (rank 3 + 2.5 boost vs rank 2 + 0).
+        real = _entity_result("GOLDEN_DECISION_1783643390", "Decision", 0.01)
+        real["entity"]["summary"] = "LongMemEval is not the product north star"
+        ranked = prefer_durable_facts([self._triple(0.9), real])
+        assert ranked[0]["entity"]["name"] == "GOLDEN_DECISION_1783643390"
+
+    def test_triple_gets_no_reserved_lane_over_plain_entity(self):
+        # Against a plain Concept at equal score, the triple no longer wins by
+        # the durable reserved lane — it ties on score (both rank 2, boost 0).
+        plain = _entity_result("plain concept", "Concept", 0.5)
+        ranked = prefer_durable_facts([self._triple(0.5), plain])
+        # List order decides the tie; the triple does NOT dominate by class.
+        assert {r["entity"]["name"] for r in ranked} == {
+            "Engram:recall_profile:all",
+            "plain concept",
+        }
+        # Same-score plain entity is not buried under the triple's old 0.99.
+        assert abs(ranked[0]["score"] - ranked[1]["score"]) < 1e-9

@@ -282,6 +282,21 @@ def is_durable_recall_entity_type(entity_type: str | None) -> bool:
     return entity_type.strip() in DURABLE_RECALL_ENTITY_TYPES
 
 
+# Relationship triples the decision_materializer renders as Decision entities:
+# name "X:Y:Z" (colon-joined, no spaces) or summary "X -> Y -> Z". These are
+# graph EDGES, not answer facts; they name-match common query tokens and squat
+# the durable reserved lane, burying answer episodes. Real prose Decisions and
+# identities are not matched.
+_TRIPLE_NAME_RE = re.compile(r"^\S+:\S+:\S+$")
+_TRIPLE_SUMMARY_RE = re.compile(r"^\s*\S.*?->\s*\S.*?->\s*\S")
+
+
+def is_relationship_triple_entity(name: str | None, summary: str | None = None) -> bool:
+    if _TRIPLE_NAME_RE.match((name or "").strip()):
+        return True
+    return bool(_TRIPLE_SUMMARY_RE.match(summary or ""))
+
+
 def is_auto_capture_source(source: str | None) -> bool:
     if not source:
         return False

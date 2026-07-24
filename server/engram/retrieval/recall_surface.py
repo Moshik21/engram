@@ -11,6 +11,9 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from engram.extraction.promotion import (
+    is_relationship_triple_entity as _is_relationship_triple_entity,
+)
 from engram.models.recall import MemoryPacket
 from engram.retrieval.budgets import (
     RecallBudget,
@@ -1298,25 +1301,6 @@ def _is_decision_statement_noise(name: str) -> bool:
     from engram.extraction.promotion import is_decision_statement_noise
 
     return is_decision_statement_noise(name)
-
-
-# Relationship triples materialized as Decision entities by the
-# decision_materializer: name like "Engram:recall_profile:all" (colon-joined,
-# no spaces) or summary like "Engram -> recall_profile -> all". These are graph
-# EDGES rendered as entities — thin, no answer content. In the durable-entity
-# rescue (which fires before deep episode search) a triple that name-matches a
-# common query word (e.g. "recall") wins at 0.99 and short-circuits the search,
-# burying answer episodes. Real durable Decisions/identities are prose and are
-# NOT matched here (the continuity golden "LongMemEval is not product north
-# star" has a prose summary, no colon/arrow triple).
-_TRIPLE_NAME_RE = re.compile(r"^\S+:\S+:\S+$")
-_TRIPLE_SUMMARY_RE = re.compile(r"^\s*\S.*?->\s*\S.*?->\s*\S")
-
-
-def _is_relationship_triple_entity(name: str, summary: str) -> bool:
-    if _TRIPLE_NAME_RE.match((name or "").strip()):
-        return True
-    return bool(_TRIPLE_SUMMARY_RE.match(summary or ""))
 
 
 def _rescue_query_tokens(query: str) -> list[str]:
