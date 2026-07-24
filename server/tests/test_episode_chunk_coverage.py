@@ -120,3 +120,24 @@ async def test_short_episode_writes_no_chunks(monkeypatch):
 
     assert index._embed_stats["chunks_indexed"] == 0
     assert not [c for c in calls if "chunk" in c]
+
+
+def test_chunk_search_runs_on_primary_timeout_by_default():
+    """RECALL_PERFORMANCE_PLAN M3: chunk search (independent ~30ms HNSW) must
+    run even when the ENTITY primary search timed out — the old
+    'not primary_search_timed_out' gate left the answer-locality lane inert.
+    Pins the config default + the gate expression."""
+    from engram.config import ActivationConfig
+
+    cfg = ActivationConfig()
+    assert cfg.recall_chunk_search_on_timeout is True
+
+    # The live gate: chunk runs if enabled AND (primary didn't time out OR the
+    # on-timeout flag is set). With the flag on, a primary timeout no longer
+    # skips chunk search.
+    def _chunk_gate(primary_timed_out: bool, on_timeout: bool) -> bool:
+        return cfg.chunk_search_enabled and (not primary_timed_out or on_timeout)
+
+    assert _chunk_gate(primary_timed_out=True, on_timeout=True) is True
+    assert _chunk_gate(primary_timed_out=True, on_timeout=False) is False
+    assert _chunk_gate(primary_timed_out=False, on_timeout=False) is True

@@ -927,11 +927,17 @@ async def retrieve(
             except Exception as e:
                 logger.warning("Cue search failed (non-fatal): %s", e)
 
-    # Step 1.3: Chunk search — sub-episode precision
+    # Step 1.3: Chunk search — sub-episode precision (the answer-locality lane).
+    # Historically gated OFF whenever the ENTITY primary search timed out — but
+    # chunk SearchV is independent and ~30ms (HNSW), so that gate conflated "the
+    # entity hybrid was slow (BM25)" with "skip chunk", starving answer-episode
+    # recall. Chunk now runs on its own budget even when the primary timed out
+    # (RECALL_PERFORMANCE_PLAN M3); kill switch recall_chunk_search_on_timeout.
     chunk_hits: dict[str, dict] = {}
+    _chunk_on_timeout = bool(getattr(cfg, "recall_chunk_search_on_timeout", True))
     if (
         cfg.chunk_search_enabled
-        and not primary_search_timed_out
+        and (not primary_search_timed_out or _chunk_on_timeout)
         and hasattr(search_index, "search_episode_chunks")
     ):
         chunk_started = time.perf_counter()

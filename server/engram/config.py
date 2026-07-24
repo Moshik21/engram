@@ -1511,6 +1511,16 @@ class ActivationConfig(BaseModel):
             "episode vector indexing; 0 indexes as soon as the background lane is free."
         ),
     )
+    recall_chunk_search_on_timeout: bool = Field(
+        default=True,
+        description=(
+            "Run sub-episode chunk search even when the ENTITY primary search "
+            "timed out. Chunk SearchV is independent HNSW (~30ms); the old "
+            "'not primary_search_timed_out' gate skipped it whenever the entity "
+            "hybrid was slow (BM25 page-faults), starving answer-episode recall "
+            "(RECALL_PERFORMANCE_PLAN M3). Kill switch."
+        ),
+    )
     recall_rescue_drop_triple_entities: bool = Field(
         default=True,
         description=(
