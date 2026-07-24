@@ -269,6 +269,25 @@ DURABLE_NAMES_MUST_SURVIVE = [
     "Node2Vec (n=50)",
     "Anthropic Inc.",
     "Use the cold brain for hygiene",
+    # THE SHAPE THIS LIST WAS BLIND TO (added 2026-07-24 after a live audit).
+    # Every entry above is Title-Cased, proper-noun-anchored, or opens on a
+    # content word. None is a lowercase declarative sentence -- which is exactly
+    # the natural shape of a Correction or a Preference. Because of that blind
+    # spot the suite passed 47/47 while the shipped predicate killed 6/6 of the
+    # live Correction entities. The first two below are VERBATIM kills measured
+    # on the live brain; the rest are real facts from this project's own history.
+    # Do not remove them, and add to this block -- not the one above -- when
+    # extending coverage.
+    "don't bank that 5/10 yet",
+    "the scale defect was *not* the binding constraint on the oracle rig",
+    "the brain is at 84.8% of map_size",
+    "the graph is a repo index, not a knowledge graph",
+    "every knob is a question we haven't answered yet",
+    "no one should have a tower with Ollama running",
+    "the instruments lie",
+    "the agent is not reaching for the packet at all",
+    "spreading activation times out on ~100% of live recalls",
+    "Engram must run fully local, zero external keys",
 ]
 
 

@@ -469,7 +469,6 @@ def is_prose_fragment_entity(name: str | None) -> bool:
             return True
 
     first = _bare_word(tokens[0])
-    last = _bare_word(tokens[-1])
 
     # Bare function word standing alone ("The", "it", "should").
     if len(tokens) == 1:
@@ -478,18 +477,34 @@ def is_prose_fragment_entity(name: str | None) -> bool:
     if _FIRST_PERSON_OPENER_RE.match(stripped):
         return True
 
+    # Nothing but function words ("If you", "of the", "and then"). A real memory
+    # always carries at least one content word, so this cannot eat a declarative
+    # sentence -- unlike a rule keyed on the FIRST or LAST token alone, which is
+    # what had to be removed below.
+    bare = [word for word in (_bare_word(token) for token in tokens) if word]
+    if bare and all(word in _FUNCTION_WORDS for word in bare):
+        return True
+
     anchored = _has_capitalized_anchor(tokens, 1)
 
     if not anchored and " ".join((first, _bare_word(tokens[1]))) in _FRAGMENT_OPENING_BIGRAMS:
         return True
 
-    # Opens on a function word and never reaches a proper noun.
-    if not anchored and first in _FUNCTION_WORDS:
-        return True
-
-    # Dangles on a function word ("If you", "…OpenClaw should").
-    if last in _FUNCTION_WORDS:
-        return True
+    # NOTE: two rules were removed here (2026-07-24) because they were measured
+    # to drop REAL memories: "opens on a function word and never reaches a proper
+    # noun", and "dangles on a function word". Both fire on ordinary lowercase
+    # declarative sentences -- which is precisely the shape of a Correction or a
+    # Preference. Run over the live brain they killed 6/6 Corrections, including
+    # "don't bank that 5/10 yet" (dies on the trailing "yet") and "the scale
+    # defect was *not* the binding constraint on the oracle rig" (dies on the
+    # leading "the"). _FUNCTION_WORDS contains "the", "is", "yet", "it", "all",
+    # so no variant of these rules can be made safe by tuning the word list.
+    #
+    # The conservatism contract governs: a false positive silently deletes a real
+    # memory from the first thing an agent ever sees, and nothing reports it. A
+    # false negative leaves one junk row in the briefing, which is visible and
+    # harmless. Fragments that need a rule must get a NARROW one -- an explicit
+    # bigram above, or a structural signal -- never a part-of-speech heuristic.
 
     return False
 
