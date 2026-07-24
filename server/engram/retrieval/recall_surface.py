@@ -1300,6 +1300,25 @@ def _is_decision_statement_noise(name: str) -> bool:
     return is_decision_statement_noise(name)
 
 
+# Relationship triples materialized as Decision entities by the
+# decision_materializer: name like "Engram:recall_profile:all" (colon-joined,
+# no spaces) or summary like "Engram -> recall_profile -> all". These are graph
+# EDGES rendered as entities — thin, no answer content. In the durable-entity
+# rescue (which fires before deep episode search) a triple that name-matches a
+# common query word (e.g. "recall") wins at 0.99 and short-circuits the search,
+# burying answer episodes. Real durable Decisions/identities are prose and are
+# NOT matched here (the continuity golden "LongMemEval is not product north
+# star" has a prose summary, no colon/arrow triple).
+_TRIPLE_NAME_RE = re.compile(r"^\S+:\S+:\S+$")
+_TRIPLE_SUMMARY_RE = re.compile(r"^\s*\S.*?->\s*\S.*?->\s*\S")
+
+
+def _is_relationship_triple_entity(name: str, summary: str) -> bool:
+    if _TRIPLE_NAME_RE.match((name or "").strip()):
+        return True
+    return bool(_TRIPLE_SUMMARY_RE.match(summary or ""))
+
+
 def _rescue_query_tokens(query: str) -> list[str]:
     """Distinctive tokens for name probes (exclude generic decision/strategy words)."""
     tokens = [
@@ -1450,6 +1469,9 @@ async def _durable_entity_name_rescue_inner(
     if not callable(find) and not callable(search_entities) and not callable(find_exact):
         return []
 
+    _cfg = getattr(manager, "_cfg", None)
+    _drop_triple_rescue = bool(getattr(_cfg, "recall_rescue_drop_triple_entities", True))
+
     tokens = _rescue_query_tokens(query)
     if not tokens:
         return []
@@ -1532,6 +1554,10 @@ async def _durable_entity_name_rescue_inner(
             if not entity_id or entity_id in seen_ids:
                 continue
             if _is_decision_statement_noise(name):
+                continue
+            if _drop_triple_rescue and _is_relationship_triple_entity(name, summary):
+                # Graph-edge triple, not an answer fact — must not short-circuit
+                # the deep episode search on a common-word name match.
                 continue
 
             overlap = _name_query_overlap_score(name, query, token)

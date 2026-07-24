@@ -2776,3 +2776,19 @@ async def test_recall_ok_under_budget_never_consults_partial_getter() -> None:
     assert result["lifecycle"]["fallbackStatus"] == "not_run"
     manager.get_last_recall_partial_results.assert_not_called()
     manager.fast_recall_fallback.assert_not_awaited()
+
+
+def test_relationship_triple_entity_filter() -> None:
+    """Triple-shaped Decisions (graph edges the materializer renders as
+    entities) are dropped from the durable rescue; real prose Decisions and
+    identities are kept."""
+    from engram.retrieval.recall_surface import _is_relationship_triple_entity as f
+
+    # Graph-edge triples -> dropped
+    assert f("Engram:recall_profile:all", "Engram -> recall_profile -> all")
+    assert f("a:b:c", "")
+    assert f("", "Foo -> bar -> baz")
+    # Real durable facts -> kept (must not be filtered)
+    assert not f("GOLDEN_DECISION_1783643390", "LongMemEval is not product north star")
+    assert not f("Konner Moshier", "Founder of Engram; wants fully-local memory")
+    assert not f("recall profile", "The recall profile should be set to all for depth")

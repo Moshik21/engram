@@ -1511,6 +1511,18 @@ class ActivationConfig(BaseModel):
             "episode vector indexing; 0 indexes as soon as the background lane is free."
         ),
     )
+    recall_rescue_drop_triple_entities: bool = Field(
+        default=True,
+        description=(
+            "Drop relationship-triple entities (name 'X:Y:Z' or summary "
+            "'X -> Y -> Z' — graph edges the decision_materializer renders as "
+            "Decisions) from the durable-entity rescue. That rescue fires "
+            "before the deep episode search and short-circuits it, so a triple "
+            "name-matching a common query word (e.g. 'recall') would return at "
+            "0.99 and bury answer episodes. Real prose Decisions/identities are "
+            "unaffected. Kill switch for the ranking behavior."
+        ),
+    )
     salience_gated_embedding_enabled: bool = Field(
         default=True,
         description=(
