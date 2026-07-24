@@ -305,9 +305,11 @@ beforeEach(() => {
           scoreBreakdown: {
             semantic: 0.6,
             activation: 0.2,
+            spreading: 0.0,
             edgeProximity: 0.04,
             explorationBonus: 0.02,
           },
+          linkedEntityCount: 0,
         },
       ],
       activationLeaderboard: [],

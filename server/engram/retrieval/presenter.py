@@ -24,6 +24,7 @@ def _api_score_breakdown(result: Mapping[str, Any]) -> dict[str, float]:
     return {
         "semantic": float(bd.get("semantic", 0.0) or 0.0),
         "activation": float(bd.get("activation", 0.0) or 0.0),
+        "spreading": float(bd.get("spreading", 0.0) or 0.0),
         "edgeProximity": float(bd.get("edge_proximity", 0.0) or 0.0),
         "explorationBonus": float(bd.get("exploration_bonus", 0.0) or 0.0),
     }
@@ -127,6 +128,12 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
             },
             "score": item["score"],
             "scoreBreakdown": _api_score_breakdown(result),
+            # Externally checkable coverage for the episode graph signal: the
+            # linked-entity list is computed on the hot path and carried into
+            # the raw result, but the REST item used to drop it entirely, so
+            # "did this episode have any graph to read?" was unanswerable from
+            # outside the process.
+            "linkedEntityCount": len(item["linked_entities"]),
         }
 
     if result_type == "cue_episode":
@@ -154,6 +161,7 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
             },
             "score": item["score"],
             "scoreBreakdown": _api_score_breakdown(result),
+            "linkedEntityCount": len(_linked_entity_names(result)),
         }
 
     return {

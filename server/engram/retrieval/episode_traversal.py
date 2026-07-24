@@ -6,6 +6,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.models.episode import EpisodeProjectionState
+from engram.retrieval.episode_graph_signal import EntityGraphSignal, derive_episode_signal
 from engram.retrieval.result_builder import RecallResultBuilder
 from engram.storage.protocols import GraphStore
 
@@ -31,6 +32,7 @@ class RecallEpisodeTraversal:
         group_id: str,
         seen_episode_ids: set[str],
         candidate_entity_scores: list[tuple[str, float]] | None = None,
+        entity_signal: dict[str, EntityGraphSignal] | None = None,
     ) -> None:
         """Follow top entity hits to linked episodes and append synthetic results."""
         if not self._cfg.entity_episode_traversal_enabled:
@@ -67,18 +69,18 @@ class RecallEpisodeTraversal:
                     episode.id,
                     group_id=group_id,
                 )
+                breakdown: dict[str, Any] = {
+                    "semantic": 0.0,
+                    "exploration_bonus": 0.0,
+                    "entity_traversal": True,
+                    "parent_entity_id": entity_id,
+                    **self._graph_breakdown(linked_entities, entity_signal),
+                }
                 results.append(
                     self._result_builder.synthetic_episode_result(
                         episode,
                         score=entity_score * self._cfg.entity_episode_weight,
-                        score_breakdown={
-                            "semantic": 0.0,
-                            "activation": 0.0,
-                            "edge_proximity": 0.0,
-                            "exploration_bonus": 0.0,
-                            "entity_traversal": True,
-                            "parent_entity_id": entity_id,
-                        },
+                        score_breakdown=breakdown,
                         linked_entities=linked_entities,
                     )
                 )
@@ -89,6 +91,7 @@ class RecallEpisodeTraversal:
         *,
         group_id: str,
         seen_episode_ids: set[str],
+        entity_signal: dict[str, EntityGraphSignal] | None = None,
     ) -> None:
         """Append temporally adjacent episodes for top episode hits."""
         if not self._cfg.temporal_contiguity_enabled:
@@ -116,21 +119,45 @@ class RecallEpisodeTraversal:
                     adjacent_episode.id,
                     group_id=group_id,
                 )
+                breakdown: dict[str, Any] = {
+                    "semantic": 0.0,
+                    "exploration_bonus": 0.0,
+                    "temporal_contiguity": True,
+                    "parent_episode_id": episode_id,
+                    **self._graph_breakdown(linked_entities, entity_signal),
+                }
                 results.append(
                     self._result_builder.synthetic_episode_result(
                         adjacent_episode,
                         score=episode_score * self._cfg.temporal_contiguity_weight,
-                        score_breakdown={
-                            "semantic": 0.0,
-                            "activation": 0.0,
-                            "edge_proximity": 0.0,
-                            "exploration_bonus": 0.0,
-                            "temporal_contiguity": True,
-                            "parent_episode_id": episode_id,
-                        },
+                        score_breakdown=breakdown,
                         linked_entities=linked_entities,
                     )
                 )
+
+    def _graph_breakdown(
+        self,
+        linked_entities: list[str],
+        entity_signal: dict[str, EntityGraphSignal] | None,
+    ) -> dict[str, float]:
+        """Real derived graph signal for a synthetic episode, or explicit zeros.
+
+        Previously hardcoded to 0.0, which made the traversal's own output a
+        false negative for any eval reading ``score_breakdown`` — the mechanism
+        whose whole purpose is to surface graph-linked episodes reported that
+        no graph signal reached them.
+        """
+        zeros = {"activation": 0.0, "spreading": 0.0, "edge_proximity": 0.0}
+        if not entity_signal:
+            return zeros
+        signal = derive_episode_signal(linked_entities, entity_signal, self._cfg)
+        if signal is None:
+            return zeros
+        return {
+            "activation": signal.activation,
+            "spreading": signal.spreading,
+            "edge_proximity": signal.edge_proximity,
+        }
 
     def _top_entity_scores(self, results: list[dict[str, Any]]) -> list[tuple[str, float]]:
         entity_scores: list[tuple[str, float]] = []

@@ -10,6 +10,7 @@ from typing import Any
 
 from engram.config import ActivationConfig
 from engram.retrieval.budgets import budget_profile_for_source
+from engram.retrieval.episode_graph_signal import EntityGraphSignal
 from engram.retrieval.pipeline import retrieve
 from engram.retrieval.post_process import RecallPostProcessor
 from engram.retrieval.primary_results import RecallPrimaryResultMaterializer
@@ -117,9 +118,19 @@ class RecallService:
         # passed in that mode so the default call (and stub retrieve_fns) are
         # byte-identical to today's behavior.
         entity_candidate_scores: list[tuple[str, float]] = []
+        # Per-entity ACT-R signal snapshotted inside the pipeline, so the
+        # entity->episode traversal can report the real derived values on the
+        # synthetic episodes it appends instead of hardcoded zeros. Requested
+        # only when a consumer exists, so the default call stays byte-identical.
+        entity_signal: dict[str, EntityGraphSignal] = {}
         extra_retrieve_kwargs: dict[str, Any] = {}
         if self._cfg.entity_episode_traversal_source == "candidates":
             extra_retrieve_kwargs["entity_candidates_out"] = entity_candidate_scores
+        if (
+            self._cfg.entity_episode_traversal_enabled
+            and self._cfg.entity_episode_traversal_source == "candidates"
+        ) or self._cfg.episode_graph_signal_enabled:
+            extra_retrieve_kwargs["entity_signal_out"] = entity_signal
         retrieve_started = time.perf_counter()
         try:
             scored_results = await self._retrieve(
@@ -214,6 +225,7 @@ class RecallService:
                 interaction_source=interaction_source,
                 stage_timings_ms=stage_timings_ms,
                 entity_candidates=entity_candidate_scores or None,
+                entity_signal=entity_signal or None,
             )
         except asyncio.CancelledError:
             stage_timings_ms["recall_post_process_cancelled"] = _elapsed_ms(post_started)

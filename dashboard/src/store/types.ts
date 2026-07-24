@@ -971,7 +971,7 @@ export interface RecallResultEntity {
   resultType: "entity";
   entity: { id: string; name: string; entityType: string; summary: string };
   score: number;
-  scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
+  scoreBreakdown: { semantic: number; activation: number; spreading: number; edgeProximity: number; explorationBonus: number };
   relationships: Array<{ predicate: string; source_id: string; target_id: string; weight: number }>;
 }
 
@@ -979,7 +979,8 @@ export interface RecallResultEpisode {
   resultType: "episode";
   episode: { id: string; content: string; source: string; createdAt: string };
   score: number;
-  scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
+  scoreBreakdown: { semantic: number; activation: number; spreading: number; edgeProximity: number; explorationBonus: number };
+  linkedEntityCount: number;
 }
 
 export interface RecallResultCueEpisode {
@@ -1001,7 +1002,8 @@ export interface RecallResultCueEpisode {
   };
   episode: { id: string | null; source: string | null; createdAt: string | null };
   score: number;
-  scoreBreakdown: { semantic: number; activation: number; edgeProximity: number; explorationBonus: number };
+  scoreBreakdown: { semantic: number; activation: number; spreading: number; edgeProximity: number; explorationBonus: number };
+  linkedEntityCount: number;
 }
 
 export type RecallResult = RecallResultEntity | RecallResultEpisode | RecallResultCueEpisode;

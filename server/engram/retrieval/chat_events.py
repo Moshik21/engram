@@ -222,6 +222,7 @@ def _empty_breakdown() -> dict[str, float]:
     return {
         "semantic": 0,
         "activation": 0,
+        "spreading": 0,
         "edge_proximity": 0,
         "exploration_bonus": 0,
     }

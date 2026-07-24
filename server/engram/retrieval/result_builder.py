@@ -191,9 +191,14 @@ class RecallResultBuilder:
 
     @staticmethod
     def _base_score_breakdown(scored_result: ScoredResult) -> dict[str, float]:
+        # `spreading` is emitted even though it is frequently 0.0: without it a
+        # build that sets ScoredResult.spreading is invisible on every surface
+        # by construction, which is how a computed-but-discarded value stays
+        # hidden for months.
         return {
             "semantic": scored_result.semantic_similarity,
             "activation": scored_result.activation,
+            "spreading": scored_result.spreading,
             "edge_proximity": scored_result.edge_proximity,
             "exploration_bonus": scored_result.exploration_bonus,
         }

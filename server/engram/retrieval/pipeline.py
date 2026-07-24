@@ -16,6 +16,11 @@ from engram.activation.spreading import (
     spread_activation,
 )
 from engram.config import ActivationConfig
+from engram.retrieval.episode_graph_signal import (
+    EntityGraphSignal,
+    apply_episode_graph_signal,
+    snapshot_entity_signal,
+)
 from engram.retrieval.plan import build_recall_plan, execute_recall_plan
 from engram.retrieval.recall_graph_gate import (
     GatedGraphStore,
@@ -413,6 +418,7 @@ async def retrieve(
     suppressed_cue_out: dict[str, float] | None = None,
     budget_profile: str | None = None,
     entity_candidates_out: list[tuple[str, float]] | None = None,
+    entity_signal_out: dict[str, EntityGraphSignal] | None = None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -1119,6 +1125,16 @@ async def retrieve(
             stage_timings_ms["recall_entity_match_skipped_primary_timeout"] = 0.0
 
     if not candidates:
+        # Step 5.8 is structurally unreachable from here: the entity channel is
+        # empty, so there is no entity signal for an episode to inherit. Record
+        # it as a NUMBER so "the graph term did nothing" is never inferred from
+        # an unchanged ranking.
+        if cfg.episode_graph_signal_enabled:
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_episode_graph_signal_no_entity_candidates",
+                0.0,
+            )
         special_results = _merge_special_results(
             episode_candidates, cue_candidates, cfg, suppressed_cue_out
         )
@@ -1770,6 +1786,15 @@ async def retrieve(
         max((result.score for result in scored), default=0.0),
     )
 
+    # Step 5.01: snapshot the per-entity ACT-R signal for the episode lane
+    # (Step 5.8) and for entity->episode traversal. Taken HERE and nowhere
+    # later: Step 5.5 re-sorts `scored`, Step 5.05 appends episode
+    # ScoredResults into it under temporal cues, and MMR REPLACES it with a
+    # top_n=10 diversity-reordered truncation.
+    entity_signal = snapshot_entity_signal(scored)
+    if entity_signal_out is not None:
+        entity_signal_out.update(entity_signal)
+
     if planner_trace is not None:
         for sr in scored:
             sr.planner_support = planner_trace.support_scores.get(sr.node_id, 0.0)
@@ -2113,6 +2138,24 @@ async def retrieve(
                 raise
             except Exception as e:
                 logger.warning("GC-MMR failed (non-fatal): %s", e)
+
+    # Step 5.8 (GAP B): forward episode->entity graph signal. Placement is
+    # forced from both sides — it must be AFTER Step 5.5, whose episode rerank
+    # OVERWRITES `sr.score` outright and would destroy anything written
+    # earlier, and BEFORE `_merge_special_results` below, which sorts
+    # `episode_candidates` and truncates to `episode_retrieval_max`. Flag
+    # default OFF: no read, no metric, byte-identical output.
+    await apply_episode_graph_signal(
+        episode_candidates,
+        cue_candidates,
+        entity_signal=entity_signal,
+        graph_store=graph_store,
+        group_id=group_id,
+        cfg=cfg,
+        stage_timings_ms=stage_timings_ms,
+        set_metric=_set_stage_metric,
+        add_timing=_add_stage_timing,
+    )
 
     async def _reserve_durable_entity_slots(
         assembled: list,

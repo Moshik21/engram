@@ -640,6 +640,91 @@ class ActivationConfig(BaseModel):
         ),
     )
 
+    # --- Episode graph signal (ACT-R on the answer-bearing channel) ---
+    # GAP B. Every episode/cue/chunk ScoredResult is built with
+    # activation=0.0, spreading=0.0, edge_proximity=0.0 literals, and
+    # ``score_candidates`` (the sole applier of weight_activation /
+    # weight_spreading / weight_edge_proximity) runs only on the entity
+    # channel, which passage_first_entity_budget=0 then truncates to []. So
+    # 55% of the ACT-R weight budget cannot reach an answer. These flags add
+    # a FORWARD map (episode -> its linked entities -> their already-computed
+    # scoring signal) so the graph can RERANK episodes the vector/BM25 lanes
+    # already found. Default OFF: flag-off output is byte-identical.
+    episode_graph_signal_enabled: bool = Field(
+        default=False,
+        description=(
+            "Derive activation/spreading/edge_proximity for episode, "
+            "cue_episode and chunk-episode results from the entities they "
+            "link to (episode -> HasEntity -> entity signal), so ACT-R "
+            "weights can reorder the answer-bearing channel. Default OFF "
+            "(today's shipped behavior: literal zeros)."
+        ),
+    )
+    episode_graph_signal_weight: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Outer scale on the derived episode graph term. Deliberately "
+            "separate from the enable flag so an armed-but-zero config reads "
+            "as a misconfiguration rather than as 'off'. The episode lane's "
+            "own score range is [0, ~0.4] (weight_semantic * sem_sim), so "
+            "the raw ACT-R term (<= 0.275 after hop decay) would be a "
+            "DISPLACER at scale 1.0. Experiment value: 0.25, which caps the "
+            "graph contribution at ~0.069 — enough to reorder near-ties, not "
+            "enough to promote a semantically weak episode. Displacement is "
+            "what killed the R2 and R5 arms."
+        ),
+    )
+    episode_graph_signal_source: str = Field(
+        default="activation",
+        pattern="^(activation|activation_spreading|full)$",
+        description=(
+            "Which derived signals feed the SCORE: 'activation' (the only "
+            "one measured live today — entity activation is computed from "
+            "access_history and is non-zero on the live brain), "
+            "'activation_spreading' (adds spreading, which requires "
+            "spread_activation to COMPLETE — it timed out on 9/10 live "
+            "recalls at retrieval_spread_timeout_ms=75), or 'full' (adds "
+            "edge_proximity). All three are always WRITTEN to the result "
+            "score_breakdown regardless of this setting, so an inert signal "
+            "is visible instead of invisible."
+        ),
+    )
+    episode_graph_signal_hop_decay: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Decay applied across the episode->entity membership hop, so an "
+            "episode can never outrank its own parent entity on the same "
+            "signal."
+        ),
+    )
+    episode_graph_signal_max_candidates: int = Field(
+        default=60,
+        ge=1,
+        le=500,
+        description=(
+            "Cost ceiling: max episode candidates to look up entities for. "
+            "60 is the measured worst-case live candidate pool. Per-call cost "
+            "is a BACKEND property (0.105 ms warm on Helix native; a network "
+            "hop on Helix HTTP) and must be re-measured per backend."
+        ),
+    )
+    episode_graph_signal_timeout_ms: int = Field(
+        default=40,
+        ge=0,
+        le=5000,
+        description=(
+            "Substage timeout for the forward episode->entity read. ~4x the "
+            "measured worst case (9.5 ms). On timeout no graph term is "
+            "applied, ranking is unchanged, and "
+            "recall_episode_graph_signal_timeout is recorded. 0 disables the "
+            "substage timeout."
+        ),
+    )
+
     # --- Temporal contiguity ---
     temporal_contiguity_enabled: bool = Field(
         default=False,
