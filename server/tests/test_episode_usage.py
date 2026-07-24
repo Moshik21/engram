@@ -336,6 +336,170 @@ class TestRecordObservedCueUsage:
 
 
 # ---------------------------------------------------------------------------
+# Surfaced-cue registration (P2: surfaced -> used was structurally impossible
+# off the explicit-recall surfaces)
+# ---------------------------------------------------------------------------
+
+
+REG_CUE_TEXT = "mentions: Helix || spans: the native Helix migration finished on Tuesday"
+REG_SPAN = "the native Helix migration finished on Tuesday"
+REG_EPISODE_CONTENT = "We shipped it: the native Helix migration finished on Tuesday afternoon."
+REG_NOVEL_TURN = "Then let's tell the team the native Helix migration is done and close the ticket"
+
+
+class _FakeCueGraph:
+    """Minimal graph store for the surfaced-cue registration path."""
+
+    def __init__(self) -> None:
+        self.episode = Episode(
+            id="ep_reg",
+            content=REG_EPISODE_CONTENT,
+            group_id="g_reg",
+            projection_state=EpisodeProjectionState.CUE_ONLY,
+            status=EpisodeStatus.QUEUED,
+        )
+        self.cue = EpisodeCue(
+            episode_id="ep_reg",
+            group_id="g_reg",
+            projection_state=EpisodeProjectionState.CUE_ONLY,
+            cue_text=REG_CUE_TEXT,
+            first_spans=[REG_SPAN],
+        )
+
+    async def get_episode_cue(self, episode_id: str, group_id: str) -> EpisodeCue | None:
+        return self.cue if episode_id == self.cue.episode_id else None
+
+    async def get_episode_entities(self, episode_id: str, *, group_id: str) -> list[str]:
+        return []
+
+    async def update_episode_cue(self, episode_id: str, updates: dict, *, group_id: str) -> None:
+        for field, value in updates.items():
+            if hasattr(self.cue, field):
+                setattr(self.cue, field, value)
+
+    async def update_episode(self, episode_id: str, updates: dict, *, group_id: str) -> None:
+        state = updates.get("projection_state")
+        if state is not None:
+            self.episode.projection_state = EpisodeProjectionState(state)
+
+
+def _cue_recorder(graph: _FakeCueGraph, cfg: ActivationConfig, buffer: SurfacedUsageBuffer):
+    from engram.extraction.policy import ProjectionPolicy
+    from engram.retrieval.control import RecallNeedController
+    from engram.retrieval.feedback import RecallCueFeedbackRecorder
+
+    return RecallCueFeedbackRecorder(
+        cfg=cfg,
+        graph_store=graph,
+        projection_policy=ProjectionPolicy(cfg),
+        recall_need_controller=RecallNeedController(cfg),
+        event_bus=None,
+        usage_buffer=buffer,
+    )
+
+
+@pytest.mark.asyncio
+class TestSurfacedCueRegistration:
+    async def test_pipeline_surfacing_makes_a_use_event_recordable(self):
+        """End to end: surfacing a cue through the shared recorder (the path
+        every surface uses, not just explicit recall) then observing a turn
+        that reuses the cue phrase in novel wording writes cue usage."""
+        cfg = ActivationConfig(recall_usage_feedback_enabled=True, cue_recall_hit_threshold=20)
+        graph = _FakeCueGraph()
+        buffer = SurfacedUsageBuffer()
+
+        await _cue_recorder(graph, cfg, buffer).record_cue_feedback(
+            graph.episode,
+            0.9,
+            "helix migration",
+            interaction_type="surfaced",
+        )
+        assert not buffer.is_empty("g_reg")
+
+        fired = await record_observed_usage_events(
+            activation_store=AsyncMock(),
+            cfg=cfg,
+            group_id="g_reg",
+            content=REG_NOVEL_TURN,
+            now=time.time(),
+            usage_buffer=buffer,
+            graph_store=graph,
+        )
+
+        assert fired == ["cue::ep_reg"]
+        assert graph.cue.usage_used_count == pytest.approx(cfg.usage_tier_weights["used"])
+        assert graph.cue.usage_last_used_at is not None
+
+    async def test_verbatim_payload_echo_does_not_fire(self):
+        cfg = ActivationConfig(recall_usage_feedback_enabled=True, cue_recall_hit_threshold=20)
+        graph = _FakeCueGraph()
+        buffer = SurfacedUsageBuffer()
+
+        await _cue_recorder(graph, cfg, buffer).record_cue_feedback(
+            graph.episode,
+            0.9,
+            "helix migration",
+            interaction_type="surfaced",
+        )
+        fired = await record_observed_usage_events(
+            activation_store=AsyncMock(),
+            cfg=cfg,
+            group_id="g_reg",
+            content=f"You already told me: {REG_EPISODE_CONTENT}",
+            now=time.time(),
+            usage_buffer=buffer,
+            graph_store=graph,
+        )
+
+        assert fired == []
+        assert graph.cue.usage_used_count == 0.0
+
+    async def test_near_miss_does_not_register(self):
+        cfg = ActivationConfig(recall_usage_feedback_enabled=True, cue_recall_hit_threshold=20)
+        graph = _FakeCueGraph()
+        buffer = SurfacedUsageBuffer()
+
+        await _cue_recorder(graph, cfg, buffer).record_cue_feedback(
+            graph.episode,
+            0.9,
+            "helix migration",
+            near_miss=True,
+        )
+
+        assert buffer.is_empty("g_reg")
+
+    async def test_flag_off_registers_nothing(self):
+        cfg = ActivationConfig(recall_usage_feedback_enabled=False, cue_recall_hit_threshold=20)
+        graph = _FakeCueGraph()
+        buffer = SurfacedUsageBuffer()
+
+        await _cue_recorder(graph, cfg, buffer).record_cue_feedback(
+            graph.episode,
+            0.9,
+            "helix migration",
+            interaction_type="surfaced",
+        )
+
+        assert buffer.is_empty("g_reg")
+
+    async def test_repeat_surfacing_keeps_one_ring_entry(self):
+        cfg = ActivationConfig(recall_usage_feedback_enabled=True, cue_recall_hit_threshold=20)
+        graph = _FakeCueGraph()
+        buffer = SurfacedUsageBuffer()
+        recorder = _cue_recorder(graph, cfg, buffer)
+
+        for _ in range(3):
+            await recorder.record_cue_feedback(
+                graph.episode,
+                0.9,
+                "helix migration",
+                interaction_type="surfaced",
+            )
+
+        assert len(buffer._cue_entries["g_reg"]) == 1
+
+
+# ---------------------------------------------------------------------------
 # Episode-u composition (flag ON only)
 # ---------------------------------------------------------------------------
 

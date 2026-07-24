@@ -16,6 +16,7 @@ from engram.extraction.policy import ProjectionPolicy
 from engram.ingestion.projection_state import sync_projection_state
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
+from engram.models.episode_cue import EpisodeCue
 from engram.models.recall import MemoryInteractionEvent, MemoryNeed
 from engram.retrieval.control import RecallNeedController
 from engram.storage.protocols import ActivationStore, GraphStore
@@ -250,6 +251,13 @@ class SurfacedUsageBuffer:
         if not phrase_token_lists:
             return
         ring = self._cue_entries.setdefault(group_id, deque(maxlen=self._cap))
+        # Re-surfacing the same episode refreshes its entry instead of adding a
+        # second one: the pipeline recorder and the explicit-recall response
+        # feed both register, and duplicates would evict distinct cues from the
+        # bounded ring.
+        for existing in list(ring):
+            if existing.episode_id == episode_id:
+                ring.remove(existing)
         ring.append(
             SurfacedCueEntry(
                 episode_id=episode_id,
@@ -657,6 +665,7 @@ class RecallCueFeedbackRecorder:
         recall_need_controller: RecallNeedController,
         event_bus: EventBus | None,
         activation_store: ActivationStore | None = None,
+        usage_buffer: SurfacedUsageBuffer | None = None,
     ) -> None:
         self._cfg = cfg
         self._graph = graph_store
@@ -664,6 +673,31 @@ class RecallCueFeedbackRecorder:
         self._recall_need_controller = recall_need_controller
         self._event_bus = event_bus
         self._activation = activation_store
+        self._usage_buffer = usage_buffer if usage_buffer is not None else _USAGE_BUFFER
+
+    def _register_surfaced_cue(self, episode: Episode, cue: EpisodeCue) -> None:
+        """Register a delivered cue payload for the citation scan.
+
+        The entity half of the buffer is filled by the shared materializer
+        (RecallEntityAccessRecorder.record_entity_access), so entities are
+        registered on every recall surface. The cue half used to be filled only
+        by the two explicit-recall response builders, so cues surfaced through
+        auto-recall / get_context were counted as surfaced but never became
+        eligible for a used event. Registering here — the one place every
+        surfaced cue passes through — restores the symmetry.
+        """
+        ts = time.time()
+        self._usage_buffer.note_surfaced_cue(
+            episode.group_id,
+            episode_id=episode.id,
+            cue_text=cue.cue_text or "",
+            supporting_spans=[str(span) for span in cue.first_spans or []],
+            ts=ts,
+        )
+        # The episode content travels with a cue result on some surfaces; mask
+        # it so parroting the delivered payload never reads as reliance.
+        if episode.content:
+            self._usage_buffer.note_surfaced_text(episode.group_id, episode.content, ts)
 
     async def record_cue_feedback(
         self,
@@ -678,6 +712,9 @@ class RecallCueFeedbackRecorder:
         cue = await self._graph.get_episode_cue(episode.id, episode.group_id)
         if cue is None:
             return
+
+        if not near_miss and self._cfg.recall_usage_feedback_enabled:
+            self._register_surfaced_cue(episode, cue)
 
         now_dt = utc_now()
         feedback_type = "near_miss" if near_miss else (interaction_type or "surfaced")
