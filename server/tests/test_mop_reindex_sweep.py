@@ -537,9 +537,7 @@ class TestReindexSweepNewestFirst:
         search = FakeSearchIndex()
         for eid in ("ep_old", "ep_new"):
             search.seed_row("episode", eid)
-        await reindex_sweep_episodes(
-            graph, search, "g", max_episodes=1, machinery=lambda ep: False
-        )
+        await reindex_sweep_episodes(graph, search, "g", max_episodes=1, machinery=lambda ep: False)
         assert search.index_episode_calls == ["ep_old"]
 
 
