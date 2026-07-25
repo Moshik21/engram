@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,8 @@ class PPRStrategy:
         community_store=None,
         context_gate: ContextGate | None = None,
         seed_entity_types: dict[str, str] | None = None,
+        max_reads: int | None = None,
+        deadline: float | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         if not seed_nodes:
             return {}, {}
@@ -46,7 +49,13 @@ class PPRStrategy:
 
         # 2. BFS-expand local subgraph
         adjacency, hop_distances = await self._expand_subgraph(
-            seed_ids, neighbor_provider, cfg, group_id, node_types
+            seed_ids,
+            neighbor_provider,
+            cfg,
+            group_id,
+            node_types,
+            max_reads=max_reads,
+            deadline=deadline,
         )
 
         if not adjacency:
@@ -141,17 +150,24 @@ class PPRStrategy:
         cfg: ActivationConfig,
         group_id: str | None,
         node_types: dict[str, str] | None = None,
+        max_reads: int | None = None,
+        deadline: float | None = None,
     ) -> tuple[
         dict[str, list[tuple[str, float, str, str]]],
         dict[str, int],
     ]:
         """BFS-expand from seeds to build local adjacency map.
 
-        Returns (adjacency, hop_distances).
+        Honours the caller's ``max_reads``/``deadline`` bound exactly as
+        BFSStrategy does: PPR reads one node's adjacency per queue entry too, so
+        an unbounded PPR install has the same overrun the BFS cap was added to
+        stop. Returns (adjacency, hop_distances).
         """
         adjacency: dict[str, list[tuple[str, float, str, str]]] = {}
         hop_distances: dict[str, int] = {}
         visited: set[str] = set()
+        reads = 0
+        slowest_read: float = 0.0
         queue: deque[tuple[str, int]] = deque()
 
         for sid in seed_ids:
@@ -164,9 +180,16 @@ class PPRStrategy:
         while queue:
             node_id, hop = queue.popleft()
 
+            if max_reads and reads >= max_reads:
+                break
+            read_started = time.monotonic()
+            if deadline is not None and read_started + slowest_read >= deadline:
+                break
+            reads += 1
             neighbors_raw = await neighbor_provider.get_active_neighbors_with_weights(
                 node_id, group_id=group_id
             )
+            slowest_read = max(slowest_read, time.monotonic() - read_started)
 
             neighbors: list[tuple[str, float, str, str]] = []
             for info in neighbors_raw:

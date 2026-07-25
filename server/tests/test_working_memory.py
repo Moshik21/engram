@@ -317,6 +317,8 @@ class TestPipelineWithWorkingMemory:
             community_store=None,
             context_gate=None,
             seed_entity_types=None,
+            max_reads=None,
+            deadline=None,
         ):
             captured_seeds.extend(seeds)
             return {}, {}

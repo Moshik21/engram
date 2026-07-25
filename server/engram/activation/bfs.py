@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -32,8 +33,18 @@ class BFSStrategy:
         community_store=None,
         context_gate: ContextGate | None = None,
         seed_entity_types: dict[str, str] | None = None,
+        max_reads: int | None = None,
+        deadline: float | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """Spread activation from seed nodes through the graph via BFS.
+
+        ``max_reads`` caps how many nodes' adjacency may be read and
+        ``deadline`` is an absolute ``time.monotonic()`` instant after which the
+        traversal stops and returns what it reached. Both default to UNBOUNDED:
+        the bound belongs to the caller that has a latency budget (recall), not
+        to this strategy, which also runs offline (dream) and on the write path
+        (prospective memory) where truncating the traversal silently weakens
+        pathway strengthening.
 
         Returns (bonuses, hop_distances):
           - bonuses: {node_id: spreading_bonus}
@@ -43,6 +54,12 @@ class BFSStrategy:
         hop_distances: dict[str, int] = {}
         visited: set[str] = set()
         energy_spent: float = 0.0
+        reads = 0
+        # Slowest neighbour read seen so far, used to bail BEFORE starting a
+        # read that cannot finish inside the deadline. Overshooting the deadline
+        # is not free for a bounded caller: it comes out of the stages that run
+        # after this one.
+        slowest_read: float = 0.0
 
         # Track entity types for cross-domain penalty
         node_types: dict[str, str] = dict(seed_entity_types or {})
@@ -60,9 +77,16 @@ class BFSStrategy:
             if hop >= cfg.spread_max_hops:
                 continue
 
+            if max_reads and reads >= max_reads:
+                break
+            read_started = time.monotonic()
+            if deadline is not None and read_started + slowest_read >= deadline:
+                break
+            reads += 1
             neighbors = await neighbor_provider.get_active_neighbors_with_weights(
                 node_id, group_id=group_id
             )
+            slowest_read = max(slowest_read, time.monotonic() - read_started)
             out_degree = len(neighbors)
             if out_degree == 0:
                 continue

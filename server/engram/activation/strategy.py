@@ -22,8 +22,15 @@ class SpreadingStrategy(Protocol):
         community_store=None,
         context_gate: ContextGate | None = None,
         seed_entity_types: dict[str, str] | None = None,
+        max_reads: int | None = None,
+        deadline: float | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """Spread activation from seed nodes.
+
+        ``max_reads`` (nodes whose adjacency may be read) and ``deadline`` (an
+        absolute ``time.monotonic()`` instant) are the CALLER's traversal bound.
+        Both default to unbounded; every strategy must honour them so a bounded
+        caller does not have to know which algorithm is configured.
 
         Returns (bonuses, hop_distances):
           - bonuses: {node_id: spreading_bonus}

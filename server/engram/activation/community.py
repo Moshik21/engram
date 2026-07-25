@@ -63,14 +63,27 @@ class CommunityStore:
         neighbor_provider,
         entity_ids: list[str] | None = None,
     ) -> None:
-        """Recompute community assignments if stale."""
+        """Recompute community assignments if stale.
+
+        The freshness clock is stamped even when ``compute()`` does not finish.
+        ``ensure_fresh`` runs inside the caller's latency budget, so a compute
+        that is cancelled (or fails) on a slow store would otherwise leave the
+        group stale forever and every later call would repeat the identical
+        doomed work inside the same budget — an unbounded retry loop that
+        cannot make progress. Stamping the attempt turns that into one try per
+        ``stale_seconds`` window; the previous assignments are left untouched.
+        """
         if not self.is_stale(group_id):
             return
-        assignments = await self.compute(
-            group_id,
-            neighbor_provider,
-            entity_ids,
-        )
+        try:
+            assignments = await self.compute(
+                group_id,
+                neighbor_provider,
+                entity_ids,
+            )
+        except BaseException:
+            self._timestamps[group_id] = time.monotonic()
+            raise
         self._assignments[group_id] = assignments
         self._timestamps[group_id] = time.monotonic()
 

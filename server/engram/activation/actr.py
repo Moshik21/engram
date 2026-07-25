@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import TYPE_CHECKING
 
 from engram.config import ActivationConfig
@@ -33,11 +34,17 @@ class ACTRStrategy:
         community_store=None,
         context_gate: ContextGate | None = None,
         seed_entity_types: dict[str, str] | None = None,
+        max_reads: int | None = None,
+        deadline: float | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """1-hop spreading from seed nodes (working memory items).
 
         Seed energy values are ignored; W_j is computed internally
         from actr_total_w / n_sources.
+
+        Honours the caller's ``max_reads``/``deadline`` bound (see
+        ``SpreadingStrategy``). Reads are already capped at
+        ``actr_max_sources``, but a bounded caller must not have to know that.
         """
         bonuses: dict[str, float] = {}
         hop_distances: dict[str, int] = {}
@@ -47,13 +54,22 @@ class ACTRStrategy:
 
         n_sources = len(seed_nodes)
         w_j = cfg.actr_total_w / n_sources
+        reads = 0
+        slowest_read: float = 0.0
 
         for source_id, _energy in seed_nodes:
             hop_distances.setdefault(source_id, 0)
 
+            if max_reads and reads >= max_reads:
+                break
+            read_started = time.monotonic()
+            if deadline is not None and read_started + slowest_read >= deadline:
+                break
+            reads += 1
             neighbors = await neighbor_provider.get_active_neighbors_with_weights(
                 source_id, group_id=group_id
             )
+            slowest_read = max(slowest_read, time.monotonic() - read_started)
             fan = len(neighbors)
             if fan == 0:
                 continue

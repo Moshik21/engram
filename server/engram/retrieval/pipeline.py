@@ -344,6 +344,35 @@ def _set_stage_metric(
     stage_timings_ms[key] = round(float(value), 4)
 
 
+def _record_spread_reach(
+    stage_timings_ms: dict[str, float] | None,
+    hop_distances: dict[str, int],
+) -> None:
+    """Record how far spreading actually got — the positive probe for the stage.
+
+    Counts ONLY nodes at hop >= 1. ``hop_distances`` is seeded with every seed
+    at hop 0 before the traversal reads anything, so "hop_distances is
+    non-empty" is true even when the traversal walks zero edges and would pass
+    on a dead mechanism. ``recall_spread_reached`` can only be non-zero if a
+    real edge was traversed, which is what makes it fail loudly.
+
+    Called on EVERY exit from the stage, including timeout, cancel and skip,
+    where it emits 0.0. An absent probe silently excuses the exact failure it
+    exists to catch: a gate written "alert when reached == 0" never fires if
+    the key is missing on the failing path.
+
+    ``recall_spread_reached`` is deliberately independent of the
+    ``recall_spread`` duration: the stage can complete and still traverse
+    nothing (a live recall was observed at recall_spread=91.7ms with
+    recall_spread_reached=0.0). Completion is not traversal, so read both.
+    """
+    if stage_timings_ms is None:
+        return
+    reached = [hop for hop in hop_distances.values() if hop >= 1]
+    _set_stage_metric(stage_timings_ms, "recall_spread_reached", len(reached))
+    _set_stage_metric(stage_timings_ms, "recall_spread_max_hop", max(reached, default=0))
+
+
 def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | None:
     timeout_ms = int(getattr(cfg, field_name, 0) or 0)
     if timeout_ms <= 0:
@@ -1394,9 +1423,14 @@ async def retrieve(
     if seeds and _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
         bonuses, hop_distances = {}, {}
         _set_stage_metric(stage_timings_ms, "recall_spread_skipped_probe_timeout", 0.0)
+        _record_spread_reach(stage_timings_ms, hop_distances)
     else:
         spread_started = time.perf_counter()
         try:
+            # RECALL's traversal bound, supplied here and nowhere else. The
+            # strategy itself defaults to unbounded so the offline (dream) and
+            # write-path (prospective memory) callers keep their full traversal.
+            traversal_budget_ms = int(cfg.retrieval_spread_traversal_budget_ms or 0)
             spread_call = spread_activation(
                 seeds,
                 graph_store,
@@ -1405,7 +1439,20 @@ async def retrieve(
                 community_store=community_store,
                 context_gate=context_gate,
                 seed_entity_types=seed_entity_types,
+                max_reads=int(cfg.retrieval_spread_max_reads or 0) or None,
+                deadline=(
+                    time.monotonic() + traversal_budget_ms / 1000.0
+                    if traversal_budget_ms > 0
+                    else None
+                ),
             )
+            # The outer wall clock stays exactly what every other recall stage
+            # gets: a hard cancel that discards the stage's work. It is NOT
+            # widened to make room for the traversal — the traversal's own
+            # budget is set below it instead, so it returns a partial frontier
+            # before this fires. Widening it would hand spreading time taken
+            # from the stages that run after it, which is how a cold recall
+            # starts dropping episodes it used to return.
             timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_spread_timeout_ms")
             bonuses, hop_distances = (
                 await asyncio.wait_for(spread_call, timeout=timeout_seconds)
@@ -1413,11 +1460,14 @@ async def retrieve(
                 else await spread_call
             )
             _add_stage_timing(stage_timings_ms, "recall_spread", spread_started)
+            _record_spread_reach(stage_timings_ms, hop_distances)
         except asyncio.TimeoutError:
             bonuses, hop_distances = {}, {}
             _add_stage_timing(stage_timings_ms, "recall_spread_timeout", spread_started)
+            _record_spread_reach(stage_timings_ms, hop_distances)
         except asyncio.CancelledError:
             _add_stage_timing(stage_timings_ms, "recall_spread_cancelled", spread_started)
+            _record_spread_reach(stage_timings_ms, {})
             raise
 
     # Step 4.1: Inhibitory spreading (Brain Architecture)
@@ -1462,6 +1512,26 @@ async def retrieve(
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity
     existing_ids = {eid for eid, _ in candidates}
     new_ids = [nid for nid in bonuses if nid not in existing_ids and bonuses[nid] > 0.0]
+    # Spreading is a bonus channel, not the primary result set, so it may only
+    # supplement the pool — never swamp it. This block had never executed in
+    # production (it is gated on `bonuses`, and spreading always returned {}),
+    # so nothing downstream was sized for it: unbounded, a working traversal
+    # injected ~450 entities into a ~38-candidate pool and pushed MMR from
+    # completing on 33/34 recalls to timing out on 30/34. Keep the strongest by
+    # spreading bonus; ties break on id so the pool stays deterministic.
+    injection_cap = cfg.spread_candidate_injection_max
+    # Pre-cap count. Without it the cap is invisible: `injected == 32` on every
+    # recall reads as "32 was enough" when it actually means "the cap bound and
+    # ~450 discoveries were thrown away".
+    _set_stage_metric(stage_timings_ms, "recall_spread_discovered", len(new_ids))
+    if injection_cap and len(new_ids) > injection_cap:
+        new_ids.sort(key=lambda nid: (-bonuses[nid], nid))
+        del new_ids[injection_cap:]
+    # Written AFTER the re-score below, from what actually reached the pool.
+    # Writing it here would report intent, and would over-report by exactly the
+    # full amount on the degraded path — i.e. it would look healthiest at the
+    # moment the mechanism failed.
+    injected = 0
     if new_ids:
         similarity_started = time.perf_counter()
         try:
@@ -1501,6 +1571,8 @@ async def retrieve(
                 ]
             else:
                 candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
+            injected = len(new_ids)
+    _set_stage_metric(stage_timings_ms, "recall_spread_injected", injected)
 
     # Step 4.6: Fingerprint similarity computation (Wave 2)
     conv_fingerprint_sim: dict[str, float] | None = None

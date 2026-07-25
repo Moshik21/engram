@@ -166,6 +166,24 @@ class ActivationConfig(BaseModel):
     spread_firing_threshold: float = Field(default=0.01, ge=0.0, le=1.0)
     traversal_min_edge_weight: float = Field(default=0.05, ge=0.0, le=1.0)
     spread_energy_budget: float = Field(default=50.0, gt=0.0)
+    spread_candidate_injection_max: int = Field(
+        default=32,
+        ge=0,
+        description=(
+            "How many graph-discovered entities may compete with the search results: "
+            "the cap on entities spreading injects into the recall candidate pool. "
+            "Spreading supplements the pool, it does not replace it. Measured on the "
+            "dogfood brain, uncapped injection added ~450 entities to a ~38-candidate "
+            "pool (12x) — every later stage was sized for the smaller pool, and MMR "
+            "went from completing on 33/34 live recalls to timing out on 30/34. "
+            "0 = unbounded. OPEN QUESTION: on the dogfood brain this cap saturates on "
+            "100% of live recalls (every completion reported exactly 32 injected out "
+            "of ~480 discovered), so 32 is currently a ceiling, not a selection "
+            "threshold — the value that separates useful from useless graph "
+            "neighbours has not been measured. Read recall_spread_discovered next to "
+            "recall_spread_injected to see the saturation."
+        ),
+    )
     weight_semantic: float = Field(default=0.40, ge=0.0, le=1.0)
     weight_activation: float = Field(default=0.25, ge=0.0, le=1.0)
     weight_spreading: float = Field(default=0.15, ge=0.0, le=1.0)
@@ -351,7 +369,47 @@ class ActivationConfig(BaseModel):
         ge=0,
         le=5000,
         description=(
-            "Substage timeout for graph spreading during recall. 0 disables the substage timeout."
+            "HARD wall-clock cap on the whole spreading stage during recall: when it "
+            "fires the stage is cancelled and its work is discarded. It is deliberately "
+            "NOT the traversal's budget — see retrieval_spread_traversal_budget_ms, "
+            "which is smaller so the traversal returns a partial frontier before this "
+            "cancels it. This value bounds what the stage can steal from the recall "
+            "stages downstream of it, so raising it trades their budget for spreading "
+            "depth. 0 disables the substage timeout."
+        ),
+    )
+    retrieval_spread_traversal_budget_ms: int = Field(
+        default=50,
+        ge=0,
+        le=5000,
+        description=(
+            "The traversal's OWN wall clock during recall (recall only — offline and "
+            "write-path spreading is unbounded). Set below retrieval_spread_timeout_ms "
+            "on purpose: on reaching it the traversal stops and RETURNS the frontier it "
+            "already walked, where being cancelled by the outer timeout discards every "
+            "completed read. The traversal also refuses to start a read that the "
+            "slowest read it has seen so far says cannot finish inside this budget, so "
+            "a cold store bails early instead of overshooting into the stages "
+            "downstream. 0 = no traversal deadline (the outer timeout still applies)."
+        ),
+    )
+    retrieval_spread_max_reads: int = Field(
+        default=64,
+        ge=0,
+        description=(
+            "How much of the graph ONE recall may touch: the maximum number of nodes "
+            "whose adjacency spreading may read (recall only — offline and write-path "
+            "spreading is unbounded). A work bound, unlike a millisecond bound, means "
+            "the same thing warm and cold. Live on the 844-entity dogfood brain the "
+            "uncapped traversal read ~488 nodes (~58% of the graph) and blew the 75ms "
+            "stage cap on ~100% of recalls, returning nothing; capped at 64 the stage "
+            "completed on 86.7% of recalls at p50 ~28ms. LIVE p95 for the capped stage "
+            "measured 36-100ms across runs — it is not a clean function of the read "
+            "count, because the native executor is max_workers=4 and the other recall "
+            "lanes compete for it. (An isolated microbenchmark of the traversal alone "
+            "gives ~29ms p95; do not use that number to size the stage.) 0 = unbounded. "
+            "Brains smaller than the cap never reach it, so their traversal is "
+            "unchanged."
         ),
     )
     retrieval_entity_attributes_timeout_ms: int = Field(

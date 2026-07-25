@@ -110,10 +110,19 @@ async def spread_activation(
     community_store=None,
     context_gate: ContextGate | None = None,
     seed_entity_types: dict[str, str] | None = None,
+    max_reads: int | None = None,
+    deadline: float | None = None,
 ) -> tuple[dict[str, float], dict[str, int]]:
     """Spread activation from seed nodes through the graph.
 
-    Dispatches to the configured strategy (BFS or PPR).
+    Dispatches to the configured strategy (BFS, PPR or ACT-R).
+
+    ``max_reads`` and ``deadline`` are the CALLER's traversal bound and default
+    to unbounded — see ``SpreadingStrategy.spread``. Only callers that owe a
+    user a latency budget should pass them; the offline (dream) and write-path
+    (prospective memory) callers must stay unbounded, because a truncated
+    traversal there silently weakens pathway strengthening with nothing to
+    show for it.
 
     Returns (bonuses, hop_distances):
       - bonuses: {node_id: spreading_bonus} for all reached nodes
@@ -136,4 +145,6 @@ async def spread_activation(
         community_store=community_store,
         context_gate=context_gate,
         seed_entity_types=seed_entity_types,
+        max_reads=max_reads,
+        deadline=deadline,
     )
