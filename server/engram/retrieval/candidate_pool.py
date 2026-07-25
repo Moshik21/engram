@@ -64,11 +64,15 @@ def compute_dynamic_limits(
     pool_graph_seed = _clamp(int(cfg.pool_graph_seed_count * scale), 1, 50)
     pool_graph_neighbors = _clamp(int(cfg.pool_graph_max_neighbors * scale), 1, 50)
     pool_wm = _clamp(int(cfg.pool_wm_limit * scale), 5, 50)
-    pool_total = _clamp(
-        pool_search + pool_activation + pool_graph_limit + pool_wm,
-        20,
-        1000,
-    )
+    # The depth cap is the config field, scaled like every sibling above.
+    # It used to be `pool_search + pool_activation + pool_graph_limit + pool_wm`,
+    # which had two failure modes at once (ticket 28): `cfg.pool_total_limit` had
+    # ZERO read sites in the repo, so raising it to widen recall did nothing and
+    # read as "depth is not the bottleneck"; and a cap equal to the sum of the
+    # pools it caps is >= their union by construction, so it could only ever trim
+    # candidates unique to the entity-query pool. Derive it from cfg or the knob
+    # is a lie — there is deliberately no second value here to fall back to.
+    pool_total = _clamp(int(cfg.pool_total_limit * scale), 20, 1000)
 
     return {
         "pool_search_limit": pool_search,
