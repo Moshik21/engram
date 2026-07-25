@@ -486,7 +486,13 @@ class TestPipelineEpisodeRetrieval:
     async def test_graph_query_expansion_timeout_uses_original_query(self, monkeypatch):
         """Slow graph expansion is bounded before primary search."""
 
-        async def slow_expand(*_args, **_kwargs):
+        async def slow_expand(*_args, stats_out=None, **_kwargs):
+            # Models a read ISSUED against the store that never comes back.
+            # An expansion that hangs WITHOUT touching the store is a
+            # starved coroutine, not an over-budget graph, and no longer
+            # arms the gate — see test_graph_expand_probe_honesty.py.
+            if stats_out is not None:
+                stats_out["attempts"] = 1.0
             await asyncio.sleep(0.2)
             return "expanded query"
 
@@ -602,9 +608,15 @@ class TestPipelineEpisodeRetrieval:
             await asyncio.sleep(0.2)
             return {"entity_count": 100_000}
 
-        async def slow_expand(*_args, **_kwargs):
+        async def slow_expand(*_args, stats_out=None, **_kwargs):
             nonlocal expand_calls
             expand_calls += 1
+            # Models a read ISSUED against the store that never comes back.
+            # An expansion that hangs WITHOUT touching the store is a
+            # starved coroutine, not an over-budget graph, and no longer
+            # arms the gate — see test_graph_expand_probe_honesty.py.
+            if stats_out is not None:
+                stats_out["attempts"] = 1.0
             await asyncio.sleep(0.2)
             return "expanded query"
 
@@ -654,9 +666,15 @@ class TestPipelineEpisodeRetrieval:
         """A graph expansion timeout bounds the next primary search attempt."""
         expand_calls = 0
 
-        async def slow_expand(*_args, **_kwargs):
+        async def slow_expand(*_args, stats_out=None, **_kwargs):
             nonlocal expand_calls
             expand_calls += 1
+            # Models a read ISSUED against the store that never comes back.
+            # An expansion that hangs WITHOUT touching the store is a
+            # starved coroutine, not an over-budget graph, and no longer
+            # arms the gate — see test_graph_expand_probe_honesty.py.
+            if stats_out is not None:
+                stats_out["attempts"] = 1.0
             await asyncio.sleep(0.2)
             return "expanded query"
 
@@ -776,7 +794,13 @@ class TestPipelineEpisodeRetrieval:
     async def test_probe_timeout_skips_secondary_graph_scoring(self, monkeypatch):
         """State/current-value paths return without post-probe graph reads."""
 
-        async def slow_expand(*_args, **_kwargs):
+        async def slow_expand(*_args, stats_out=None, **_kwargs):
+            # Models a read ISSUED against the store that never comes back.
+            # An expansion that hangs WITHOUT touching the store is a
+            # starved coroutine, not an over-budget graph, and no longer
+            # arms the gate — see test_graph_expand_probe_honesty.py.
+            if stats_out is not None:
+                stats_out["attempts"] = 1.0
             await asyncio.sleep(0.2)
             return "expanded query"
 

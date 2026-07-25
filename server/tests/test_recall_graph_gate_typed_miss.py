@@ -136,7 +136,12 @@ def _cfg(**overrides) -> ActivationConfig:
 
 
 def _install_slow_expansion(monkeypatch) -> None:
-    async def _slow_expand(*_args, **_kwargs):
+    async def _slow_expand(*_args, stats_out=None, **_kwargs):
+        # A read ISSUED against the store and never returning. An expansion
+        # that hangs without touching the store is a starved coroutine, not
+        # an over-budget graph, and does not arm the gate.
+        if stats_out is not None:
+            stats_out["attempts"] = 1.0
         await asyncio.sleep(0.2)
         return "expanded query"
 

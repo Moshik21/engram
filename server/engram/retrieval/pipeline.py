@@ -7,7 +7,7 @@ import logging
 import math
 import time
 from datetime import timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from engram.activation.engine import compute_u_values
 from engram.activation.spreading import (
@@ -332,6 +332,112 @@ def _merge_special_results(
     return special_results
 
 
+async def _rerank_special_results(
+    query: str,
+    group_id: str,
+    graph_store: Any,
+    reranker: Any,
+    cfg: ActivationConfig,
+    episode_candidates: list[ScoredResult],
+    cue_candidates: list[ScoredResult],
+    stage_timings_ms: dict[str, float] | None,
+) -> None:
+    """Cross-encoder rerank of the episode/cue channel on the early-return paths.
+
+    Step 5.5 sits BELOW the entity-pool early returns, so a recall whose entity
+    pool comes back empty (or with no semantic anchor) surfaced its episodes in
+    raw vector order and never entered the rerank stage at all. On the default
+    ``passage_first`` tier the episode/cue channel is the only channel that
+    reaches the caller (``passage_first_entity_budget=0``), so on those paths
+    the whole stage was structurally unreachable — the third recorded cause of
+    the reranker measuring dead.
+
+    Entities are deliberately NOT reranked here: the empty entity pool is what
+    made this path fire, so there is nothing to permute. Every give-up records
+    a metric so "the rerank did nothing" is never inferred from an unchanged
+    ordering.
+    """
+    if not cfg.reranker_enabled or reranker is None:
+        return
+    if type(reranker).__name__ == "NoopReranker":
+        _set_stage_metric(stage_timings_ms, "recall_reranker_skipped_noop", 0.0)
+        return
+    if not cfg.reranker_rerank_episodes:
+        # Entity-only rerank has nothing to sort on this path. Say so rather
+        # than leaving the stage silent.
+        _set_stage_metric(stage_timings_ms, "recall_reranker_special_entity_only", 0.0)
+        return
+    srs: list[ScoredResult] = list(episode_candidates) + list(cue_candidates)
+    if not srs:
+        return
+
+    reranker_started = time.perf_counter()
+
+    async def _rerank_special() -> None:
+        episodes = await asyncio.gather(
+            *(graph_store.get_episode_by_id(sr.node_id, group_id) for sr in srs)
+        )
+        docs: list[tuple[str, str]] = []
+        for sr, episode in zip(srs, episodes):
+            text = getattr(episode, "content", "") or "" if episode else ""
+            if sr.chunk_context:
+                text = f"{text}\n{sr.chunk_context}" if text else sr.chunk_context
+            docs.append((f"episode::{id(sr)}", text))
+        if not any(text for _, text in docs):
+            # Reranking empty strings reorders real results by garbage — the
+            # exact failure ticket 19 found through the graph gate.
+            _set_stage_metric(
+                stage_timings_ms,
+                "recall_reranker_special_no_documents",
+                0.0,
+            )
+            return
+        reranked = await reranker.rerank(query, docs, top_n=len(docs))
+        rerank_scores = {
+            int(key.split("::", 1)[1]): rscore
+            for key, rscore in reranked
+            if key.startswith("episode::")
+        }
+        applied = 0
+        for sr in srs:
+            rscore = rerank_scores.get(id(sr))
+            if rscore is not None:
+                sr.score = rscore
+                applied += 1
+        _set_stage_metric(stage_timings_ms, "recall_reranker_special_applied", applied)
+
+    try:
+        timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_reranker_timeout_ms")
+        if timeout_seconds is not None:
+            await asyncio.wait_for(_rerank_special(), timeout=timeout_seconds)
+        else:
+            await _rerank_special()
+        _add_stage_timing(stage_timings_ms, "recall_reranker_special", reranker_started)
+    except GraphGateTimeoutError:
+        # The document bodies could not be READ. Keep the pre-rerank order and
+        # record the give-up (same contract as Step 5.5).
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_reranker_skipped_probe_timeout",
+            0.0,
+        )
+    except asyncio.TimeoutError:
+        _add_stage_timing(
+            stage_timings_ms,
+            "recall_reranker_special_timeout",
+            reranker_started,
+        )
+    except asyncio.CancelledError:
+        _add_stage_timing(
+            stage_timings_ms,
+            "recall_reranker_special_cancelled",
+            reranker_started,
+        )
+        raise
+    except Exception as e:
+        logger.warning("Special-result reranking failed (non-fatal): %s", e)
+
+
 def _add_stage_timing(
     stage_timings_ms: dict[str, float] | None,
     key: str,
@@ -552,18 +658,42 @@ async def retrieve(
 
     # Step 0.1a: Graph-anchored query expansion (LLM-free).
     # Expands the query using real entities, relationships, and summaries from
-    # the knowledge graph.  Zero cost, ~3ms.  Used as vector search query when
-    # HyDE is disabled (production default).
+    # the knowledge graph. Used as vector search query when HyDE is disabled
+    # (production default).
+    #
+    # This stage is ALSO one of the two probes that arm the recall graph gate,
+    # so its timeout costs far more than the expansion: entity-query pool,
+    # graph pool, spreading and entity attributes all stop for the rest of the
+    # request. Measured live (2026-07-24, warm helix shell): an all-lowercase
+    # query extracts no terms and returns in ~0.03 ms having read nothing,
+    # while ONE capitalised token sent the same stage over its 75 ms cap on 3
+    # of 4 A/B pairs and armed the gate on every one of those. So the
+    # expansion now carries its own deadline and returns what it finished:
+    # "ran out of fan-out budget" is `graph_expand_partial` and does NOT arm
+    # the gate, while a genuine overrun with nothing completed still records
+    # `graph_expand_timeout` and arms it exactly as before.
     graph_expanded_query = query  # default: unchanged
     if cfg.graph_query_expansion_enabled:
         stage_started = time.perf_counter()
         try:
-            from engram.retrieval.graph_expansion import expand_query_from_graph
+            from engram.retrieval.graph_expansion import (
+                _DEADLINE_SAFETY,
+                expand_query_from_graph,
+            )
 
-            expansion_call = expand_query_from_graph(query, graph_store, group_id)
             timeout_seconds = _stage_timeout_seconds(
                 cfg,
                 "graph_query_expansion_timeout_ms",
+            )
+            expansion_stats: dict[str, float] = {}
+            expansion_call = expand_query_from_graph(
+                query,
+                graph_store,
+                group_id,
+                deadline_seconds=(
+                    timeout_seconds * _DEADLINE_SAFETY if timeout_seconds is not None else None
+                ),
+                stats_out=expansion_stats,
             )
             graph_expanded_query = (
                 await asyncio.wait_for(expansion_call, timeout=timeout_seconds)
@@ -571,9 +701,37 @@ async def retrieve(
                 else await expansion_call
             )
             _add_stage_timing(stage_timings_ms, "graph_expand", stage_started)
+            if expansion_stats.get("truncated"):
+                # Partial, not broken: reads completed and were USED. Recorded
+                # as a number so a shortened expansion is never inferred from
+                # an unchanged query string.
+                _set_stage_metric(
+                    stage_timings_ms,
+                    "graph_expand_partial",
+                    expansion_stats.get("reads", 0.0),
+                )
         except asyncio.TimeoutError:
             graph_expanded_query = query
-            _add_stage_timing(stage_timings_ms, "graph_expand_timeout", stage_started)
+            if expansion_stats.get("attempts", 0.0) > 0:
+                # At least one read was ISSUED and the stage still overran, so
+                # the store is implicated — including the worst case where the
+                # very first read never came back. Arm the gate, unchanged.
+                _add_stage_timing(stage_timings_ms, "graph_expand_timeout", stage_started)
+            else:
+                # The stage overran WITHOUT ISSUING A SINGLE GRAPH READ, so it
+                # is not evidence that the graph store is over budget — it is
+                # evidence that this coroutine never got to run (a starved
+                # loop, or a query that extracts no terms at all). Measured
+                # live: `tell me about helixdb storage limits` extracts zero
+                # terms, issues zero reads, and still recorded a 76.5 ms
+                # graph_expand_timeout while recall_stats completed in 220 ms
+                # and the primary search in 7.4 ms — and that false probe cost
+                # the recall its entire graph half (4 stages skipped,
+                # spreading reach 0 against 197-497 on the arm that did not
+                # trip it). Recorded under its own key so it stays visible and
+                # does NOT arm the gate; recall_stats_timeout, which IS a
+                # single real store read, remains the honest probe.
+                _add_stage_timing(stage_timings_ms, "graph_expand_starved", stage_started)
         except asyncio.CancelledError:
             _add_stage_timing(
                 stage_timings_ms,
@@ -1236,6 +1394,20 @@ async def retrieve(
                 "recall_episode_graph_signal_no_entity_candidates",
                 0.0,
             )
+        # Ticket 20: this return used to skip Step 5.5 outright, so on the
+        # default tier — where the episode/cue channel is the ONLY channel that
+        # reaches the caller — an empty entity pool made the reranker
+        # unreachable rather than merely ineffective.
+        await _rerank_special_results(
+            query,
+            group_id,
+            graph_store,
+            reranker,
+            cfg,
+            episode_candidates,
+            cue_candidates,
+            stage_timings_ms,
+        )
         special_results = _merge_special_results(
             episode_candidates, cue_candidates, cfg, suppressed_cue_out
         )
@@ -1262,6 +1434,18 @@ async def retrieve(
         return []
 
     if _candidate_pool_has_no_semantic_anchor(stage_timings_ms):
+        # Second unreachable path, found with ticket 20's: a pool with no
+        # semantic anchor also surfaces episodes without ever reaching Step 5.5.
+        await _rerank_special_results(
+            query,
+            group_id,
+            graph_store,
+            reranker,
+            cfg,
+            episode_candidates,
+            cue_candidates,
+            stage_timings_ms,
+        )
         special_results = _merge_special_results(
             episode_candidates, cue_candidates, cfg, suppressed_cue_out
         )
