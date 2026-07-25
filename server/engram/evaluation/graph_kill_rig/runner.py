@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from engram.config import EngramConfig
+from engram.config import ActivationConfig, EngramConfig
 from engram.evaluation.graph_kill_rig import preflight
 from engram.evaluation.graph_kill_rig.arms import (
     ARM_A_OVERRIDES,
@@ -56,10 +56,17 @@ from engram.evaluation.graph_kill_rig.thresholds import (
 
 FAULTS = ("none", "drop-relationships", "disable-traversal", "starve-spread")
 
-# Config fields recorded with every run. M13: "the live config is not a
-# well-defined object" — a result whose config was not captured cannot be
-# reproduced, so the rig captures the fields its arms actually depend on.
-_PROVENANCE_FIELDS = (
+# The knobs worth reading first when comparing two runs by eye. This is a
+# READING AID, not the provenance record: the record is the whole activation
+# config (see _config_snapshot), because a curated list of "the fields the arms
+# depend on" is a frozen answer to a question that changes every time a knob is
+# added — and it went stale exactly that way. `retrieval_spread_traversal_budget_ms`
+# and `retrieval_spread_max_reads` entered the recall path in 390866b and were
+# not added here; `max_reads=0 + budget=0` reproduces pre-fix zero-reach
+# behaviour exactly, so a result recorded after the fix was indistinguishable
+# from one recorded before it. Both are listed now, but listing them is not
+# what fixed it — capturing everything is.
+_ARM_CRITICAL_FIELDS = (
     "entity_episode_traversal_enabled",
     "entity_episode_traversal_source",
     "entity_episode_max_entities",
@@ -69,6 +76,8 @@ _PROVENANCE_FIELDS = (
     "passage_first_entity_budget",
     "passage_first_channel_separated",
     "retrieval_spread_timeout_ms",
+    "retrieval_spread_traversal_budget_ms",
+    "retrieval_spread_max_reads",
     "spread_candidate_injection_max",
     "retrieval_skip_secondary_graph_after_probe_timeout",
     "episode_graph_signal_enabled",
@@ -76,6 +85,37 @@ _PROVENANCE_FIELDS = (
     "recall_profile",
     "integration_profile",
 )
+
+# A renamed or deleted knob used to leave a `None` in the provenance block —
+# a missing measurement wearing the shape of a real one. The rig refuses to
+# import instead: a module that cannot describe its own config has no business
+# producing a number.
+_UNKNOWN_CRITICAL_FIELDS = tuple(
+    name for name in _ARM_CRITICAL_FIELDS if name not in ActivationConfig.model_fields
+)
+if _UNKNOWN_CRITICAL_FIELDS:  # pragma: no cover - import-time guard
+    raise RuntimeError(
+        f"graph_kill_rig provenance names knobs ActivationConfig does not have: "
+        f"{list(_UNKNOWN_CRITICAL_FIELDS)}"
+    )
+
+
+def arm_overrides(fault: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The config overrides arms A and B run under, for one fault mode.
+
+    Extracted from ``run_rig`` so the set of knobs the rig itself varies is
+    DERIVABLE rather than remembered — ``tests/test_graph_kill_rig.py`` walks
+    every fault and fails if provenance would omit one. Arm C re-opens the brain
+    under arm A's overrides, so it is covered by the A snapshot.
+    """
+    a = dict(ARM_A_OVERRIDES)
+    b = dict(ARM_B_OVERRIDES)
+    if fault == "disable-traversal":
+        b["entity_episode_traversal_enabled"] = False
+    if fault == "starve-spread":
+        a["retrieval_spread_timeout_ms"] = 1
+        b["retrieval_spread_timeout_ms"] = 1
+    return a, b
 
 
 class _NoopExtractor:
@@ -227,7 +267,28 @@ async def _ingest(manager: Any, corpus: Corpus, opts: RigOptions) -> dict[str, s
 
 
 def _config_snapshot(config: EngramConfig) -> dict[str, Any]:
-    return {field: getattr(config.activation, field, None) for field in _PROVENANCE_FIELDS}
+    """Provenance for one arm: the WHOLE activation config, plus a highlight.
+
+    ``all`` is total by construction, which is the only property that cannot go
+    stale. The previous snapshot was a curated 15-field tuple and it did go
+    stale: ``retrieval_spread_traversal_budget_ms`` and
+    ``retrieval_spread_max_reads`` decide whether spreading traverses anything
+    at all — ``max_reads=0`` with ``budget=0`` reproduces pre-390866b zero-reach
+    behaviour exactly — and neither was captured, so a result recorded after the
+    fix was byte-indistinguishable from one recorded before it.
+
+    ``critical`` is a reading aid for a human diffing two envelopes. It is not
+    the record, so its going stale is now a legibility bug rather than a
+    reproducibility one. It also used to be built with
+    ``getattr(..., field, None)``, which turned a renamed knob into a ``None``
+    that reads exactly like "this knob was unset" (INSTRUMENT_AUDIT.md pattern
+    1); the module-level guard above makes that a refusal instead.
+    """
+    activation = config.activation.model_dump(mode="json")
+    return {
+        "critical": {name: activation[name] for name in _ARM_CRITICAL_FIELDS},
+        "all": activation,
+    }
 
 
 async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str, Any]:
@@ -322,13 +383,7 @@ async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str
         return _void(envelope, checks, residual=None, arms_run={})
 
     # --- arm A -------------------------------------------------------------
-    arm_overrides_a = dict(ARM_A_OVERRIDES)
-    arm_overrides_b = dict(ARM_B_OVERRIDES)
-    if opts.fault == "disable-traversal":
-        arm_overrides_b["entity_episode_traversal_enabled"] = False
-    if opts.fault == "starve-spread":
-        arm_overrides_a["retrieval_spread_timeout_ms"] = 1
-        arm_overrides_b["retrieval_spread_timeout_ms"] = 1
+    arm_overrides_a, arm_overrides_b = arm_overrides(opts.fault)
 
     manager, graph, config_a = await _open_brain(opts, arm_overrides_a)
     arm_a = await _run_and_score(manager, scored, tag_to_id, opts, scorer, keep_raw=True)

@@ -12,11 +12,14 @@ Two jobs, and the second is the important one:
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from engram.evaluation.graph_kill_rig import preflight, thresholds
+from engram.config import ActivationConfig
+from engram.evaluation.graph_kill_rig import preflight, runner, thresholds
 from engram.evaluation.graph_kill_rig.arms import (
     QuestionRun,
     QuestionScore,
@@ -246,10 +249,37 @@ class TestSpreadGateProbe:
 class TestSpreadReachEvidence:
     """The reach clause must not depend on a stage counter that can vanish.
 
-    ``recall_spread_reached`` and ``recall_spread_injected`` were both emitted
-    by pipeline.py while this rig was written; neither is emitted by the tree it
-    now runs against. Row-level ``spreading`` is the durable evidence.
+    CORRECTED 2026-07-24. This used to read "``recall_spread_reached`` and
+    ``recall_spread_injected`` were both emitted by pipeline.py while this rig
+    was written; neither is emitted by the tree it now runs against." As of
+    390866b both ARE emitted, unconditionally, on every exit from the stage —
+    so they are primary evidence that the traversal walked an edge, not mere
+    corroboration. Row-level ``spreading`` is still checked first because it is
+    the one signal that survives the counters being renamed, which is a thing
+    that has already happened once and is pinned below.
     """
+
+    def test_the_stage_counters_this_probe_reads_are_still_emitted(self):
+        """Reader/writer drift (INSTRUMENT_AUDIT.md pattern 3) would narrow the gate.
+
+        If pipeline.py renames either counter, ``_walked_an_edge``'s stage
+        clause goes permanently False and the liveness floor silently becomes
+        the strictly harder "a discovery survived ranking" — failing runs whose
+        traversal was perfectly healthy, with nothing to indicate why.
+        """
+        source = (REPO_ROOT / "server" / "engram" / "retrieval" / "pipeline.py").read_text()
+        emitted = {
+            node.args[1].value
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"_set_stage_metric", "_add_stage_timing"}
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        }
+        assert emitted, "found no stage metric emissions at all; the scanner is inert"
+        assert {"recall_spread_reached", "recall_spread_injected"} <= emitted
 
     def test_row_spreading_alone_proves_an_edge_was_walked(self):
         runs = [_run(f"q{i}", [_row(spreading=0.04)], recall_spread=2.7) for i in range(10)]
@@ -346,6 +376,72 @@ class TestScoredSetFloor:
 
     def test_green_at_the_floor(self):
         assert preflight.scored_set_floor_probe(36, floor=36).passed
+
+
+# ── provenance: a result that cannot be reproduced is not a result ──
+
+
+class TestRigProvenance:
+    """Ticket #33.
+
+    ``_PROVENANCE_FIELDS`` carried the comment "a result whose config was not
+    captured cannot be reproduced, so the rig captures the fields its arms
+    actually depend on" and listed fifteen knobs — not including
+    ``retrieval_spread_traversal_budget_ms`` or ``retrieval_spread_max_reads``,
+    which decide whether spreading traverses anything at all. ``max_reads=0``
+    with ``budget=0`` reproduces pre-390866b zero-reach behaviour exactly, so a
+    result recorded after the fix was indistinguishable from one recorded
+    before it.
+
+    The list is not the fix. A hand-maintained "fields the arms depend on" is a
+    frozen answer to a question that changes every time a knob is added, so the
+    tests below pin the two properties that cannot rot: the record is TOTAL, and
+    every knob the rig itself varies is derivable from the rig.
+    """
+
+    @staticmethod
+    def _snapshot(**activation):
+        return runner._config_snapshot(SimpleNamespace(activation=ActivationConfig(**activation)))
+
+    def test_a_pre_fix_spreading_config_is_distinguishable_from_a_post_fix_one(self):
+        """THE #33 test. RED against the pre-fix provenance tuple."""
+        post_fix = self._snapshot()
+        pre_fix = self._snapshot(
+            retrieval_spread_traversal_budget_ms=0,
+            retrieval_spread_max_reads=0,
+        )
+
+        # Positive probe: the two configs must genuinely differ, or "the
+        # snapshots differ" would prove nothing about the snapshot.
+        assert ActivationConfig().retrieval_spread_max_reads != 0, (
+            "fixture is inert: the shipped default already reproduces pre-fix behaviour"
+        )
+        assert post_fix != pre_fix
+        assert post_fix["critical"] != pre_fix["critical"], (
+            "the difference is only visible in the full dump; the highlight a reader "
+            "actually diffs still cannot tell the two runs apart"
+        )
+
+    def test_the_record_is_the_whole_activation_config(self):
+        """Total by construction is the only version of this that cannot go stale."""
+        snapshot = self._snapshot()
+        assert set(snapshot["all"]) == set(ActivationConfig.model_fields)
+
+    def test_every_knob_the_rig_itself_varies_is_in_the_highlight(self):
+        """Derived from the rig, not remembered: walk every fault mode."""
+        varied: set[str] = set()
+        for fault in runner.FAULTS:
+            arm_a, arm_b = runner.arm_overrides(fault)
+            varied |= set(arm_a) | set(arm_b)
+        assert varied, "fixture is inert: no fault mode varied anything"
+        assert varied <= set(runner._ARM_CRITICAL_FIELDS), (
+            f"arms vary {sorted(varied - set(runner._ARM_CRITICAL_FIELDS))} without "
+            "surfacing it in the provenance highlight"
+        )
+
+    def test_the_highlight_cannot_name_a_knob_that_does_not_exist(self):
+        """A renamed knob used to record `None` — absence wearing a value's shape."""
+        assert set(runner._ARM_CRITICAL_FIELDS) <= set(ActivationConfig.model_fields)
 
 
 # ── the refusal envelope must not leak a number ─────────────────────

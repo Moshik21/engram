@@ -374,17 +374,39 @@ def consumer_byte_probe(arm_b_runs: list[QuestionRun]) -> Check:
 def _walked_an_edge(run: QuestionRun) -> bool:
     """True when this recall provably traversed at least one relationship.
 
-    The primary evidence is a RESULT-side observable, not a stage counter: a
-    non-zero ``spreading`` in a row's score breakdown can only exist if
-    ``bonuses[neighbor_id]`` was written, and ``activation/bfs.py`` writes that
-    dict for NEIGHBOURS only (``:162``) — seeds are placed in ``hop_distances``
-    at hop 0 (``:53-55``) and never in ``bonuses``. So ``spreading > 0`` is
-    exactly "an edge was walked", and it is the only such signal that survives
-    the pipeline's instrumentation being rewritten underneath this rig, which
-    it was: ``recall_spread_reached`` and ``recall_spread_injected`` both
-    existed in the working tree while this module was written and neither is
-    emitted by the tree it now runs against. Stage counters are read as
-    corroboration when present, never as the sole source.
+    Two independent kinds of evidence, OR-ed, because they are not nested:
+
+    * **Result-side.** A non-zero ``spreading`` in a row's score breakdown can
+      only exist if ``bonuses[neighbor_id]`` was written, and
+      ``activation/bfs.py::BFSStrategy.spread`` writes that dict *inside the
+      neighbour loop only* — seed nodes are entered into ``hop_distances`` at
+      hop 0 in the priming loop that runs before the first adjacency read, and
+      never into ``bonuses``. So ``spreading > 0`` on a returned row means an
+      edge was walked AND its product survived ranking all the way to the
+      answerer. (Anchored on symbols, not line numbers: the previous version
+      of this docstring cited ``bfs.py:162`` and ``:53-55``, and 390866b moved
+      both.)
+    * **Stage-side.** ``recall_spread_reached`` counts nodes at hop >= 1, so it
+      is non-zero only if an edge was walked — but it does not require the
+      discovery to survive ranking, which makes it the more *sensitive* of the
+      two for the claim this function actually makes.
+
+    CORRECTED 2026-07-24. This docstring used to justify down-weighting the
+    stage counters on the grounds that "neither is emitted by the tree it now
+    runs against". That was true when written and is false now: as of 390866b
+    ``pipeline._record_spread_reach`` emits ``recall_spread_reached`` on EVERY
+    exit from the stage including timeout, cancel and skip, and Step 4.5 emits
+    ``recall_spread_discovered``/``recall_spread_injected`` unconditionally.
+
+    The weighting was re-examined on that basis and **kept**, for a different
+    reason than the one that is now stale: this probe asks "did the traversal
+    walk an edge", and the counters answer exactly that question, so they are
+    primary evidence rather than corroboration. The result-side signal is kept
+    first because it is the only one that survives the pipeline's
+    instrumentation being renamed underneath this rig — which has happened once
+    already. Whether anything the traversal found reached the *answerer* is a
+    strictly narrower claim, and it is not this function's job: it is enforced
+    separately and unconditionally by ``consumer_byte_probe``.
     """
     if any(row.spreading > 0.0 for row in run.rows):
         return True
