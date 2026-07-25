@@ -19,6 +19,16 @@ from engram.activation.spreading import (
     spread_activation,
 )
 from engram.config import ActivationConfig
+from engram.retrieval.episode_graph_signal import (
+    apply_episode_graph_signal,
+    snapshot_entity_signal,
+)
+
+# The production stage-instrumentation helpers, imported rather than re-declared:
+# a forked copy is how the episode lane below drifted away from production in the
+# first place, and the metric keys are the A/B's only positive probe that the
+# graph term actually fired.
+from engram.retrieval.pipeline import _add_stage_timing, _set_stage_metric
 from engram.retrieval.router import QueryType, apply_route, classify_query
 from engram.retrieval.scorer import (
     ScoredResult,
@@ -373,6 +383,7 @@ async def run_retrieval(
     community_store=None,
     predicate_cache=None,
     total_entities: int = 0,
+    stage_timings_ms: dict[str, float] | None = None,
 ) -> list[ScoredResult]:
     """Execute a single retrieval pass for the given method.
 
@@ -386,12 +397,27 @@ async def run_retrieval(
            activation through the graph.
         3.5. Add working memory entities as additional seeds.
         4. Score all candidates (deterministic composite).
+        4.01. Snapshot the per-entity ACT-R signal for the episode lane.
         5. Cross-encoder re-ranking (if enabled).
         6. MMR diversity (if enabled).
+        6.8. Apply the forward episode->entity graph signal to episode results.
         7. Return the top *limit* results sorted by score descending.
 
     CRITICAL: This function does **not** call ``record_access()`` so that
     activation state is not contaminated between methods during benchmarking.
+
+    Steps 4.01 and 6.8 mirror production Steps 5.01 and 5.8
+    (``retrieval/pipeline.py``) and call the SAME functions. They are not
+    optional niceties: without them the episode ``ScoredResult``s built at step
+    1.8 keep their ``activation=0.0, spreading=0.0, edge_proximity=0.0``
+    literals, and any graph A/B driven through this wrapper measures a code
+    path that structurally cannot receive a graph signal — reporting "the graph
+    does not help" when the truth is "the harness bypassed the graph". Parity
+    is pinned by ``tests/benchmark/test_harness_production_parity.py``.
+
+    ``stage_timings_ms`` receives the production ``recall_episode_graph_signal_*``
+    counters, which are the only evidence an A/B run has that the mechanism
+    under test actually fired.
     """
     cfg = method.config
     now = now if now is not None else time.time()
@@ -482,6 +508,11 @@ async def run_retrieval(
                         node_id=ep_id,
                         score=score,
                         semantic_similarity=sem_sim,
+                        # Placeholders, exactly as production builds them
+                        # (pipeline.py Step 1.8). Step 6.8 below OVERWRITES
+                        # them with the derived graph signal; deleting that
+                        # step re-freezes these zeros and makes every graph A/B
+                        # through this wrapper report a structural null.
                         activation=0.0,
                         spreading=0.0,
                         edge_proximity=0.0,
@@ -579,6 +610,10 @@ async def run_retrieval(
         cfg=cfg,
     )
 
+    # 4.01. Snapshot the per-entity signal BEFORE step 5 re-sorts `scored` and
+    # before step 6 REPLACES it with an MMR truncation (production Step 5.01).
+    entity_signal = snapshot_entity_signal(scored)
+
     # 5. Cross-encoder re-ranking (if enabled)
     if cfg.reranker_enabled and reranker is not None:
         try:
@@ -637,6 +672,21 @@ async def run_retrieval(
             )
         except Exception as e:
             logger.warning("MMR diversity failed (non-fatal): %s", e)
+
+    # 6.8. Forward episode->entity graph signal (production Step 5.8). Placed
+    # after the rerank/MMR stages that own `scored` and before the merge+sort
+    # below, exactly as production places it before `_merge_special_results`.
+    await apply_episode_graph_signal(
+        episode_results,
+        [],
+        entity_signal=entity_signal,
+        graph_store=graph_store,
+        group_id=group_id,
+        cfg=cfg,
+        stage_timings_ms=stage_timings_ms,
+        set_metric=_set_stage_metric,
+        add_timing=_add_stage_timing,
+    )
 
     # 7. Merge episode results into scored list
     if episode_results:
