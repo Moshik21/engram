@@ -178,6 +178,9 @@ resets. Status as of 2026-07-24 evening.
 | 29 | packet cache key has no build/config component | §2.4. Fix the key or add a measurement bypass; test that keys cannot collide across configs |
 | 24 | effective config is launcher-dependent | §2.11. `engram doctor` shares the flaw |
 | 27 | `config.hx.json` says 50 GB / ef_search 512; Rust hardcodes 20 GB / 768 | three copies of a file the runtime ignores. Make the loser impossible, not merely unused |
+| 31 | **spreading completion is process-level bimodal: 0% / 6% / 100% / 100% on identical code** | `390866b`, four careful measurements. Cause is executor contention, not traversal cost: `recallSearch` runs 1082–1500 ms and saturates the 4-worker native executor, so a spreading read queues behind it — and `recallEntityAttributes` (independent stage, independent budget) times out at ~75 ms *in lockstep*. **The kill rig's `SPREAD_COMPLETION_MIN = 0.80` pre-flight therefore passes or fails on which server process it hits.** Makes ticket 2 (concurrency) a T0 dependency of ticket 3 |
+| 32 | benchmark harness injects ~450 candidates where production injects 32 | `benchmark/methods.py:588-601` has no cap; `spread_candidate_injection_max` has one read site (`pipeline.py:1522`). A 12× pool divergence that breaks the exact property `d8bf60f` was built to establish. Any A/B through the harness is void until fixed |
+| 33 | kill-rig provenance omits the two knobs that decide whether spreading traverses at all | `graph_kill_rig/runner.py:62-77` `_PROVENANCE_FIELDS` lacks `retrieval_spread_traversal_budget_ms` and `retrieval_spread_max_reads`; `max_reads=0 + budget=0` exactly reproduces pre-fix behaviour, so a result recorded today is indistinguishable from one recorded before the fix |
 | — | *(done)* instrument audit + contract test | `14acb1e` |
 | — | *(done)* `engram meter` | `e22163f` |
 
@@ -188,6 +191,7 @@ resets. Status as of 2026-07-24 evening.
 | 22 | `GET /api/episodes?limit=200` takes the shell down | de-risked (~28 MB of ~89 MB), **not fixed** — needs a bounded page route in `schema.hx` |
 | 19 | `recall_graph_gate` returns `None` in 0.11 ms after probe timeout | silent wrong answer to a bounded caller. Needs a typed miss (TIMEOUT vs NOT_FOUND) |
 | 26 | `_resolve_episode_helix_id` full group scan on cache miss | 533 ms cold vs 0.263 ms warm — a 2000× cliff, and the gather that uses it is unbounded against a 4-worker executor |
+| 34 | `slowest_read` is a running max that never decays — one outlier collapses the traversal | `bfs.py:89`, `ppr.py:192`, `actr.py:70`. Measured on a 0.5 ms/read store with a 50 ms budget: no outlier → 37 reads / 293 reached; **inject a single 25 ms read → 2 reads / 17 reached**, 94% of reach gone with 23 ms of budget unspent. Live per-read latency spans 0.1–150 ms, so this is not hypothetical. Silent — no gate notices |
 
 ### T2 — silent-inert (unfinished features)
 | # | item | note |
@@ -213,6 +217,28 @@ resets. Status as of 2026-07-24 evening.
 
 ### T4 — strategic
 See §7.
+
+### Recorded disagreements (do not smooth these over)
+
+Two careful verifiers, same commit, opposite conclusions. Both did real work; neither is
+dismissible. Resolving these is worth more than another fix.
+
+- **Does restored `ensure_fresh` buy anything?** V1 measured `is_bridge_edge` returning `None`
+  on **358/358** live calls with `_assignments` empty, and gave a structural reason:
+  `label_propagation` labels only `entity_ids` and restricts adjacency with `if nid in labels`
+  (`community.py:155`), while BFS asks about *(node, **discovered** neighbour)* (`bfs.py:134`)
+  — so the two can never meet. V2 measured `is_bridge_edge` resolving **10–23%** of calls and
+  called the restore justified. If V1's mechanism argument holds, the commit restored the cost
+  without the capability. **Unresolved.** Decide it with the mechanism, not another sample.
+- **Did the completion win survive?** Now understood as ticket 31 — both were right about
+  their own regime. Recorded here because the shape recurs: when two honest measurements of
+  one system disagree, suspect a *regime*, not an error.
+
+### Commit-message corrections owed
+`390866b`'s message states the completion win "did not survive honest measurement (0/20)". That
+is true of one regime and **false as a general claim** — 51/51 and 45/45 were independently
+reproduced on the same commit. The code is right; the message overstates. Correct it in a
+follow-up note rather than rewriting pushed history.
 
 ---
 
@@ -318,3 +344,13 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   scoring; three-arm kill rig with a pre-flight that refuses; `engram meter`.
 - **2026-07-24** — `CODE_CENSUS.md`: 0.05% deletable, 91:1 false-to-true, 3.5:1 unfinished vs
   abandoned.
+- **2026-07-24** — `390866b`: spreading traversal bounded, recall budget kept inside recall.
+  Both blockers cleared and independently confirmed — offline reach restored **byte-identical**
+  to pre-fix across six cases including read-order digest (the broken version had lost 78% of
+  reads), and the cold-path row loss reversed (was −1 row; now +3/−1, totals 89→92, and the
+  blocker's own timeout signature inverted). Nine mechanisms neutered one at a time, each
+  confirmed RED — **two passed on the first attempt, so the tests were tightened until they
+  failed.** AUDIT-14 defeated with a per-query nonce plus a positive control: repeating one
+  exact query returned in 4.8 ms with no spread keys versus 2238.9 ms on its first run, proving
+  the cache was live and the nonce is what avoided it. Opened tickets 31–34 (§4) and two
+  recorded disagreements.
