@@ -471,7 +471,14 @@ class ActivationConfig(BaseModel):
     pool_graph_limit: int = Field(default=20, ge=5, le=100)
     pool_wm_max_neighbors: int = Field(default=5, ge=1, le=20)
     pool_wm_limit: int = Field(default=15, ge=5, le=50)
-    pool_total_limit: int = Field(default=80, ge=20, le=1000)
+    # 85, not 80, because ticket 28 turned this from a dead knob into the ACTUAL
+    # cap. Until then candidate_pool derived the cap as
+    # pool_search(30) + pool_activation(20) + pool_graph_limit(20) + pool_wm(15) = 85
+    # while `cfg.pool_total_limit` had zero read sites. Shipping the old 80 as the
+    # now-live value would have silently narrowed the default lane 85 -> 80 — an
+    # unmeasured 6% cut to recall depth landed inside the commit whose subject was
+    # that this knob had been lying. Change it deliberately, not by inheritance.
+    pool_total_limit: int = Field(default=85, ge=20, le=1000)
 
     # --- Entity query retrieval ---
     entity_query_retrieval_enabled: bool = Field(default=True)

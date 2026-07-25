@@ -63,7 +63,7 @@ FINGERPRINT_EXCLUDED_FIELDS: dict[str, str] = {
 # Source tree hashed for the build component. Not a complete build identity —
 # it is the surface that decides packet CONTENT. Labelled in the identity
 # payload so a reader knows its scope instead of assuming it covers the repo.
-_SOURCE_DIGEST_SCOPE = "engram/retrieval/**/*.py + engram/pipeline.py"
+_SOURCE_DIGEST_SCOPE = "engram/retrieval/**/*.py"
 _source_digest_cache: tuple[str | None, str] | None = None
 
 
@@ -126,10 +126,12 @@ def _source_digest() -> tuple[str | None, str]:
         return _source_digest_cache
     root = Path(__file__).resolve().parent.parent
     try:
+        # NOTE: an earlier version also appended `root / "pipeline.py"`, which does
+        # not exist — the recall pipeline is `retrieval/pipeline.py`, already covered
+        # by the rglob above. The `if .exists()` made it a silent no-op, so the
+        # advertised scope claimed a file the digest never hashed. Exactly the
+        # accurate-or-absent rule (STANDING_GOAL §2.1) applied to a scope label.
         paths = sorted(root.joinpath("retrieval").rglob("*.py"))
-        pipeline = root / "pipeline.py"
-        if pipeline.exists():
-            paths.append(pipeline)
         digest = hashlib.sha256()
         for path in paths:
             digest.update(str(path.relative_to(root)).encode("utf-8"))

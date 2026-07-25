@@ -271,9 +271,7 @@ def _run_doctor_check(monkeypatch, config, payload, url="http://x/runtime/fast")
 
 def test_doctor_fails_when_cli_and_service_disagree(monkeypatch):
     """The live shape: CLI resolved `standard`/`all`, service reports `quiet`/`wave2`."""
-    check = _run_doctor_check(
-        monkeypatch, _config_with("standard", "all"), LIVE_RUNTIME_PAYLOAD
-    )
+    check = _run_doctor_check(monkeypatch, _config_with("standard", "all"), LIVE_RUNTIME_PAYLOAD)
     assert check["name"] == "config_resolution"
     assert check["status"] == "fail"
     assert "CONFIG DIVERGENCE" in check["detail"]
@@ -335,9 +333,7 @@ def test_comparator_is_not_inert():
     and identical input must yield none.
     """
     resolutions = {
-        CONSOLIDATION: Resolution(
-            key=CONSOLIDATION, value="standard", source="/repo/server/.env"
-        )
+        CONSOLIDATION: Resolution(key=CONSOLIDATION, value="standard", source="/repo/server/.env")
     }
     divergent, _ = compare_to_runtime(
         local_values={CONSOLIDATION: "standard"},

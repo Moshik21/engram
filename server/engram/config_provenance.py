@@ -249,12 +249,10 @@ def format_contest_banner(resolutions: Mapping[str, Resolution]) -> str:
             if value != res.value:
                 lines.append(f"       shadowed: {value} <- {source}")
     lines.append(
-        "   The launchd service exports ~/.engram/.env as real process env vars, which "
-        "outrank"
+        "   The launchd service exports ~/.engram/.env as real process env vars, which outrank"
     )
     lines.append(
-        "   every dotenv file, so the running shell may be on the shadowed values. "
-        "Verify with:"
+        "   every dotenv file, so the running shell may be on the shadowed values. Verify with:"
     )
     lines.append("       engram doctor      # compares this process to the live shell")
     return "\n".join(lines)

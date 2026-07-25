@@ -724,7 +724,17 @@ class TestMultiPoolConfig:
         assert cfg.pool_graph_limit == 20
         assert cfg.pool_wm_max_neighbors == 5
         assert cfg.pool_wm_limit == 15
-        assert cfg.pool_total_limit == 80
+        # 85 = 30 + 20 + 20 + 15, the cap candidate_pool DERIVED before ticket 28
+        # made this field the real one. Pinned as a sum, not a magic number, so
+        # that changing any sibling above without revisiting the total fails here
+        # instead of silently narrowing recall depth.
+        assert cfg.pool_total_limit == (
+            cfg.pool_search_limit
+            + cfg.pool_activation_limit
+            + cfg.pool_graph_limit
+            + cfg.pool_wm_limit
+        )
+        assert cfg.pool_total_limit == 85
 
     def test_validation(self):
         from pydantic import ValidationError

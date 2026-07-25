@@ -143,9 +143,7 @@ class TestOneSlowReadDoesNotCollapseTheTraversal:
         """
         reached, stats = await _traverse(_graph_store(outlier_s=0.030, outlier_at=1))
 
-        assert stats["reads"] > 1, (
-            f"one cold read ended the traversal: {stats}"
-        )
+        assert stats["reads"] > 1, f"one cold read ended the traversal: {stats}"
         assert reached > 0, f"a cold first read produced no traversal at all: {stats}"
         assert float(stats["budget_unspent_ms"]) <= _BUDGET_S * 1000 * 0.25, stats
 

@@ -382,6 +382,55 @@ def _record_spread_reach(
     _set_stage_metric(stage_timings_ms, "recall_spread_max_hop", max(reached, default=0))
 
 
+def _record_spread_budget(
+    stage_timings_ms: dict[str, float] | None,
+    traversal_stats: dict[str, float | str],
+) -> None:
+    """Report WHY the traversal stopped — reach alone cannot tell you.
+
+    ``recall_spread_reached`` says how far spreading got. It cannot say whether
+    a small number is the graph's fault or the traversal's, and the stage
+    reports COMPLETED either way. The measured failure it hides: on a
+    0.5ms/read store with a 50ms budget, injecting ONE 25ms read took the
+    traversal from 64 reads / 498 reached to 6 reads / 34 reached — 93% of the
+    reach gone, with 19.5ms of the 50ms budget never spent, and every stage key
+    still saying success.
+
+    So the collapse is reported as its own signature, not inferred:
+
+      recall_spread_reads                 how many adjacency reads happened
+      recall_spread_budget_unspent_ms     traversal budget left on the table
+      recall_spread_stop_<reason>         = 1.0, exactly one of:
+          complete        the traversal ran out of work (healthy)
+          max_reads       the work cap bound (healthy, bounded)
+          deadline        the budget was genuinely spent (healthy, bounded)
+          predicted_cost  a read was REFUSED as unaffordable  <-- the collapse
+
+    ``predicted_cost`` with a large ``budget_unspent_ms`` is the signature. A
+    healthy traversal stops on ``complete``/``max_reads``, or on ``deadline``
+    with ~0 unspent.
+
+    Absent keys are deliberate (``INSTRUMENT_AUDIT.md`` pattern 1):
+    ``budget_unspent_ms`` is omitted when the caller set no deadline, and the
+    whole block is omitted when no traversal ran, because zeros there would read
+    as measurements of a traversal that never happened.
+    """
+    if stage_timings_ms is None or not traversal_stats:
+        return
+    reads = traversal_stats.get("reads")
+    if reads is not None:
+        _set_stage_metric(stage_timings_ms, "recall_spread_reads", float(reads))
+    unspent = traversal_stats.get("budget_unspent_ms")
+    if unspent is not None:
+        _set_stage_metric(stage_timings_ms, "recall_spread_budget_unspent_ms", float(unspent))
+    read_ms_max = traversal_stats.get("read_ms_max")
+    if read_ms_max is not None:
+        _set_stage_metric(stage_timings_ms, "recall_spread_read_ms_max", float(read_ms_max))
+    reason = traversal_stats.get("stop_reason")
+    if reason:
+        _set_stage_metric(stage_timings_ms, f"recall_spread_stop_{reason}", 1.0)
+
+
 def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | None:
     timeout_ms = int(getattr(cfg, field_name, 0) or 0)
     if timeout_ms <= 0:
@@ -1449,6 +1498,11 @@ async def retrieve(
         _record_spread_reach(stage_timings_ms, hop_distances)
     else:
         spread_started = time.perf_counter()
+        # Owned HERE, not by the traversal, so it survives the outer cancel
+        # below: a cancelled coroutine never reaches its own return, so a
+        # traversal that reports itself only on the way out is silent on
+        # exactly the failure worth seeing.
+        traversal_stats: dict[str, float | str] = {}
         try:
             # RECALL's traversal bound, supplied here and nowhere else. The
             # strategy itself defaults to unbounded so the offline (dream) and
@@ -1468,6 +1522,7 @@ async def retrieve(
                     if traversal_budget_ms > 0
                     else None
                 ),
+                traversal_stats=traversal_stats,
             )
             # The outer wall clock stays exactly what every other recall stage
             # gets: a hard cancel that discards the stage's work. It is NOT
@@ -1484,13 +1539,17 @@ async def retrieve(
             )
             _add_stage_timing(stage_timings_ms, "recall_spread", spread_started)
             _record_spread_reach(stage_timings_ms, hop_distances)
+            _record_spread_budget(stage_timings_ms, traversal_stats)
         except asyncio.TimeoutError:
             bonuses, hop_distances = {}, {}
             _add_stage_timing(stage_timings_ms, "recall_spread_timeout", spread_started)
             _record_spread_reach(stage_timings_ms, hop_distances)
+            # The frontier is gone, but how many reads were thrown away is not.
+            _record_spread_budget(stage_timings_ms, traversal_stats)
         except asyncio.CancelledError:
             _add_stage_timing(stage_timings_ms, "recall_spread_cancelled", spread_started)
             _record_spread_reach(stage_timings_ms, {})
+            _record_spread_budget(stage_timings_ms, traversal_stats)
             raise
 
     # Step 4.1: Inhibitory spreading (Brain Architecture)

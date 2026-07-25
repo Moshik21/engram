@@ -219,9 +219,7 @@ async def test_reranker_never_scores_documents_it_could_not_read(monkeypatch):
         cfg,
         reranker=reranker,
     )
-    empty_docs = [
-        doc_id for batch in reranker.calls for doc_id, text in batch if not text.strip()
-    ]
+    empty_docs = [doc_id for batch in reranker.calls for doc_id, text in batch if not text.strip()]
     assert empty_docs == [], (
         "reranker was handed unreadable documents as empty text "
         f"(the store holds content for them): {empty_docs}"
