@@ -24,6 +24,7 @@ from engram.retrieval.episode_graph_signal import (
 from engram.retrieval.plan import build_recall_plan, execute_recall_plan
 from engram.retrieval.recall_graph_gate import (
     GatedGraphStore,
+    GraphGateTimeoutError,
 )
 from engram.retrieval.recall_graph_gate import (
     skip_secondary_graph_after_probe_timeout as _skip_secondary_graph_after_probe_timeout,
@@ -126,6 +127,12 @@ async def _inject_entity_matches(
                 group_id=group_id,
                 limit=3,
             )
+        except GraphGateTimeoutError:
+            # A refusal is not "no entity by that name". This helper has no
+            # metric surface of its own, so it must not absorb the signal —
+            # the caller records the skip. (Today the caller pre-checks the
+            # gate, so this only fires if that check is ever removed.)
+            raise
         except Exception:
             continue
 
@@ -148,6 +155,8 @@ async def _inject_entity_matches(
                     if nid not in existing_ids:
                         injected.append((nid, 0.10))
                         existing_ids.add(nid)
+            except GraphGateTimeoutError:
+                raise
             except Exception:
                 continue
 
@@ -1116,7 +1125,21 @@ async def retrieve(
         )
 
     # Step 1.8: Entity-first fallback when search finds few candidates
-    if not candidates and not primary_search_timed_out:
+    if (
+        not candidates
+        and not primary_search_timed_out
+        and _skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms)
+    ):
+        # The gate would refuse every read this fallback makes, so running it
+        # would spend the substage budget to produce an empty pool that reads
+        # as "no entity matches". Record the give-up instead. (Output is
+        # unchanged: the reads were already suppressed, only invisibly.)
+        _set_stage_metric(
+            stage_timings_ms,
+            "recall_entity_match_skipped_probe_timeout",
+            0.0,
+        )
+    elif not candidates and not primary_search_timed_out:
         entity_match_started = time.perf_counter()
         try:
             entity_match_call = _inject_entity_matches(
@@ -1881,6 +1904,18 @@ async def retrieve(
                     continue
                 try:
                     ep = await graph_store.get_episode_by_id(sr.node_id, group_id)
+                except GraphGateTimeoutError:
+                    # Refused, not missing. The gate's verdict is constant for
+                    # the request, so every later read here would be refused
+                    # too: stop and record that recency scoring did not run,
+                    # rather than silently emitting an un-boosted ranking that
+                    # looks like "no episode had a date".
+                    _set_stage_metric(
+                        stage_timings_ms,
+                        "recall_temporal_graph_reads_skipped_probe_timeout",
+                        0.0,
+                    )
+                    break
                 except Exception:
                     continue
                 if not ep or not ep.conversation_date:
@@ -1903,6 +1938,13 @@ async def retrieve(
             for sr in episode_candidates:
                 try:
                     ep = await graph_store.get_episode_by_id(sr.node_id, group_id)
+                except GraphGateTimeoutError:
+                    _set_stage_metric(
+                        stage_timings_ms,
+                        "recall_temporal_graph_reads_skipped_probe_timeout",
+                        0.0,
+                    )
+                    break
                 except Exception:
                     continue
                 if not ep or not ep.conversation_date:
@@ -1935,6 +1977,13 @@ async def retrieve(
                         continue
                     try:
                         ent = await graph_store.get_entity(sr.node_id, group_id)
+                    except GraphGateTimeoutError:
+                        _set_stage_metric(
+                            stage_timings_ms,
+                            "recall_temporal_graph_reads_skipped_probe_timeout",
+                            0.0,
+                        )
+                        break
                     except Exception:
                         continue
                     if ent and (ent.attributes or {}).get("role"):
@@ -1952,6 +2001,13 @@ async def retrieve(
                 for sr in episode_candidates:
                     try:
                         ep = await graph_store.get_episode_by_id(sr.node_id, group_id)
+                    except GraphGateTimeoutError:
+                        _set_stage_metric(
+                            stage_timings_ms,
+                            "recall_temporal_graph_reads_skipped_probe_timeout",
+                            0.0,
+                        )
+                        break
                     except Exception:
                         continue
                     if ep and ep.conversation_date:
@@ -2079,6 +2135,25 @@ async def retrieve(
                 else:
                     await rerank_call
                 _add_stage_timing(stage_timings_ms, "recall_reranker", reranker_started)
+            except GraphGateTimeoutError:
+                # The document bodies could not be READ, so there is nothing to
+                # rerank. Before the gate had a type this arrived as `None` per
+                # document and the loop happily built `("id", "")` pairs — the
+                # cross-encoder then scored empty strings and `scored.sort()`
+                # REORDERED real results by that garbage. Measured document
+                # coverage through the gate was 0.2-0.55 versus 1.0 direct,
+                # which is why this stage has read as useless three times.
+                # Keep the pre-rerank order and say so.
+                _set_stage_metric(
+                    stage_timings_ms,
+                    "recall_reranker_skipped_probe_timeout",
+                    0.0,
+                )
+                _add_stage_timing(
+                    stage_timings_ms,
+                    "recall_reranker_skipped_probe_timeout_ms",
+                    reranker_started,
+                )
             except asyncio.TimeoutError:
                 _add_stage_timing(
                     stage_timings_ms,
@@ -2250,6 +2325,17 @@ async def retrieve(
                 continue
             try:
                 ent = await graph_store.get_entity(sr.node_id, group_id)
+            except GraphGateTimeoutError:
+                # `ent is None` below means "not a durable type". A refusal
+                # means "the type is unknown" — reserving nothing is the right
+                # call, but it must not be recorded as "no durable entities in
+                # the pool".
+                _set_stage_metric(
+                    stage_timings_ms,
+                    "recall_durable_slots_skipped_probe_timeout",
+                    0.0,
+                )
+                break
             except Exception:
                 continue
             if ent is None or not is_durable_recall_entity_type(ent.entity_type):

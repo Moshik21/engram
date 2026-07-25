@@ -11,6 +11,10 @@ from collections.abc import Awaitable
 from typing import TYPE_CHECKING, TypeVar
 
 from engram.config import ActivationConfig
+from engram.retrieval.recall_graph_gate import (
+    GraphGateTimeoutError,
+    skip_secondary_graph_after_probe_timeout,
+)
 from engram.retrieval.router import QueryType
 
 if TYPE_CHECKING:
@@ -252,10 +256,18 @@ async def _working_memory_pool(
 
         # Expand 1-hop neighbors with 0.5x dampening
         for item_id, recency_score, _item_type in wm_candidates:
-            neighbors = await graph_store.get_active_neighbors_with_weights(
-                entity_id=item_id,
-                group_id=group_id,
-            )
+            try:
+                neighbors = await graph_store.get_active_neighbors_with_weights(
+                    entity_id=item_id,
+                    group_id=group_id,
+                )
+            except GraphGateTimeoutError:
+                # Refused, not "this entity has no neighbors". Stop expanding
+                # but KEEP the working-memory entities themselves — letting the
+                # refusal reach the blanket handler below would return [] and
+                # drop the WM pool entirely, which is a strictly worse answer
+                # than the un-expanded one.
+                break
             for neighbor in neighbors[:max_neighbors]:
                 nid = neighbor[0]
                 if nid not in wm_ids:
@@ -310,6 +322,11 @@ async def _durable_feeder_ids(
 
     ids: list[str] = []
     seen: set[str] = set()
+    # A refused listing is not an empty listing. Set when the gate refuses, so
+    # the partial result is served but NOT cached: a 0.11 ms give-up must never
+    # be frozen into the feeder for the whole TTL, which is how one probe
+    # timeout would silently strip identity_core entities from later recalls.
+    listing_refused = False
 
     def _take(entities: list) -> None:
         for entity in entities or []:
@@ -321,8 +338,14 @@ async def _durable_feeder_ids(
                     return
 
     async def _list() -> None:
+        nonlocal listing_refused
         if hasattr(graph_store, "get_identity_core_entities"):
-            _take(await graph_store.get_identity_core_entities(group_id))
+            try:
+                _take(await graph_store.get_identity_core_entities(group_id))
+            except GraphGateTimeoutError:
+                # Only the identity_core lane is gated; the type listings below
+                # are not, so keep going and collect what is still readable.
+                listing_refused = True
         if len(ids) < _DURABLE_FEEDER_LIMIT and hasattr(graph_store, "find_entities_by_type"):
             for entity_type in sorted(DURABLE_RECALL_ENTITY_TYPES):
                 _take(
@@ -350,6 +373,9 @@ async def _durable_feeder_ids(
         return ids
     except Exception as e:
         logger.warning("Durable feeder listing failed (non-fatal): %s", e)
+        return ids
+
+    if listing_refused:
         return ids
 
     _durable_feeder_cache[key] = (now + _DURABLE_FEEDER_CACHE_TTL_SECONDS, list(ids))
@@ -594,6 +620,11 @@ async def _entity_query_pool(
                     group_id,
                     limit=5,
                 )
+            except GraphGateTimeoutError:
+                # Refused for every name, not "no entity has that name".
+                # `generate_candidates` skips this pool outright when the gate
+                # is armed; this handler is the belt to that suspenders.
+                break
             except Exception:
                 continue
 
@@ -884,6 +915,13 @@ async def generate_candidates(
     run_entity_query = cfg.entity_query_retrieval_enabled and hasattr(
         graph_store, "find_entity_candidates"
     )
+    if run_entity_query and skip_secondary_graph_after_probe_timeout(cfg, stage_timings_ms):
+        # The gate refuses every `find_entity_candidates` read, so this pool can
+        # only report 0 matches. Without this branch that 0 lands in
+        # `recall_entity_query_candidate_count` as a measurement of the corpus
+        # instead of a record that the lane never ran.
+        run_entity_query = False
+        _set_stage_metric(stage_timings_ms, "recall_entity_query_skipped_probe_timeout", 0.0)
     if run_entity_query:
         gather_tasks.append(
             _entity_query_pool(

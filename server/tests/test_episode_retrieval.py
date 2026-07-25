@@ -698,8 +698,18 @@ class TestPipelineEpisodeRetrieval:
 
     @pytest.mark.asyncio
     async def test_gated_graph_store_blocks_secondary_reads_when_probe_timed_out(self):
-        """Gate returns empty results without touching the underlying graph store."""
-        from engram.retrieval.recall_graph_gate import GATED_GRAPH_METHODS, GatedGraphStore
+        """Gate refuses (typed) without touching the underlying graph store.
+
+        Ticket 19: the refusal used to be an empty value, which a caller could
+        not tell from a genuine miss. It now raises ``GraphGateTimeoutError``;
+        the suppression itself is unchanged (nothing reaches the store).
+        """
+        from engram.retrieval.recall_graph_gate import (
+            GATE_REFUSAL_METRIC_KEY,
+            GATED_GRAPH_METHODS,
+            GatedGraphStore,
+            GraphGateTimeoutError,
+        )
 
         underlying = AsyncMock()
         underlying.get_entity = AsyncMock(
@@ -729,15 +739,31 @@ class TestPipelineEpisodeRetrieval:
         underlying.get_identity_core_entities = AsyncMock(return_value=[object()])
 
         cfg = ActivationConfig(consolidation_profile="off", recall_profile="off")
-        gate = GatedGraphStore(underlying, cfg, {"graph_expand_timeout": 25.0})
+        stage_timings = {"graph_expand_timeout": 25.0}
+        gate = GatedGraphStore(underlying, cfg, stage_timings)
 
-        assert await gate.get_entity("e1", "default") is None
-        assert await gate.find_entities(name="x", group_id="default") == []
-        assert await gate.find_entity_candidates("x", group_id="default") == []
-        assert await gate.get_relationships("e1", group_id="default") == []
-        assert await gate.get_episode_by_id("ep_1", "default") is None
-        assert await gate.get_active_neighbors_with_weights("e1", group_id="default") == []
-        assert await gate.get_identity_core_entities("default") == []
+        calls = [
+            ("get_entity", lambda: gate.get_entity("e1", "default")),
+            ("find_entities", lambda: gate.find_entities(name="x", group_id="default")),
+            (
+                "find_entity_candidates",
+                lambda: gate.find_entity_candidates("x", group_id="default"),
+            ),
+            ("get_relationships", lambda: gate.get_relationships("e1", group_id="default")),
+            ("get_episode_by_id", lambda: gate.get_episode_by_id("ep_1", "default")),
+            (
+                "get_active_neighbors_with_weights",
+                lambda: gate.get_active_neighbors_with_weights("e1", group_id="default"),
+            ),
+            ("get_identity_core_entities", lambda: gate.get_identity_core_entities("default")),
+        ]
+        for method_name, call in calls:
+            with pytest.raises(GraphGateTimeoutError) as excinfo:
+                await call()
+            assert excinfo.value.method == method_name
+            assert excinfo.value.probe == "graph_expand_timeout"
+
+        assert stage_timings[GATE_REFUSAL_METRIC_KEY] == float(len(calls))
 
         for method_name in GATED_GRAPH_METHODS:
             getattr(underlying, method_name).assert_not_awaited()
