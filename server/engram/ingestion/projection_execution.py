@@ -256,9 +256,14 @@ class EvidenceProjectionExecutor:
             (ev, d) for ev, d in zip(evidence_bundle.candidates, decisions) if d.action == "reject"
         ]
         # Harness scoreboard: count client-proposal outcomes (no external extract).
+        # Read the decision off the bundle, never off the raw arguments: with
+        # evidence_client_proposals_enabled=False the caller still hands us
+        # proposals and the builder still declines them, so "proposals were
+        # supplied" and "the proposal path ran" are different questions. Asking
+        # the wrong one attributed narrow-extractor commits to the harness.
         is_proposal_path = (evidence_bundle.extractor_stats or {}).get(
             "extraction_path"
-        ) == "client_proposals" or bool(proposed_entities or proposed_relationships)
+        ) == "client_proposals"
         if is_proposal_path:
             from engram.extraction.harness_metrics import record_client_proposal_outcomes
 

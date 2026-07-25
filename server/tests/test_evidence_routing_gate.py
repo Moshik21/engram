@@ -20,7 +20,10 @@ def _gate(extractor, *, proposed_entities=None, proposed_relationships=None):
     """Call the routing gate against a minimal stub (it only reads attributes)."""
     stub = SimpleNamespace(
         _extractor=extractor,
-        _cfg=SimpleNamespace(evidence_extraction_enabled=True),
+        _cfg=SimpleNamespace(
+            evidence_extraction_enabled=True,
+            evidence_client_proposals_enabled=True,
+        ),
         _evidence_pipeline=object(),
         _commit_policy=object(),
         _evidence_bridge=object(),

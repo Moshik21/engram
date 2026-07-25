@@ -610,6 +610,27 @@ class GraphManager:
             project_episode=self._episode_ingestion_project_episode,
         )
 
+    @staticmethod
+    def _client_proposals_accepted(
+        cfg: ActivationConfig,
+        proposed_entities: list[dict] | None,
+        proposed_relationships: list[dict] | None,
+    ) -> bool:
+        """Whether agent-supplied proposals are accepted as an evidence source.
+
+        THE READ SITE for ``evidence_client_proposals_enabled``. The flag shipped
+        with a docstring promising suppression semantics and no reader at all, so
+        the agent-as-extractor path ran whether the switch was on or off. Every
+        place that asks "were proposals supplied?" must ask through here, or the
+        switch goes inert again the moment a second entry point is added.
+
+        Off means the proposals are dropped and the episode falls back to
+        internal extraction — the same path an episode with no proposals takes.
+        """
+        if not (proposed_entities or proposed_relationships):
+            return False
+        return bool(cfg.evidence_client_proposals_enabled)
+
     def _should_use_evidence_pipeline(
         self,
         *,
@@ -621,7 +642,11 @@ class GraphManager:
         Tests and showcase baselines often inject deterministic/mock extractors
         with curated outputs that still rely on the legacy projection path.
         """
-        has_client_proposals = bool(proposed_entities or proposed_relationships)
+        has_client_proposals = GraphManager._client_proposals_accepted(
+            self._cfg,
+            proposed_entities,
+            proposed_relationships,
+        )
         # HARD PATH: harness proposals always use evidence commit path — never
         # legacy/LLM extract, even when evidence_extraction_enabled is False.
         if has_client_proposals and self._commit_policy is not None:
@@ -669,10 +694,18 @@ class GraphManager:
         down to zero candidates (e.g. all-blank names): we still return the (empty) bundle
         rather than falling through to the internal extractor. Only when NO proposals are
         supplied do we fall back to internal extraction.
+
+        ``evidence_client_proposals_enabled=False`` declines the proposals
+        outright: the episode is extracted internally exactly as if the agent had
+        sent none, which is what the flag's docstring has always claimed.
         """
-        proposals_supplied = bool(proposed_entities or proposed_relationships)
-        # Hard path: agent-supplied proposals are sole evidence — never call
-        # narrow/LLM as a silent upgrade (even if client_proposals flag is off).
+        proposals_supplied = GraphManager._client_proposals_accepted(
+            self._cfg,
+            proposed_entities,
+            proposed_relationships,
+        )
+        # Hard path: accepted agent proposals are sole evidence — never call
+        # narrow/LLM as a silent upgrade.
         if proposals_supplied:
             from engram.extraction.harness_metrics import record_external_extractor_skipped
 
