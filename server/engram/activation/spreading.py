@@ -112,6 +112,7 @@ async def spread_activation(
     seed_entity_types: dict[str, str] | None = None,
     max_reads: int | None = None,
     deadline: float | None = None,
+    traversal_stats: dict[str, float | str] | None = None,
 ) -> tuple[dict[str, float], dict[str, int]]:
     """Spread activation from seed nodes through the graph.
 
@@ -123,6 +124,9 @@ async def spread_activation(
     (prospective memory) callers must stay unbounded, because a truncated
     traversal there silently weakens pathway strengthening with nothing to
     show for it.
+
+    ``traversal_stats``, if supplied, is filled in with why the traversal
+    stopped — see ``ReadBudget``.
 
     Returns (bonuses, hop_distances):
       - bonuses: {node_id: spreading_bonus} for all reached nodes
@@ -147,4 +151,5 @@ async def spread_activation(
         seed_entity_types=seed_entity_types,
         max_reads=max_reads,
         deadline=deadline,
+        traversal_stats=traversal_stats,
     )

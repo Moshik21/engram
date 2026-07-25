@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import math
-import time
 from typing import TYPE_CHECKING
 
+from engram.activation.read_budget import ReadBudget
 from engram.config import ActivationConfig
 
 if TYPE_CHECKING:
@@ -36,6 +36,7 @@ class ACTRStrategy:
         seed_entity_types: dict[str, str] | None = None,
         max_reads: int | None = None,
         deadline: float | None = None,
+        traversal_stats: dict[str, float | str] | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """1-hop spreading from seed nodes (working memory items).
 
@@ -54,22 +55,17 @@ class ACTRStrategy:
 
         n_sources = len(seed_nodes)
         w_j = cfg.actr_total_w / n_sources
-        reads = 0
-        slowest_read: float = 0.0
+        budget = ReadBudget(max_reads=max_reads, deadline=deadline, stats=traversal_stats)
 
         for source_id, _energy in seed_nodes:
             hop_distances.setdefault(source_id, 0)
 
-            if max_reads and reads >= max_reads:
+            if not budget.start_read():
                 break
-            read_started = time.monotonic()
-            if deadline is not None and read_started + slowest_read >= deadline:
-                break
-            reads += 1
             neighbors = await neighbor_provider.get_active_neighbors_with_weights(
                 source_id, group_id=group_id
             )
-            slowest_read = max(slowest_read, time.monotonic() - read_started)
+            budget.finish_read()
             fan = len(neighbors)
             if fan == 0:
                 continue
@@ -95,4 +91,5 @@ class ACTRStrategy:
                 if neighbor_id not in hop_distances:
                     hop_distances[neighbor_id] = 1
 
+        budget.close()
         return bonuses, hop_distances

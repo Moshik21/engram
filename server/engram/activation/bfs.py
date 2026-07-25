@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import math
-import time
 from collections import deque
 from typing import TYPE_CHECKING
 
+from engram.activation.read_budget import ReadBudget
 from engram.config import ActivationConfig
 
 if TYPE_CHECKING:
@@ -35,6 +35,7 @@ class BFSStrategy:
         seed_entity_types: dict[str, str] | None = None,
         max_reads: int | None = None,
         deadline: float | None = None,
+        traversal_stats: dict[str, float | str] | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """Spread activation from seed nodes through the graph via BFS.
 
@@ -46,6 +47,12 @@ class BFSStrategy:
         (prospective memory) where truncating the traversal silently weakens
         pathway strengthening.
 
+        ``traversal_stats`` is a caller-owned dict this fills in with why the
+        traversal stopped and how much of the budget it left unspent — the only
+        way to tell a traversal that reached 17 nodes because the graph is small
+        from one that reached 17 because its cost estimator collapsed. See
+        ``ReadBudget``.
+
         Returns (bonuses, hop_distances):
           - bonuses: {node_id: spreading_bonus}
           - hop_distances: {node_id: min_hops_from_seed}
@@ -54,12 +61,10 @@ class BFSStrategy:
         hop_distances: dict[str, int] = {}
         visited: set[str] = set()
         energy_spent: float = 0.0
-        reads = 0
-        # Slowest neighbour read seen so far, used to bail BEFORE starting a
-        # read that cannot finish inside the deadline. Overshooting the deadline
-        # is not free for a bounded caller: it comes out of the stages that run
-        # after this one.
-        slowest_read: float = 0.0
+        # Bails BEFORE starting a read that is not expected to finish inside the
+        # deadline. Overshooting is not free for a bounded caller: it comes out
+        # of the stages that run after this one.
+        budget = ReadBudget(max_reads=max_reads, deadline=deadline, stats=traversal_stats)
 
         # Track entity types for cross-domain penalty
         node_types: dict[str, str] = dict(seed_entity_types or {})
@@ -77,16 +82,12 @@ class BFSStrategy:
             if hop >= cfg.spread_max_hops:
                 continue
 
-            if max_reads and reads >= max_reads:
+            if not budget.start_read():
                 break
-            read_started = time.monotonic()
-            if deadline is not None and read_started + slowest_read >= deadline:
-                break
-            reads += 1
             neighbors = await neighbor_provider.get_active_neighbors_with_weights(
                 node_id, group_id=group_id
             )
-            slowest_read = max(slowest_read, time.monotonic() - read_started)
+            budget.finish_read()
             out_degree = len(neighbors)
             if out_degree == 0:
                 continue
@@ -192,4 +193,5 @@ class BFSStrategy:
                         hop_distances[neighbor_id] = new_hop
                     queue.append((neighbor_id, spread_amount, new_hop))
 
+        budget.close()
         return bonuses, hop_distances

@@ -319,6 +319,7 @@ class TestPipelineWithWorkingMemory:
             seed_entity_types=None,
             max_reads=None,
             deadline=None,
+            traversal_stats=None,
         ):
             captured_seeds.extend(seeds)
             return {}, {}

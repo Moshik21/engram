@@ -24,6 +24,7 @@ class SpreadingStrategy(Protocol):
         seed_entity_types: dict[str, str] | None = None,
         max_reads: int | None = None,
         deadline: float | None = None,
+        traversal_stats: dict[str, float | str] | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         """Spread activation from seed nodes.
 
@@ -31,6 +32,11 @@ class SpreadingStrategy(Protocol):
         absolute ``time.monotonic()`` instant) are the CALLER's traversal bound.
         Both default to unbounded; every strategy must honour them so a bounded
         caller does not have to know which algorithm is configured.
+
+        ``traversal_stats`` is a caller-owned dict every strategy must fill in
+        with its ``ReadBudget`` provenance (reads, stop reason, unspent budget).
+        Without it a collapsed traversal and a healthy one are indistinguishable
+        from the outside: both return a small frontier and report success.
 
         Returns (bonuses, hop_distances):
           - bonuses: {node_id: spreading_bonus}

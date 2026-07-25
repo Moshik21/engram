@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import math
-import time
 from collections import deque
 from typing import TYPE_CHECKING
 
 from engram.activation.bfs import _resolve_domain
+from engram.activation.read_budget import ReadBudget
 from engram.config import ActivationConfig
 
 if TYPE_CHECKING:
@@ -33,6 +33,7 @@ class PPRStrategy:
         seed_entity_types: dict[str, str] | None = None,
         max_reads: int | None = None,
         deadline: float | None = None,
+        traversal_stats: dict[str, float | str] | None = None,
     ) -> tuple[dict[str, float], dict[str, int]]:
         if not seed_nodes:
             return {}, {}
@@ -56,6 +57,7 @@ class PPRStrategy:
             node_types,
             max_reads=max_reads,
             deadline=deadline,
+            traversal_stats=traversal_stats,
         )
 
         if not adjacency:
@@ -152,6 +154,7 @@ class PPRStrategy:
         node_types: dict[str, str] | None = None,
         max_reads: int | None = None,
         deadline: float | None = None,
+        traversal_stats: dict[str, float | str] | None = None,
     ) -> tuple[
         dict[str, list[tuple[str, float, str, str]]],
         dict[str, int],
@@ -166,8 +169,7 @@ class PPRStrategy:
         adjacency: dict[str, list[tuple[str, float, str, str]]] = {}
         hop_distances: dict[str, int] = {}
         visited: set[str] = set()
-        reads = 0
-        slowest_read: float = 0.0
+        budget = ReadBudget(max_reads=max_reads, deadline=deadline, stats=traversal_stats)
         queue: deque[tuple[str, int]] = deque()
 
         for sid in seed_ids:
@@ -180,16 +182,12 @@ class PPRStrategy:
         while queue:
             node_id, hop = queue.popleft()
 
-            if max_reads and reads >= max_reads:
+            if not budget.start_read():
                 break
-            read_started = time.monotonic()
-            if deadline is not None and read_started + slowest_read >= deadline:
-                break
-            reads += 1
             neighbors_raw = await neighbor_provider.get_active_neighbors_with_weights(
                 node_id, group_id=group_id
             )
-            slowest_read = max(slowest_read, time.monotonic() - read_started)
+            budget.finish_read()
 
             neighbors: list[tuple[str, float, str, str]] = []
             for info in neighbors_raw:
@@ -216,4 +214,5 @@ class PPRStrategy:
                         hop_distances[nid] = new_hop
                         queue.append((nid, new_hop))
 
+        budget.close()
         return adjacency, hop_distances

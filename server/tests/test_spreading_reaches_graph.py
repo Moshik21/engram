@@ -437,13 +437,23 @@ class TestBoundsAreCheckedBeforeTheReadNotAfter:
         """Checking the clock only after a read overshoots by one read, every time.
 
         The live cold stage ran ~2x its nominal deadline for exactly this
-        reason. The traversal refuses to start a read that the slowest read it
-        has seen says cannot finish in time.
+        reason. The traversal refuses to start a read it predicts cannot finish
+        in time.
 
         The FIRST read is not covered — nothing can be known about a store
         before it has been read once, so a single read slower than the whole
         budget still overshoots. That case is what the stage's outer wall clock
         is for; this test covers every read after it.
+
+        **This assertion was WEAKENED deliberately (ticket #34).** It used to
+        require ``elapsed < budget``, which held only because the cost estimate
+        was a running max — and that running max is what turned ONE 25ms read
+        into a 93% loss of reach (`tests/test_traversal_read_budget.py` carries
+        the measurement and the argument). The estimator is now an EWMA, whose
+        guarantee is "never START a read after the deadline, so overshoot by at
+        most one read's cost". The harm this test was written against — a stage
+        running ~2x its deadline and stealing that time from the recall stages
+        after it — is still excluded, and is what is asserted here now.
         """
         from engram.activation.bfs import BFSStrategy
 
@@ -452,6 +462,7 @@ class TestBoundsAreCheckedBeforeTheReadNotAfter:
         store = _graph_store(read_latency_s=read_s)
         cfg = ActivationConfig()
 
+        stats: dict[str, float | str] = {}
         started = time.monotonic()
         await BFSStrategy().spread(
             [("e1", 1.0)],
@@ -459,13 +470,18 @@ class TestBoundsAreCheckedBeforeTheReadNotAfter:
             cfg,
             group_id="default",
             deadline=started + budget_s,
+            traversal_stats=stats,
         )
         elapsed = time.monotonic() - started
 
-        # With the predictive bail the traversal stops after the read that
-        # leaves too little budget for another (30ms here). Without it, it
-        # starts one more and lands at 60ms — past the budget it was given.
-        assert elapsed < budget_s, (
-            f"traversal overshot its budget by a full read: {elapsed * 1000:.1f}ms "
-            f"against a {budget_s * 1000:.0f}ms budget"
+        # No read may START past the deadline, so the traversal can end at most
+        # one read-cost beyond it. 10ms of slack for event-loop scheduling.
+        ceiling = budget_s + float(stats["read_ms_max"]) / 1000.0 + 0.010
+        assert elapsed <= ceiling, (
+            f"traversal overshot by more than one read: {elapsed * 1000:.1f}ms "
+            f"against a {budget_s * 1000:.0f}ms budget (ceiling {ceiling * 1000:.1f}ms)"
+        )
+        assert elapsed < budget_s * 2, (
+            f"traversal ran ~2x its deadline ({elapsed * 1000:.1f}ms) — that time "
+            "comes out of the recall stages after it"
         )
