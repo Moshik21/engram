@@ -1,15 +1,15 @@
 {
+    "_authority": "NOT AUTHORITATIVE AT RUNTIME. The effective HNSW and map-size values are the generated Rust literals in `fn config()` at native/helix-repo/helix-python/src/queries.rs, which HelixEngine::new reads directly (native/helix-repo/helix-python/src/lib.rs). No Engram runtime reads this file -- NativeTransport.initialize() passes no config path at all. Editing a value HERE ALONE CHANGES NOTHING. To change one for real: edit `fn config()` in queries.rs, mirror the value into all three copies of this file, and run `make build-native`. server/tests/test_native_config_authority.py FAILS when this file and queries.rs disagree.",
     "vector_config": {
         "m": 16,
-        "ef_construction": 200,
-        "ef_search": 512,
-        "db_max_size": 50
+        "ef_construction": 128,
+        "ef_search": 768
     },
     "graph_config": {
         "secondary_indices": []
     },
-    "db_max_size_gb": 50,
-    "mcp": false,
+    "db_max_size_gb": 20,
+    "mcp": true,
     "bm25": true,
     "embedding_model": "gemini:gemini-embedding-2-preview:RETRIEVAL_DOCUMENT"
 }

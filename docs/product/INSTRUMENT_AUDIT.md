@@ -390,6 +390,80 @@ with `recall_packet_cache_enabled=False`.
 
 Detail: `docs/product/experiments/RECALL_METER.md` §4.
 
+### AUDIT-15 — the declared engine config is not the effective one · HIGH · **FIXED**
+
+Found by lane 2 of the code census, fixed 2026-07-24 (ticket #27).
+
+Three git-tracked copies of `config.hx.json` declared `ef_search 512`,
+`ef_construction 200`, `db_max_size_gb 50`, `mcp false`, plus a
+`vector_config.db_max_size: 50` that is **not a field of `VectorConfig`** and
+was dropped by serde on every parse. The values the engine actually runs on are
+the generated Rust literals in `fn config()` at
+`native/helix-repo/helix-python/src/queries.rs:98-107` — `768 / 128 / 20 / true`
+— read directly by `HelixEngine::new` (`helix-python/src/lib.rs:53`).
+`NativeTransport.initialize()` (`storage/helix/native_transport.py:106-160`)
+passes no config path at all, so **no runtime has ever read the JSON**.
+
+Two things make this instrument dishonesty rather than mere duplication:
+
+1. **It reports a false headroom.** The live brain was assessed at 84.8% of
+   map_size before compaction. That is 84.8% of the *real* 20 GB; the file an
+   operator would read says 50 GB. Anyone sizing future growth off it is wrong
+   by **2.5× on the exact axis that causes `MDB_MAP_FULL`**.
+2. **It absorbs edits silently.** `RECALL_PERFORMANCE_PLAN.md` M1 and ledger
+   ticket 4 both aimed an `ef_search` change at `config.hx.json:5`. That edit
+   compiles, commits, deploys, and does nothing.
+
+The effective numbers are also not choices: `768 / 128 / 16` are the helix-db
+library defaults (`helix-db/.../traversal_core/config.rs:17-21`). The 512/200
+in the JSON tracked `EmbeddingConfig.hnsw_ef_construction = 200` in
+`server/engram/config.py:118` — two *declared* surfaces kept in sync with each
+other and never with the runtime.
+
+**Fix shipped:** all three copies now declare the effective values, carry a
+leading `_authority` key naming `queries.rs` and the required
+`make build-native`, and have lost the phantom `db_max_size` key.
+`server/tests/test_native_config_authority.py` fails when declared and effective
+diverge in **either** direction, when the copies differ from each other, when a
+key appears that the Rust `Config`/`VectorConfig` structs cannot honour, or when
+a fourth copy is added. Not fixed (needs a rebuild, deliberately deferred): the
+Rust still does not read the JSON, so this is a *pinned* duplication, not a
+single source of truth.
+
+### AUDIT-16 — half of the Helix schema contract had been skipping for months · HIGH · **FIXED**
+
+`server/tests/test_helix_schema_contract.py:13` pointed `NATIVE_GENERATED_QUERIES`
+at `helixdb-cfg/.helix/dev/helix-repo-copy/helix-container/src/queries.rs`. That
+path does not exist — the staged artifact is one directory up, at
+`.helix/dev/helix-container/src/queries.rs` — and `.helix/` is gitignored, so it
+could never exist on a fresh clone or in CI either. Both helper functions
+responded with `pytest.skip`, so **8 of the file's 16 tests never ran**:
+
+```
+$ uv run pytest tests/test_helix_schema_contract.py -q -rs
+.s.s.s.s..ss.s.s
+SKIPPED [6] ... Generated Helix Rust queries are unavailable
+SKIPPED [2] ... /Users/.../helix-repo-copy/helix-container/src/queries.rs
+8 passed, 8 skipped
+```
+
+Every assertion about the generated PyO3 bindings — entity provenance fields,
+cue feedback fields, the graph-embed delete route, the candidate/vector routes,
+the bounded stats routes — was green and vacuous. This is the AUDIT-11 shape
+(a guard nobody reads) applied to a test: a skip is an absence, and the CI
+summary laundered it into a pass.
+
+**Fix shipped:** repointed at the git-tracked 620 KB
+`native/helix-repo/helix-python/src/queries.rs` — the copy maturin actually
+compiles — and replaced both `pytest.skip` branches with hard assertions, since
+a tracked file's absence is a broken checkout, not a missing optional artifact.
+16/16 now run. Proved non-vacuous by renaming one field in the generated Rust
+(`Entity.name` → `Entity.nAme`), which turns them red.
+
+**Generalisation worth acting on:** `pytest.skip` on a path is an unlabelled
+absence with the same failure mode as a zero-filled metric. Any skip guarding a
+**git-tracked** path is a latent AUDIT-16.
+
 ---
 
 ## The five patterns

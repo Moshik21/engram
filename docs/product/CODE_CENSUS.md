@@ -222,6 +222,40 @@ Also: `config.hx.json` declares `"embedding_model": "gemini:..."`, against the f
 **Related:** `config.py:119 hnsw_ef_runtime` has zero readers — it is the natural home for the ef_search
 knob and is connected to nothing.
 
+**RESOLVED 2026-07-24 (ticket #27).** B17 was correct and understated. Five additions from the fix:
+
+1. **It is four declared surfaces, not one.** `helixdb-cfg/config.hx.json`, `helixdb-cfg/db/config.hx.json`,
+   `server/engram/storage/helix/config.hx.json`, and `config.py:117-119 EmbeddingConfig.hnsw_*`. The JSON's
+   `ef_construction: 200` is exactly `config.py:118 hnsw_ef_construction = 200` — the declared surfaces were
+   kept in sync **with each other** and never with the runtime. `hnsw_m`/`hnsw_ef_construction` do have one
+   reader each (`storage/vector/redis_search.py:73-74`) but it is Redis `FT.CREATE`, FULL mode only; the
+   Helix/native HNSW is unreachable from Python. `hnsw_ef_runtime` has zero readers repo-wide **[RV]**, so
+   `ENGRAM_EMBEDDING__HNSW_EF_RUNTIME` is accepted and discarded.
+2. **The effective values are nobody's choice.** `queries.rs` `768 / 128 / 16` are the helix-db library
+   defaults (`helix-db/src/helix_engine/traversal_core/config.rs:17-21`); only `db_max_size_gb: 20` differs
+   from stock (10). No one ever tuned HNSW for this workload — the tuning went into a file with no reader.
+3. **A fifth, phantom knob.** `vector_config.db_max_size: 50` is not a field of `VectorConfig`
+   (`config.rs:9-13`), so serde discarded it on every parse. Removed; the new contract test rejects any key
+   the Rust structs cannot honour.
+4. **The tracked copies were never the build input.** The staged
+   `helixdb-cfg/.helix/dev/helix-container/src/config.hx.json` reads `20 / 768 / 128 / mcp true` and matches
+   `queries.rs` exactly — so the Docker lane's last `helix push dev` also diverged from all three tracked
+   copies, in the same direction.
+5. **`HelixDBConfig.config_path = "helixdb-cfg"` (`config.py:76`) has zero read sites repo-wide [RV]** — and
+   `docker-compose.helix.yml:49` sets `ENGRAM_HELIX__CONFIG_PATH=/etc/helixdb` anyway. This is B19's shape:
+   the knob that *names the directory holding the dead config* is itself dead.
+
+**Fix shipped:** all three JSON copies pinned to the effective values with a leading `_authority` key, and
+`server/tests/test_native_config_authority.py` fails on divergence in either direction, on copies differing,
+on unhonourable keys, and on a fourth copy appearing. **Not fixed:** the Rust still does not read the JSON.
+Closing that needs `make build-native` and was deliberately deferred.
+
+**Open, needs a decision (not a defect yet):** `queries.rs:3229` compiles in
+`embedding_model: Some("gemini:...")`, and `schema.hx` has 13 `Embed()`/`SearchV(Embed(...))` call sites.
+Two are reachable from Python (`storage/helix/search.py:1481,1919-1924`), both gated on `not is_native` — so
+on the **native** path this is inert, but on the **Docker/HTTP** lane chunk search would drive HelixDB's
+server-side embedder at Gemini. Changing it requires a rebuild.
+
 **B18. Engram drains an offline queue that nothing ever fills.** `utils/offline_queue.py:21 append_to_queue`
 has zero production callers **[RV: tests + `docs/REFERENCE.md:837-840`, which presents it as a public API]**,
 while the reader is fully wired at every startup — `main.py:107-111 → OfflineReplayService`
@@ -294,7 +328,11 @@ dispatch, entry points, `python -m`, argparse, conftest, the bash installer, and
   `state.py:129` ("Additional helpers used by scorer and tests") — `scorer.py` references none of them.**
 - **`storage/helix/config.hx.json`** (14 lines). Lane 2 proposed deletion but conceded it did not verify
   whether an out-of-tree `helix deploy` toolchain consumes it. **Do not delete. Add a one-line header
-  naming `queries.rs` as the authority** (see B17).
+  naming `queries.rs` as the authority** (see B17). **DONE 2026-07-24 (ticket #27)** — all three copies now
+  carry a leading `_authority` key and are pinned to `queries.rs` by
+  `server/tests/test_native_config_authority.py`. Still not deleted: `docs/install/helix.md:123` documents
+  `helix deploy --path server/engram/storage/helix/`, and `helixdb-cfg/helix.toml` points the CLI at
+  `./db/`, so at least two of the three plausibly have an out-of-tree consumer. UNKNOWN stands.
 - **`schema.hx` SchemaMember node/edge/queries** (~22 lines). Lane 3 guessed the `N::SchemaMember` /
   `E::HasSchemaMember` declarations must stay because existing brains may hold instances, and unlike the
   Consol\* audit nodes **there is no drain path that reads them**. **Better move: ADD a drain** (reuse

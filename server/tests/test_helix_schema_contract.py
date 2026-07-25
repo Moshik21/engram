@@ -3,16 +3,19 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 SERVER_SCHEMA = SERVER_ROOT / "engram/storage/helix/schema.hx"
 NATIVE_SCHEMA = REPO_ROOT / "helixdb-cfg/db/schema.hx"
-NATIVE_GENERATED_QUERIES = (
-    REPO_ROOT / "helixdb-cfg/.helix/dev/helix-repo-copy/helix-container/src/queries.rs"
-)
-NATIVE_BUNDLED_GENERATED_QUERIES = REPO_ROOT / "native/helix-repo/helix-python/src/queries.rs"
+# The generated bindings the native runtime is actually built from. This used to
+# point at `helixdb-cfg/.helix/dev/helix-repo-copy/helix-container/src/queries.rs`,
+# a path that (a) does not exist -- the staged artifact lives one directory up, at
+# `.helix/dev/helix-container/src/queries.rs` -- and (b) is inside a gitignored
+# tree, so it could never exist on a fresh clone or in CI. Both `pytest.skip`
+# branches below therefore fired on every run and **8 of these 16 tests were
+# silently vacuous**. The tracked 620 KB copy under `native/` is the one the
+# maturin build compiles, so it is the honest target.
+NATIVE_GENERATED_QUERIES = REPO_ROOT / "native/helix-repo/helix-python/src/queries.rs"
 
 ENTITY_HX_FIELDS = {
     "name": "String",
@@ -336,23 +339,17 @@ def test_generated_helix_stats_bulk_queries_are_native_available() -> None:
 
 
 def _native_generated_query_text() -> str:
-    if not NATIVE_GENERATED_QUERIES.exists():
-        pytest.skip(
-            "Generated Helix Rust queries are unavailable; run Helix codegen "
-            "before validating native bindings."
-        )
+    # No skip: this file is git-tracked, so absence is a broken checkout, not a
+    # missing optional artifact. Skipping here is what hid 8 dead tests.
+    assert NATIVE_GENERATED_QUERIES.exists(), (
+        f"{NATIVE_GENERATED_QUERIES} is git-tracked and must exist; a skip here "
+        "would make every generated-binding assertion in this file vacuous"
+    )
     return NATIVE_GENERATED_QUERIES.read_text()
 
 
 def _native_generated_query_texts() -> list[str]:
-    paths = [NATIVE_GENERATED_QUERIES, NATIVE_BUNDLED_GENERATED_QUERIES]
-    missing_paths = [str(path) for path in paths if not path.exists()]
-    if missing_paths:
-        pytest.skip(
-            "Generated Helix Rust queries are unavailable; run Helix codegen "
-            f"before validating native bindings: {', '.join(missing_paths)}"
-        )
-    return [path.read_text() for path in paths]
+    return [_native_generated_query_text()]
 
 
 def _helix_node_fields(text: str, node_name: str) -> dict[str, str]:
