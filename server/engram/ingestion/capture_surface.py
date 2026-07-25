@@ -646,7 +646,11 @@ async def _record_observed_usage_events(manager: Any, *, group_id: str, content:
     inert otherwise) and short-circuits with one dict lookup when no recall
     has surfaced entities for the group, so the no-LLM store path pays ~0.
     """
-    from engram.retrieval.feedback import get_usage_buffer, record_observed_usage_events
+    from engram.retrieval.feedback import (
+        bind_usage_surface_store_from_config,
+        get_usage_buffer,
+        record_observed_usage_events,
+    )
 
     activation_store = getattr(manager, "_activation", None)
     cfg = getattr(manager, "_cfg", None)
@@ -654,10 +658,17 @@ async def _record_observed_usage_events(manager: Any, *, group_id: str, content:
         return
     if not getattr(cfg, "recall_usage_feedback_enabled", False):
         return
+    # Ticket #7: arm the durable registry BEFORE the short-circuit. The whole
+    # point is that this process may never have surfaced anything itself — the
+    # surfacing happened in the shell process that has since been restarted.
+    try:
+        bind_usage_surface_store_from_config(cfg)
+    except Exception:
+        logger.debug("Surfaced-usage registry bind failed", exc_info=True)
     if get_usage_buffer().is_empty(group_id):
         return
     try:
-        await record_observed_usage_events(
+        fired_ids = await record_observed_usage_events(
             activation_store=activation_store,
             cfg=cfg,
             group_id=group_id,
@@ -665,6 +676,13 @@ async def _record_observed_usage_events(manager: Any, *, group_id: str, content:
             # M5.1: same-pass cue scan writes usage_used_count/usage_last_used_at.
             graph_store=getattr(manager, "_graph", None),
         )
+        # The access event alone reaches only the activation store. Emit the
+        # `used` INTERACTION too, or the recall-need controller (rolling
+        # used_count + the adaptive-threshold learner) stays at zero for every
+        # surface that is not the dashboard chat endpoint.
+        emit = getattr(manager, "record_echoed_memory_usage", None)
+        if fired_ids and callable(emit):
+            emit(fired_ids, group_id=group_id, source="observed_echo")
     except Exception:
         # silent-ok: usage-signal capture must never fail the observe write path.
         logger.debug("Observed-usage citation scan failed", exc_info=True)
@@ -699,7 +717,14 @@ async def ingest_projecting_memory(
         kwargs["session_id"] = session_id
     if attachments is not None or pass_attachments:
         kwargs["attachments"] = attachments
-    return await manager.ingest_episode(**kwargs)
+    episode_id = await manager.ingest_episode(**kwargs)
+    # Ticket #7: `remember` is a capture surface too, and it is the one an agent
+    # reaches for when it has just relied on something. The citation scan ran on
+    # `observe` only, so the highest-signal turn in a session was the one turn
+    # that could not record a use — the same one-surface-only shape dac5d12 fixed
+    # on the registration side.
+    await _record_observed_usage_events(manager, group_id=group_id, content=content)
+    return episode_id
 
 
 async def build_api_auto_observe_surface(

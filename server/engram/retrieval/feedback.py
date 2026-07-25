@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Protocol
 
 from engram.config import ActivationConfig
@@ -19,6 +21,10 @@ from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
 from engram.models.recall import MemoryInteractionEvent, MemoryNeed
 from engram.retrieval.control import RecallNeedController
+from engram.retrieval.usage_surface_store import (
+    SurfacedUsageStore,
+    resolve_usage_surface_path,
+)
 from engram.storage.protocols import ActivationStore, GraphStore
 from engram.utils.dates import utc_now
 
@@ -143,6 +149,15 @@ async def publish_activation_access(
 
 _USAGE_RING_CAP = 32
 _USAGE_DEDUP_WINDOW_SECONDS = 30 * 60.0
+# Ticket #7: how long a surfaced payload stays ELIGIBLE to be counted as used.
+# Deliberately the same number as the dedup window, and it must not be larger:
+# with the two equal, a cue surfaced at t0 ages out at t0+TTL while its dedup
+# mark blocks it until t_fire+TTL >= t0+TTL, so a fired cue can never fire a
+# second time without being re-surfaced. Before durability this bound was
+# supplied for free by process death; the durable registry has to state it.
+# Erring short is the conservative direction — it misses late uses rather than
+# manufacturing phantom ones.
+_USAGE_SURFACE_TTL_SECONDS = _USAGE_DEDUP_WINDOW_SECONDS
 _USAGE_SNIPPET_MAX_CHARS = 400
 _USAGE_SHINGLE_TOKENS = 5
 _USAGE_MIN_SHINGLE_TOKENS = 3
@@ -175,17 +190,40 @@ class SurfacedCueEntry:
     phrase_token_lists: tuple[tuple[str, ...], ...]
 
 
+@dataclass(frozen=True)
+class SurfacedTextEntry:
+    """One mask-only surfaced text payload (episode content, packet summary)."""
+
+    digest: str
+    ts: float
+    tokens: tuple[str, ...]
+
+
+def _text_digest(tokens: tuple[str, ...]) -> str:
+    return hashlib.sha1(" ".join(tokens).encode("utf-8")).hexdigest()[:16]
+
+
 class SurfacedUsageBuffer:
-    """Bounded per-group ring buffer of surfaced payloads + used-event dedup."""
+    """Bounded per-group ring buffer of surfaced payloads + used-event dedup.
+
+    Ticket #7: the ring is optionally backed by a durable sidecar
+    (``SurfacedUsageStore``). Without it the surfaced half of the surfaced ->
+    used loop dies with the process, so an agent whose session outlives a shell
+    restart can never record a use. With it, ``hydrate`` restores the ring — and
+    critically the ECHO MASK and the dedup marks with it — in the next process.
+    """
 
     def __init__(
         self,
         *,
         cap: int = _USAGE_RING_CAP,
         dedup_window_seconds: float = _USAGE_DEDUP_WINDOW_SECONDS,
+        surface_ttl_seconds: float = _USAGE_SURFACE_TTL_SECONDS,
+        store: SurfacedUsageStore | None = None,
     ) -> None:
         self._cap = cap
         self._dedup_window = dedup_window_seconds
+        self._surface_ttl = surface_ttl_seconds
         self._entries: dict[str, deque[SurfacedEntry]] = {}
         # M5.1: surfaced cue-backed episodes, scanned in the SAME pass with the
         # same echo mask; dedup shares _last_used_event under a "cue::" key.
@@ -195,7 +233,122 @@ class SurfacedUsageBuffer:
         # content, packet summaries) — not entity-bound. Without this, an
         # agent echoing a surfaced EPISODE verbatim reads as "novel" tokens
         # relative to the entity snippets and fires false used events.
-        self._text_masks: dict[str, deque[tuple[str, ...]]] = {}
+        self._text_masks: dict[str, deque[SurfacedTextEntry]] = {}
+        self._store = store
+        self._hydrated: set[str] = set()
+        # Rows written since the last persist, so a persist per surfaced payload
+        # costs one row rather than a full rewrite of the ring.
+        self._pending: dict[str, dict[str, set[str]]] = {}
+
+    # --- durability ------------------------------------------------------
+
+    def attach_store(self, store: SurfacedUsageStore | None) -> None:
+        """Bind (or unbind) the durable sidecar; drops hydration state."""
+        self._store = store
+        self._hydrated.clear()
+
+    @property
+    def store(self) -> SurfacedUsageStore | None:
+        return self._store
+
+    def _mark_pending(self, group_id: str, kind: str, key: str) -> None:
+        if self._store is None:
+            return
+        self._pending.setdefault(group_id, {}).setdefault(kind, set()).add(key)
+
+    def hydrate(self, group_id: str, now: float | None = None) -> None:
+        """Load this group's durable surfaced state once per process.
+
+        Entries land to the LEFT of anything this process already noted, so the
+        ring stays oldest-first, and never evict in-process entries.
+        """
+        store = self._store
+        if store is None or group_id in self._hydrated:
+            return
+        self._hydrated.add(group_id)
+        ts = now if now is not None else time.time()
+        state = store.load(group_id, min_ts=ts - self._surface_ttl, cap=self._cap)
+        if state.is_empty():
+            return
+
+        ring = self._entries.setdefault(group_id, deque(maxlen=self._cap))
+        known = {entry.entity_id for entry in ring}
+        for entity_id, name, ets, tokens in reversed(state.entities):
+            if entity_id in known or len(ring) >= self._cap:
+                continue
+            ring.appendleft(
+                SurfacedEntry(entity_id=entity_id, name=name, ts=ets, snippet_tokens=tuple(tokens))
+            )
+
+        cue_ring = self._cue_entries.setdefault(group_id, deque(maxlen=self._cap))
+        known_cues = {entry.episode_id for entry in cue_ring}
+        for episode_id, cts, phrases in reversed(state.cues):
+            if episode_id in known_cues or len(cue_ring) >= self._cap:
+                continue
+            cue_ring.appendleft(
+                SurfacedCueEntry(
+                    episode_id=episode_id,
+                    ts=cts,
+                    phrase_token_lists=tuple(tuple(phrase) for phrase in phrases),
+                )
+            )
+
+        mask_ring = self._text_masks.setdefault(group_id, deque(maxlen=self._cap))
+        known_texts = {entry.digest for entry in mask_ring}
+        for digest, tts, tokens in reversed(state.texts):
+            if digest in known_texts or len(mask_ring) >= self._cap:
+                continue
+            mask_ring.appendleft(SurfacedTextEntry(digest=digest, ts=tts, tokens=tuple(tokens)))
+
+        for dedup_key, dts in state.dedup:
+            key = (group_id, dedup_key)
+            if dts > self._last_used_event.get(key, 0.0):
+                self._last_used_event[key] = dts
+
+    def persist(self, group_id: str, now: float | None = None) -> bool:
+        """Flush rows noted since the last persist. Best-effort, never raises."""
+        store = self._store
+        pending = self._pending.get(group_id)
+        if store is None or not pending:
+            return False
+        ts = now if now is not None else time.time()
+        entity_keys = pending.get("entities") or set()
+        cue_keys = pending.get("cues") or set()
+        text_keys = pending.get("texts") or set()
+        dedup_keys = pending.get("dedup") or set()
+        entities = [
+            (entry.entity_id, entry.name, entry.ts, list(entry.snippet_tokens))
+            for entry in self._entries.get(group_id) or ()
+            if entry.entity_id in entity_keys
+        ]
+        cues = [
+            (entry.episode_id, entry.ts, [list(phrase) for phrase in entry.phrase_token_lists])
+            for entry in self._cue_entries.get(group_id) or ()
+            if entry.episode_id in cue_keys
+        ]
+        texts = [
+            (entry.digest, entry.ts, list(entry.tokens))
+            for entry in self._text_masks.get(group_id) or ()
+            if entry.digest in text_keys
+        ]
+        dedup = [
+            (key, value)
+            for (gid, key), value in self._last_used_event.items()
+            if gid == group_id and key in dedup_keys
+        ]
+        ok = store.save(
+            group_id,
+            entities=entities,
+            cues=cues,
+            texts=texts,
+            dedup=dedup,
+            min_ts=ts - self._surface_ttl,
+        )
+        if ok:
+            self._pending.pop(group_id, None)
+        return ok
+
+    # --- registration ----------------------------------------------------
 
     def note_surfaced(
         self,
@@ -208,23 +361,29 @@ class SurfacedUsageBuffer:
     ) -> None:
         if not entity_id or not name:
             return
+        self.hydrate(group_id, ts)
         tokens = tuple(_normalize_text((snippet or "")[:_USAGE_SNIPPET_MAX_CHARS]).split())
         ring = self._entries.setdefault(group_id, deque(maxlen=self._cap))
         ring.append(SurfacedEntry(entity_id=entity_id, name=name, ts=ts, snippet_tokens=tokens))
+        self._mark_pending(group_id, "entities", entity_id)
 
     def note_surfaced_text(self, group_id: str, text: str, ts: float) -> None:
         """Register surfaced payload text as an echo-mask source (mask-only).
 
         No entity binding and no used-event eligibility — these tokens only
         widen the echoed-span mask so parroted result text never counts as
-        reliance.
+        reliance. ``ts`` is the durable age-out key: a mask row that outlived
+        its payload would suppress real uses, and a missing one would fabricate
+        them, so the mask ages on exactly the same clock as what it masks.
         """
-        del ts  # reserved for future age-out; the ring cap bounds growth
         tokens = tuple(_normalize_text((text or "")[: _USAGE_SNIPPET_MAX_CHARS * 4]).split())
         if not tokens:
             return
+        self.hydrate(group_id, ts)
+        digest = _text_digest(tokens)
         ring = self._text_masks.setdefault(group_id, deque(maxlen=self._cap))
-        ring.append(tokens)
+        ring.append(SurfacedTextEntry(digest=digest, ts=ts, tokens=tokens))
+        self._mark_pending(group_id, "texts", digest)
 
     def note_surfaced_cue(
         self,
@@ -250,6 +409,7 @@ class SurfacedUsageBuffer:
                 phrase_token_lists.append(tokens)
         if not phrase_token_lists:
             return
+        self.hydrate(group_id, ts)
         ring = self._cue_entries.setdefault(group_id, deque(maxlen=self._cap))
         # Re-surfacing the same episode refreshes its entry instead of adding a
         # second one: the pipeline recorder and the explicit-recall response
@@ -265,8 +425,12 @@ class SurfacedUsageBuffer:
                 phrase_token_lists=tuple(phrase_token_lists),
             )
         )
+        self._mark_pending(group_id, "cues", episode_id)
 
     def is_empty(self, group_id: str) -> bool:
+        # The capture fast path short-circuits on this, so it is also the hook
+        # that pulls the previous process's surfaced payloads back in.
+        self.hydrate(group_id)
         return not self._entries.get(group_id) and not self._cue_entries.get(group_id)
 
     def scan_novel_mentions(
@@ -282,6 +446,7 @@ class SurfacedUsageBuffer:
         span never fires. Dedup: at most one used event per (entity, group)
         per rolling window.
         """
+        self.hydrate(group_id, now)
         ring = self._entries.get(group_id)
         if not ring:
             return []
@@ -296,11 +461,14 @@ class SurfacedUsageBuffer:
             if entry.entity_id in seen:
                 continue
             seen.add(entry.entity_id)
+            if not self._is_eligible(entry.ts, now):
+                continue
             last = self._last_used_event.get((group_id, entry.entity_id))
             if last is not None and (now - last) < self._dedup_window:
                 continue
             if _has_novel_mention(content_tokens, echoed, entry):
                 self._last_used_event[(group_id, entry.entity_id)] = now
+                self._mark_pending(group_id, "dedup", entry.entity_id)
                 fired.append(entry)
         self._prune_dedup(now)
         return fired
@@ -319,6 +487,7 @@ class SurfacedUsageBuffer:
         A cue fires when a contiguous >=2-token, >=10-char phrase shared with
         its cue text/spans appears at a not-wholly-echoed content position.
         """
+        self.hydrate(group_id, now)
         ring = self._cue_entries.get(group_id)
         if not ring:
             return []
@@ -333,22 +502,35 @@ class SurfacedUsageBuffer:
             if entry.episode_id in seen:
                 continue
             seen.add(entry.episode_id)
-            dedup_key = (group_id, f"cue::{entry.episode_id}")
+            if not self._is_eligible(entry.ts, now):
+                continue
+            marker = f"cue::{entry.episode_id}"
+            dedup_key = (group_id, marker)
             last = self._last_used_event.get(dedup_key)
             if last is not None and (now - last) < self._dedup_window:
                 continue
             if _has_novel_cue_match(content_tokens, echoed, entry):
                 self._last_used_event[dedup_key] = now
+                self._mark_pending(group_id, "dedup", marker)
                 fired.append(entry)
         self._prune_dedup(now)
         return fired
+
+    def _is_eligible(self, surfaced_ts: float, now: float) -> bool:
+        """Whether a payload surfaced at ``surfaced_ts`` may still count as used.
+
+        Process death used to supply this bound implicitly. A durable registry
+        has to state it, and it must be a bound rather than "forever": a phrase
+        collision hours after the surfacing is not reliance.
+        """
+        return (now - surfaced_ts) < self._surface_ttl
 
     def _mask_sources(self, group_id: str) -> list[tuple[str, ...]]:
         """Echo-mask shingle sources shared by the entity and cue scans."""
         sources = [entry.snippet_tokens for entry in self._entries.get(group_id) or ()]
         for cue_entry in self._cue_entries.get(group_id) or ():
             sources.extend(cue_entry.phrase_token_lists)
-        sources.extend(self._text_masks.get(group_id) or ())
+        sources.extend(entry.tokens for entry in self._text_masks.get(group_id) or ())
         return sources
 
     def _prune_dedup(self, now: float) -> None:
@@ -363,9 +545,74 @@ class SurfacedUsageBuffer:
         self._cue_entries.clear()
         self._last_used_event.clear()
         self._text_masks.clear()
+        self._hydrated.clear()
+        self._pending.clear()
+        self._store = None
 
 
 _USAGE_BUFFER = SurfacedUsageBuffer()
+_USAGE_SURFACE_PATH: Path | None = None
+
+
+def bind_usage_surface_store(path: str | Path | None) -> SurfacedUsageStore | None:
+    """Attach the durable surfaced registry to the process-wide buffer.
+
+    Idempotent: rebinding the same path keeps the existing store. ``None``
+    unbinds and restores the pre-ticket-#7 process-local behaviour, which is
+    what unit tests and bare ``ActivationConfig`` callers get.
+    """
+    global _USAGE_SURFACE_PATH
+
+    if path is None:
+        if _USAGE_BUFFER.store is not None:
+            _USAGE_BUFFER.attach_store(None)
+        _USAGE_SURFACE_PATH = None
+        return None
+    resolved = Path(path).expanduser()
+    if _USAGE_BUFFER.store is not None and _USAGE_SURFACE_PATH == resolved:
+        return _USAGE_BUFFER.store
+    store = SurfacedUsageStore(resolved)
+    _USAGE_BUFFER.attach_store(store)
+    _USAGE_SURFACE_PATH = resolved
+    logger.info("Surfaced-usage registry bound to %s", resolved)
+    return store
+
+
+def bind_usage_surface_store_from_config(cfg) -> SurfacedUsageStore | None:
+    """Bind the durable registry for a runtime config, if one is resolvable.
+
+    Deliberately self-arming from whatever config reaches the hot path rather
+    than from an entrypoint: a "remember to call bind() at startup" contract is
+    exactly how a mechanism goes silently inert (§2.2), and this one has been
+    inert since it was written. Returns None — leaving today's process-local
+    behaviour — when the config names no sidecar directory, which is the case
+    for a bare ``ActivationConfig`` in unit tests.
+    """
+    if not getattr(cfg, "recall_usage_feedback_enabled", False):
+        return None
+    path = resolve_usage_surface_path(cfg)
+    if path is None:
+        return None
+    if _USAGE_BUFFER.store is not None and _USAGE_SURFACE_PATH == path:
+        return _USAGE_BUFFER.store
+    return bind_usage_surface_store(path)
+
+
+def _ensure_usage_surface_store(cfg, buffer: SurfacedUsageBuffer) -> None:
+    """Arm the process-wide durable registry; no-op for injected buffers."""
+    if buffer is not _USAGE_BUFFER:
+        return
+    try:
+        bind_usage_surface_store_from_config(cfg)
+    except Exception:
+        # silent-ok: durability is protective telemetry. A sidecar that cannot
+        # be opened degrades to the process-local ring, never to a failed recall.
+        logger.debug("Surfaced-usage registry bind failed", exc_info=True)
+
+
+def usage_surface_store_path() -> Path | None:
+    """Path of the bound durable registry, or None when process-local only."""
+    return _USAGE_SURFACE_PATH if _USAGE_BUFFER.store is not None else None
 
 
 def note_surfaced_texts_from_response(
@@ -386,6 +633,7 @@ def note_surfaced_texts_from_response(
     try:
         ts = now if now is not None else time.time()
         buffer = get_usage_buffer()
+        _ensure_usage_surface_store(cfg, buffer)
         for result in response.get("results") or []:
             text = result.get("text") or result.get("content") or ""
             if text:
@@ -409,6 +657,9 @@ def note_surfaced_texts_from_response(
             title = packet.get("title") or ""
             if text or title:
                 buffer.note_surfaced_text(group_id, f"{title} {text}".strip(), ts)
+        # Ticket #7: the surfaced half has to outlive this process, or the
+        # agent's next turn lands in a shell that never saw the surfacing.
+        buffer.persist(group_id, ts)
     except Exception:
         # silent-ok: echo masking is protective telemetry; a mask miss only
         # risks an extra used event, never a failed recall.
@@ -536,10 +787,14 @@ async def record_observed_usage_events(
     if not cfg.recall_usage_feedback_enabled:
         return []
     buffer = usage_buffer if usage_buffer is not None else _USAGE_BUFFER
+    _ensure_usage_surface_store(cfg, buffer)
     if buffer.is_empty(group_id):
         return []
     ts = now if now is not None else time.time()
     fired = buffer.scan_novel_mentions(group_id, content, ts)
+    # Dedup marks must outlive this process too, or a restart re-arms a cue
+    # that already fired and the gate double-counts one reliance event.
+    buffer.persist(group_id, ts)
     for entry in fired:
         await activation_store.record_access(
             entry.entity_id,
@@ -552,6 +807,7 @@ async def record_observed_usage_events(
         return fired_ids
 
     fired_cues = buffer.scan_novel_cue_matches(group_id, content, ts)
+    buffer.persist(group_id, ts)
     if not fired_cues:
         return fired_ids
     used_weight = float(cfg.usage_tier_weights.get("used", 0.0))
@@ -628,6 +884,7 @@ class RecallEntityAccessRecorder:
         now = timestamp if timestamp is not None else time.time()
         await self._activation.record_access(entity.id, now, group_id=group_id, tier=tier)
         if tier == "surfaced" and self._cfg.recall_usage_feedback_enabled:
+            _ensure_usage_surface_store(self._cfg, self._usage_buffer)
             self._usage_buffer.note_surfaced(
                 group_id,
                 entity_id=entity.id,
@@ -635,6 +892,9 @@ class RecallEntityAccessRecorder:
                 snippet=f"{entity.name} {entity.summary or ''}",
                 ts=now,
             )
+            # Auto-recall / get_context never reach the response-time mask hook,
+            # so the durable flush has to happen where the payload is noted.
+            self._usage_buffer.persist(group_id, now)
         await self.publish_access_event(
             entity_id=entity.id,
             name=entity.name,
@@ -687,6 +947,7 @@ class RecallCueFeedbackRecorder:
         surfaced cue passes through — restores the symmetry.
         """
         ts = time.time()
+        _ensure_usage_surface_store(self._cfg, self._usage_buffer)
         self._usage_buffer.note_surfaced_cue(
             episode.group_id,
             episode_id=episode.id,
@@ -698,6 +959,9 @@ class RecallCueFeedbackRecorder:
         # it so parroting the delivered payload never reads as reliance.
         if episode.content:
             self._usage_buffer.note_surfaced_text(episode.group_id, episode.content, ts)
+        # Ticket #7: flush cue + mask together. Persisting the cue without its
+        # mask would make a post-restart verbatim parrot read as novel reuse.
+        self._usage_buffer.persist(episode.group_id, ts)
 
     async def record_cue_feedback(
         self,

@@ -216,6 +216,8 @@ class TestCaptureFastPathScan:
         assert manager._activation.calls == []
 
     async def test_observe_after_surfacing_records_used_event(self):
+        import time
+
         from engram.retrieval import feedback as feedback_module
 
         buffer = feedback_module.get_usage_buffer()
@@ -225,8 +227,11 @@ class TestCaptureFastPathScan:
                 "g-live",
                 entity_id="e1",
                 name="Melanie",
+                # Wall-clock, not 1970: `store_observation` scans with the real
+                # clock, and ticket #7 gave surfaced payloads an eligibility
+                # window, so a surfacing dated 1970 is correctly ignored.
+                ts=time.time(),
                 snippet=MELANIE_SNIPPET,
-                ts=1000.0,
             )
             manager = _FakeCaptureManager(_cfg())
             await store_observation(
