@@ -54,6 +54,53 @@ _QUANT = 6
 
 EPISODE_RESULT_TYPES = frozenset({"episode", "cue_episode"})
 
+# Ticket 26. ``episode_graph_signal_max_candidates`` is 60 and the native
+# executor is ``max_workers=4``, so an unbounded gather hands 60 graph reads to
+# a 4-thread pool at once.
+#
+# What that costs was MEASURED, not assumed, because the obvious rationale is
+# wrong: bounding the fan-out does NOT reduce worker burn. Isolated four-arm
+# run (stub transport, 4 workers, 500 ms scans, 40 ms stage timeout) — pre-fix
+# vs semaphore-only: executor submissions fell 60 -> 8 but jobs actually run
+# stayed 4 and worker time stayed 3043 ms vs 3042 ms. ``run_in_executor``
+# cancels its own still-pending future when the gather wrapper is cancelled, so
+# the queued surplus was never going to run anyway.
+#
+# What it DOES cost is head-of-line blocking on the shared executor, which is
+# ticket 31's mechanism (an independent stage timing out in lockstep with a
+# saturating one). Isolated, warm path, one independent read submitted 5 ms
+# into the stage, median of 5: it waited **40.5 ms behind the unbounded
+# fan-out and 5.2 ms behind the bounded one** — 7.8x. That is the reason for
+# this number, and it is the only claim it supports.
+#
+# 8 matches ``pipeline._EPISODE_USAGE_READ_CONCURRENCY``, which bounds the
+# identical pattern on the neighbouring cue-read lane.
+_EPISODE_GRAPH_READ_CONCURRENCY = 8
+
+
+class _InFlight:
+    """Exact peak-concurrency counter for the bounded read fan-out.
+
+    Counted, not inferred from timing: a semaphore that was silently removed
+    would still *look* fine on a fast fixture, and a timing-derived bound is
+    exactly the kind of plausible-but-wrong number INSTRUMENT_AUDIT.md is
+    about. The event loop is single-threaded, so ``+= 1`` needs no lock.
+    """
+
+    __slots__ = ("current", "peak")
+
+    def __init__(self) -> None:
+        self.current = 0
+        self.peak = 0
+
+    def __enter__(self) -> _InFlight:
+        self.current += 1
+        self.peak = max(self.peak, self.current)
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.current -= 1
+
 
 @dataclass(frozen=True)
 class EntityGraphSignal:
@@ -216,9 +263,17 @@ async def apply_episode_graph_signal(
 
     started = time.perf_counter()
     timeout_ms = int(cfg.episode_graph_signal_timeout_ms or 0)
+    semaphore = asyncio.Semaphore(_EPISODE_GRAPH_READ_CONCURRENCY)
+    inflight = _InFlight()
+
+    async def _read(episode_id: str):
+        async with semaphore:
+            with inflight:
+                return await graph_store.get_episode_entities(episode_id, group_id=group_id)
+
     try:
         gather = asyncio.gather(
-            *(graph_store.get_episode_entities(eid, group_id=group_id) for eid in ranked_ids),
+            *(_read(eid) for eid in ranked_ids),
             return_exceptions=True,
         )
         reads = (
@@ -228,6 +283,7 @@ async def apply_episode_graph_signal(
         )
     except asyncio.TimeoutError:
         add_timing(stage_timings_ms, "recall_episode_graph_signal_timeout", started)
+        set_metric(stage_timings_ms, "recall_episode_graph_signal_inflight_max", inflight.peak)
         return
     except asyncio.CancelledError:
         add_timing(stage_timings_ms, "recall_episode_graph_signal_cancelled", started)
@@ -275,6 +331,7 @@ async def apply_episode_graph_signal(
 
     add_timing(stage_timings_ms, "recall_episode_graph_signal", started)
     set_metric(stage_timings_ms, "recall_episode_graph_signal_pool", len(ranked_ids))
+    set_metric(stage_timings_ms, "recall_episode_graph_signal_inflight_max", inflight.peak)
     set_metric(stage_timings_ms, "recall_episode_graph_signal_linked_total", linked_total)
     set_metric(stage_timings_ms, "recall_episode_graph_signal_covered", covered)
     set_metric(stage_timings_ms, "recall_episode_graph_signal_applied", applied)
