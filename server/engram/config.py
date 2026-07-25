@@ -2472,6 +2472,18 @@ class ActivationConfig(BaseModel):
         default=False,
         description="Enable surfaced/selected/used feedback semantics for recall",
     )
+    recall_usage_surface_path: str = Field(
+        default="",
+        description=(
+            "SQLite sidecar path for the durable surfaced-usage registry (the "
+            "surfaced half of the surfaced->used citation scan). When blank, "
+            "runtime entrypoints derive a mode-appropriate local path. Ticket "
+            "#37: before this knob existed the registry borrowed the DIRECTORY "
+            "of recall_packet_cache_path and fell back to cue_index_outbox_path, "
+            "so disabling either unrelated sidecar silently unbound the usage "
+            "loop."
+        ),
+    )
     usage_tier_weights: dict[str, float] = Field(
         default_factory=lambda: dict(DEFAULT_USAGE_TIER_WEIGHTS),
         description=(
@@ -3502,3 +3514,40 @@ class EngramConfig(BaseSettings):
         if self.activation.cue_index_outbox_path:
             return
         self.activation.cue_index_outbox_path = str(self.get_cue_index_outbox_path(mode))
+
+    def get_usage_surface_path(self, mode: str | None = None) -> Path:
+        """Return the local SQLite sidecar path for the surfaced-usage registry."""
+        configured = self.activation.recall_usage_surface_path
+        if configured:
+            path = Path(configured).expanduser()
+        else:
+            mode_label = (mode or self.mode or "auto").lower()
+            if mode_label == "helix" and self.helix.transport in {"native", "auto"}:
+                base = (
+                    Path(self.helix.data_dir).expanduser()
+                    if self.helix.data_dir
+                    else Path.home() / ".helix" / "engram-native"
+                )
+                path = base / "surfaced-usage.sqlite3"
+            else:
+                sqlite_path = Path(self.sqlite.path).expanduser()
+                suffix = sqlite_path.suffix or ".db"
+                path = sqlite_path.with_name(f"{sqlite_path.stem}.surfaced-usage{suffix}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def configure_runtime_usage_surface(self, mode: str) -> None:
+        """Populate the surfaced-usage sidecar path for runtime entrypoints.
+
+        Ticket #37. The registry used to borrow the directory of
+        ``recall_packet_cache_path`` and fall back to ``cue_index_outbox_path``,
+        which only worked because both default enabled: turning the packet cache
+        off (the documented way to run an isolated A/B, STANDING_GOAL 2.4) moved
+        the usage sidecar, and turning both off unbound it entirely — silently,
+        because an unbound registry degrades to the process-local ring.
+        """
+        if not self.activation.recall_usage_feedback_enabled:
+            return
+        if self.activation.recall_usage_surface_path:
+            return
+        self.activation.recall_usage_surface_path = str(self.get_usage_surface_path(mode))

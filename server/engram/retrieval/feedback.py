@@ -1202,6 +1202,9 @@ class RecallInteractionRecorder:
             interaction_type,
             result_type=result_type,
             memory_id=memory_id,
+            # Ticket #37: the controller classifies this into a write surface so
+            # a 0 count can be told apart from a surface with no emitter.
+            source=source,
         )
 
 
@@ -1275,6 +1278,7 @@ class RecallMemoryInteractionApplier:
                     metadata,
                     group_id=group_id,
                     query=query,
+                    source=source,
                     interaction_type=interaction_type,
                 )
                 continue
@@ -1297,6 +1301,7 @@ class RecallMemoryInteractionApplier:
         *,
         group_id: str,
         query: str,
+        source: str,
         interaction_type: str,
     ) -> None:
         episode_id = metadata.get("episode_id")
@@ -1321,6 +1326,7 @@ class RecallMemoryInteractionApplier:
             interaction_type,
             result_type="cue_episode",
             memory_id=f"cue:{episode_id}",
+            source=source,
         )
 
     async def _apply_entity_interaction(

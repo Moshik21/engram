@@ -10,6 +10,7 @@ from typing import Any
 from engram.config import ActivationConfig
 from engram.consolidation.audit_reader import ConsolidationAuditReader
 from engram.consolidation.presenter import serialize_cycle_summary
+from engram.retrieval.interaction_surfaces import INTERACTION_EMITTERS
 from engram.storage.bootstrap import create_borrowed_consolidation_store_for_graph
 
 LOOP = ["capture", "cue", "project", "recall", "consolidate"]
@@ -350,6 +351,13 @@ async def build_lifecycle_summary(
             "hitCount": _int_metric(cue_metrics, "cue_hit_count"),
             "surfacedCount": _int_metric(cue_metrics, "cue_surfaced_count"),
             "selectedCount": _int_metric(cue_metrics, "cue_selected_count"),
+            # Ticket #37: live reads selectedCount 0 against surfacedCount 1208,
+            # and the honest reading of that pair was never available — `selected`
+            # has exactly one emitter, the dashboard chat tool loop. On an MCP
+            # install the 0 means "no surface here can say", not "no cue was ever
+            # selected". Declared so a gate can tell those apart; the list is
+            # ratcheted by tests/test_interaction_surface_declaration.py.
+            "selectedCountEmitters": sorted(INTERACTION_EMITTERS["selected"]),
             # P10: usedCount is the UNION of the legacy int counter and the M5.1
             # citation-scan signal. The legacy counter alone only moves on
             # interaction_type == "used", which the chat path stops emitting once

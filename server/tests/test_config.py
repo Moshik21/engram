@@ -107,6 +107,33 @@ class TestEngramConfig:
             tmp_path / "helix" / "cue-index-outbox.sqlite3"
         )
 
+    def test_usage_surface_path_no_longer_borrows_an_unrelated_sidecar(self, tmp_path):
+        """Ticket #37: the surfaced-usage registry gets its own knob.
+
+        It used to take the DIRECTORY of `recall_packet_cache_path` and fall back
+        to `cue_index_outbox_path`, so turning the packet cache off — the
+        documented way to isolate an A/B (STANDING_GOAL 2.4) — moved the sidecar,
+        and turning both off unbound it. Silently: an unbound registry degrades to
+        the process-local ring, which is exactly the pre-ticket-#7 behaviour the
+        durability work existed to end.
+        """
+        from engram.retrieval.usage_surface_store import resolve_usage_surface_path
+
+        config = EngramConfig(
+            mode="helix",
+            helix={"transport": "native", "data_dir": str(tmp_path / "helix")},
+            activation={"recall_usage_feedback_enabled": True},
+            _env_file=None,
+        )
+        config.configure_runtime_usage_surface("helix")
+
+        expected = tmp_path / "helix" / "surfaced-usage.sqlite3"
+        assert config.activation.recall_usage_surface_path == str(expected)
+        # Both lenders off: the registry must still bind.
+        config.activation.recall_packet_cache_path = ""
+        config.activation.cue_index_outbox_path = ""
+        assert resolve_usage_surface_path(config.activation) == expected
+
     def test_default_env_file_order_includes_repo_root(self):
         repo_root_env = str(Path(__file__).resolve().parents[2] / ".env")
         assert DEFAULT_ENV_FILES[0].endswith(".engram/.env")

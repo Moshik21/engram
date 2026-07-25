@@ -127,6 +127,9 @@ class TestRecallInteractionRecorder:
             "used",
             result_type="entity",
             memory_id="ent_react",
+            # Ticket #37: the controller needs the source to classify the write
+            # surface, so a 0 count can be told apart from "no emitter here".
+            source="chat_tool_use",
         )
 
     def test_no_interaction_type_is_noop(self):

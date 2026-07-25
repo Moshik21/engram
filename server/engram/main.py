@@ -197,6 +197,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
 
     config.configure_runtime_packet_cache(mode.value)
     config.configure_runtime_cue_index_outbox(mode.value)
+    config.configure_runtime_usage_surface(mode.value)
     manager = GraphManager(
         graph_store,
         activation_store,

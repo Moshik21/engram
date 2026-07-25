@@ -9,6 +9,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from engram.retrieval.interaction_surfaces import (
+    AGENT_RECALL,
+    surface_for_source,
+    unmeasurable_interactions,
+)
+
 
 @dataclass(frozen=True)
 class RecallNeedThresholds:
@@ -75,6 +81,9 @@ class _InteractionSample:
     result_type: str = "entity"
     memory_id: str | None = None
     timestamp: float = field(default_factory=time.time)
+    # Ticket #37: which write surface produced this, so a 0 count can be told
+    # apart from a surface that has no emitter for the verb at all.
+    surface: str = AGENT_RECALL
 
 
 @dataclass
@@ -147,6 +156,7 @@ class RecallNeedController:
         result_type: str = "entity",
         memory_id: str | None = None,
         timestamp: float | None = None,
+        source: str | None = None,
     ) -> None:
         """Record a recall interaction outcome."""
         state = self._get_state(group_id)
@@ -157,6 +167,7 @@ class RecallNeedController:
                 result_type=result_type,
                 memory_id=memory_id,
                 timestamp=occurred_at,
+                surface=surface_for_source(source),
             )
         )
         if memory_id:
@@ -229,6 +240,21 @@ class RecallNeedController:
         if used_count > 0:
             surfaced_to_used = round(surfaced_count / used_count, 4)
 
+        # Ticket #37. A verb no observed surface can emit reads 0 for a reason
+        # that has nothing to do with the memories, so any RATE derived from it
+        # is fabricated. The counts stay (they are honest counts of emissions);
+        # false_recall_rate goes absent rather than reporting a confident 0.0.
+        observed_surfaces = {sample.surface for sample in interactions}
+        unmeasurable = unmeasurable_interactions(
+            observed_surfaces,
+            observed_counts=interaction_counts,
+        )
+        false_recall_rate: float | None = (
+            round(dismissed_count / trigger_count, 4) if trigger_count else 0.0
+        )
+        if "dismissed" in unmeasurable:
+            false_recall_rate = None
+
         return {
             "total_analyses": total_analyses,
             "trigger_count": trigger_count,
@@ -239,9 +265,9 @@ class RecallNeedController:
             "confirmed_count": interaction_counts["confirmed"],
             "corrected_count": interaction_counts["corrected"],
             "surfaced_to_used_ratio": surfaced_to_used,
-            "false_recall_rate": (
-                round(dismissed_count / trigger_count, 4) if trigger_count else 0.0
-            ),
+            "false_recall_rate": false_recall_rate,
+            "unmeasurable_interactions": list(unmeasurable),
+            "interaction_surfaces_observed": sorted(observed_surfaces),
             "graph_lift_rate": round(graph_lift_count / trigger_count, 4) if trigger_count else 0.0,
             "probe_trigger_rate": (
                 round(probe_triggered / total_analyses, 4) if total_analyses else 0.0

@@ -1315,6 +1315,63 @@ class GraphManager:
             timestamp=timestamp,
         )
 
+    def record_echoed_memory_usage(
+        self,
+        fired_ids: list[str],
+        *,
+        group_id: str = "default",
+        query: str = "",
+        source: str = "observed_echo",
+    ) -> None:
+        """Emit `used` interactions for memories the agent demonstrably relied on.
+
+        Until this existed, `apply_chat_recall_feedback` (POST
+        /api/knowledge/chat) was the ONLY emitter of the used/dismissed
+        interaction vocabulary, so for every MCP/axi consumer — the actual
+        product — `used_count` was structurally 0 and the adaptive-threshold
+        learner that reads `interaction_counts["used"]` could never move. The
+        detector was never the missing part: the observe fast path already runs
+        the echo scan and already trusts its verdict enough to write a
+        `used`-tier access event. Only the interaction was missing.
+
+        Deliberately NOT `apply_memory_interaction`: that path records the
+        used-tier access event itself, and `record_observed_usage_events` has
+        already written it. Routing through it would double-count the access and
+        manufacture the phantom reinforcement the surfaced tier is weighted 0.0
+        to avoid. This emits the interaction only.
+
+        `dismissed` has no honest emitter here and is deliberately absent: the
+        capture surface has no bounded response to partition, so "surfaced and
+        not echoed in this one observe" would fire on memories the agent used in
+        its answer and simply did not capture. A dismissal metric built that way
+        would be plausible and wrong, which is worse than missing.
+        """
+        if not fired_ids:
+            return
+        for fired_id in fired_ids:
+            if not fired_id:
+                continue
+            if fired_id.startswith("cue::"):
+                # The detector marks cues "cue::<episode_id>"; the interaction
+                # vocabulary keys them "cue:<episode_id>".
+                memory_id = f"cue:{fired_id.split('::', 1)[1]}"
+                result_type = "cue_episode"
+            else:
+                memory_id = fired_id
+                result_type = "entity"
+            self._recall_interaction_recorder.record_memory_interaction(
+                group_id=group_id,
+                memory_id=memory_id,
+                entity_name=None,
+                entity_type=None,
+                interaction_type="used",
+                source=source,
+                query=query,
+                score=None,
+                recorded_access=True,
+                result_type=result_type,
+            )
+
     async def apply_memory_interaction(
         self,
         memory_ids: list[str],

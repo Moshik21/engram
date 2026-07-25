@@ -994,8 +994,16 @@ def _recall_summary(
         "status": "active" if _int(recall_metrics.get("trigger_count")) else "ready",
         "total_analyses": _int(recall_metrics.get("total_analyses")),
         "trigger_count": _int(recall_metrics.get("trigger_count")),
-        "runtime_false_recall_rate": _float(recall_metrics.get("false_recall_rate")),
+        # Ticket #37: _float() turns None into 0.0, which would re-fabricate the
+        # exact number the controller now refuses to state. `dismissed` has no
+        # emitter outside the dashboard chat endpoint, so on an MCP install this
+        # is absent, not zero — and `unmeasurable_interactions` says which verbs
+        # a 0 count means nothing for.
+        "runtime_false_recall_rate": _optional_float(recall_metrics.get("false_recall_rate")),
         "runtime_surfaced_to_used_ratio": recall_metrics.get("surfaced_to_used_ratio"),
+        "runtime_unmeasurable_interactions": list(
+            recall_metrics.get("unmeasurable_interactions") or []
+        ),
         "graph_lift_rate": _float(recall_metrics.get("graph_lift_rate")),
         "probe_trigger_rate": _float(recall_metrics.get("probe_trigger_rate")),
         "latency": {

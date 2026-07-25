@@ -56,12 +56,18 @@ class DurableUsageState:
 def resolve_usage_surface_path(cfg: Any) -> Path | None:
     """Return the sidecar path for ``cfg``, or None when none is resolvable.
 
-    There is no dedicated knob for this sidecar (``config.py`` is owned by
-    another lane; see the report). The directory is taken from whichever recall
-    sidecar the runtime entrypoint already resolved, so the durable registry
-    always lands next to the brain it belongs to. When neither is set — unit
-    tests constructing a bare ``ActivationConfig`` — the store stays unbound and
-    behaviour is byte-identical to the process-local ring.
+    ``recall_usage_surface_path`` (ticket #37) is the dedicated knob and is used
+    verbatim when set. The two legacy borrows are kept as a fallback so an
+    already-running install that has not been through a runtime entrypoint since
+    the knob landed keeps its existing sidecar instead of silently starting a new
+    one; for those the *directory* is borrowed, never the filename. When nothing
+    is set — unit tests constructing a bare ``ActivationConfig`` — the store
+    stays unbound and behaviour is byte-identical to the process-local ring.
+
+    Borrowing was the wrong dependency: it worked only because both lenders
+    default enabled, so running with the packet cache off (the documented way to
+    isolate an A/B, STANDING_GOAL 2.4) moved the sidecar, and running with both
+    off unbound it — silently, because unbound degrades rather than fails.
 
     **Refuses rather than guesses.** The first version stringified whatever it
     was handed, so a `MagicMock` cfg in a test produced a *relative* directory
@@ -70,7 +76,7 @@ def resolve_usage_surface_path(cfg: Any) -> Path | None:
     resolving to an absolute path is not a brain directory, and an unbound
     registry (today's behaviour) beats a sidecar in an arbitrary location.
     """
-    for attr in ("recall_packet_cache_path", "cue_index_outbox_path"):
+    for attr in ("recall_usage_surface_path", "recall_packet_cache_path", "cue_index_outbox_path"):
         configured = getattr(cfg, attr, None)
         if not isinstance(configured, str) or not configured.strip():
             continue
@@ -80,6 +86,8 @@ def resolve_usage_surface_path(cfg: Any) -> Path | None:
                 "Ignoring non-absolute %s for the surfaced-usage sidecar: %r", attr, configured
             )
             continue
+        if attr == "recall_usage_surface_path":
+            return candidate
         return candidate.with_name(USAGE_SURFACE_FILENAME)
     return None
 
