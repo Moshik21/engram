@@ -22,12 +22,15 @@ import pytest
 from engram.evaluation import battery
 from engram.evaluation.meter import (
     CAPTURE_SCHEMA,
+    RUNTIME_FAST_PATH,
     _is_cache_served,
     chi2_quantile,
+    fetch_cache_provenance,
     format_meter_report,
     load_rig,
     min_runs_per_arm,
     minimal_cover,
+    read_cache_provenance,
     result_texts,
     score_capture,
     score_rows,
@@ -510,3 +513,152 @@ class TestRig:
                 assert owners == set(parents), (
                     f"{question['id']}: group {group} does not span both parents"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Cache provenance read from the SERVER, not assumed (ticket #29 / AUDIT-14)
+# ---------------------------------------------------------------------------
+
+
+class TestServerCacheProvenance:
+    """AUDIT-14 shipped half a mitigation: the meter excluded cache-served
+    probes, but the TTL it enforced was a compile-time constant and the key's
+    identity was unknowable, so cache independence was *hoped for*. The server
+    now reports both, and these tests are what make the meter use them.
+    """
+
+    def test_provenance_states_are_distinct(self):
+        ok = read_cache_provenance(
+            {"fingerprint": "abc123", "ttl_seconds": 45.0, "enabled": True, "key_schema": "pc2"}
+        )
+        assert ok["status"] == "ok"
+        assert (ok["fingerprint"], ok["ttlSeconds"], ok["enabled"]) == ("abc123", 45.0, True)
+
+        # A server that predates the fix must not be reported as verified.
+        legacy = read_cache_provenance({"entry_count": 3, "fresh_count": 1})
+        assert legacy["status"] == "unreported"
+        assert legacy["fingerprint"] is None
+        assert legacy["ttlSeconds"] is None
+
+        assert read_cache_provenance(None)["status"] == "unreported"
+
+    def test_camel_case_payload_is_accepted(self):
+        """/api/knowledge/packet-cache camelises; /runtime does not."""
+        camel = read_cache_provenance(
+            {"fingerprint": "abc123", "ttlSeconds": 45.0, "enabled": False, "keySchema": "pc2"}
+        )
+        assert camel["status"] == "ok"
+        assert camel["ttlSeconds"] == 45.0
+        assert camel["enabled"] is False
+
+    def test_unreachable_server_is_recorded_not_swallowed(self):
+        def boom(url, timeout):
+            raise OSError("connection refused")
+
+        provenance = fetch_cache_provenance("http://test", fetch=boom)
+        assert provenance["status"] == "unreachable"
+        assert "connection refused" in provenance["detail"]
+        assert provenance["ttlSeconds"] is None
+
+    def test_provenance_is_read_off_the_runtime_fast_packet(self):
+        seen = {}
+
+        def fake(url, timeout):
+            seen["url"] = url
+            return {"stats": {"packetCache": {"fingerprint": "fp1", "ttl_seconds": 30.0}}}
+
+        provenance = fetch_cache_provenance("http://test/", fetch=fake)
+        assert seen["url"] == "http://test" + RUNTIME_FAST_PATH
+        assert provenance["fingerprint"] == "fp1"
+
+    def test_server_reported_ttl_beats_the_callers_assumption(self):
+        """A 17s gap is under the 300s default but over the server's real 5s.
+
+        Enforcing the assumption would refuse a capture that is in fact
+        independent — and, in the other direction, would certify one that is
+        not when a server runs a longer TTL than the default.
+        """
+        runs = [
+            [_row("q1", ["alpha"], atS=i * 17.0), _row("q2", ["beta"], atS=i * 17.0)]
+            for i in range(12)
+        ]
+        capture = _capture(runs, questions=QUESTIONS)
+        capture["serverCache"] = {
+            "status": "ok",
+            "enabled": True,
+            "ttlSeconds": 5.0,
+            "fingerprint": "fp1",
+            "keySchema": "pc2",
+        }
+        report = score_capture(capture)
+        assert report["cache"]["ttlSeconds"] == 5.0
+        assert report["cache"]["ttlSource"] == "server"
+        assert report["cache"]["unspacedQuestions"] == []
+        assert not any("TTL" in r for r in report["refusals"])
+        assert report["status"] == "resolved"
+
+    def test_a_verified_bypass_makes_fast_repeats_legitimate(self):
+        """`recall_packet_cache_enabled=False` is the measurement bypass.
+
+        Verified against the measured process, not the config file the rig
+        believes it edited (§2.11). Without the check the meter would demand
+        300s between passes — an hour for 12 runs — from a server that
+        provably cannot replay a packet.
+        """
+        runs = [
+            [_row("q1", ["alpha"], atS=i * 2.0), _row("q2", ["beta"], atS=i * 2.0)]
+            for i in range(12)
+        ]
+        bypassed = _capture(runs, questions=QUESTIONS)
+        bypassed["serverCache"] = {
+            "status": "ok",
+            "enabled": False,
+            "ttlSeconds": 300.0,
+            "fingerprint": "fp1",
+            "keySchema": "pc2",
+        }
+        report = score_capture(bypassed)
+        assert report["cache"]["bypassed"] is True
+        assert report["cache"]["unspacedQuestions"] == []
+        assert not any("TTL" in r for r in report["refusals"])
+        assert report["status"] == "resolved"
+
+        # Same probes, cache ON: the guard must still fire. Without this pair
+        # the bypass check could be unconditional and nothing would notice.
+        enabled = _capture(runs, questions=QUESTIONS)
+        enabled["serverCache"] = {**bypassed["serverCache"], "enabled": True}
+        strict = score_capture(enabled)
+        assert strict["cache"]["bypassed"] is False
+        assert set(strict["cache"]["unspacedQuestions"]) == {"q1", "q2"}
+        assert strict["status"] == "unresolved"
+
+    def test_missing_provenance_falls_back_conservatively(self):
+        """An old capture, or an un-restarted server, must not get a free pass."""
+        runs = [
+            [_row("q1", ["alpha"], atS=i * 17.0), _row("q2", ["beta"], atS=i * 17.0)]
+            for i in range(6)
+        ]
+        report = score_capture(_capture(runs, questions=QUESTIONS))
+        assert report["cache"]["provenanceStatus"] == "unreported"
+        assert report["cache"]["ttlSource"] == "assumed"
+        assert report["cache"]["bypassed"] is False
+        assert report["status"] == "unresolved"
+
+    def test_the_fingerprint_is_printed_on_every_report(self):
+        """Two arms printing the same fingerprint were not isolated by the key.
+
+        The formatter is where an A/B reader actually sees it, so the line is
+        emitted whether or not the run resolved.
+        """
+        runs = [[_row("q1", ["alpha"]), _row("q2", ["beta"])] for _ in range(12)]
+        capture = _capture(runs, questions=QUESTIONS)
+        capture["serverCache"] = {
+            "status": "ok",
+            "enabled": True,
+            "ttlSeconds": 300.0,
+            "fingerprint": "deadbeefcafe0001",
+            "keySchema": "pc2",
+        }
+        text = format_meter_report(score_capture(capture))
+        assert "deadbeefcafe0001" in text
+        assert "packet cache:" in text

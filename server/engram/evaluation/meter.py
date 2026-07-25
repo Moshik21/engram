@@ -66,7 +66,7 @@ import statistics
 import time
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from itertools import combinations
 from pathlib import Path
 from typing import Any
@@ -87,19 +87,26 @@ MAX_DEGRADED_FRACTION = 0.10
 # Lanes that replay a cached packet instead of retrieving.
 CACHE_LANES = frozenset({"cache_satisfied"})
 
-# The server's ``recall_packet_cache_ttl_seconds`` default (config.py). The
-# packet cache key is ``group_id:scope:digest(query):digest(project_path)``
-# (``retrieval/packet_cache.py`` ``build_key``) — it contains NO component for
-# the build or the config, and it is PERSISTED to a SQLite sidecar, so it
-# survives a restart.
+# Fallback for the server's ``recall_packet_cache_ttl_seconds`` (config.py),
+# used ONLY when the server does not report its own. Repeating a query inside
+# the TTL measures the cache, not recall.
 #
-# Two consequences, both fatal to naive measurement:
-#   * repeating the same query inside the TTL measures the cache, not recall;
-#   * in an A/B, arm B can be served ARM A's cached packets for the same query,
-#     which would silently report "no difference" for any change whatsoever.
-# An A/B must therefore either space probes beyond the TTL, clear the cache
-# between arms, or vary group_id/project_path per arm.
+# The second consequence used to be worse: the key was
+# ``group_id:scope:digest(query):digest(project_path)`` with NO build or config
+# component and SQLite persistence across restarts, so in an A/B **arm B could
+# be served arm A's cached packets** and the run would report "no difference"
+# for a change of any size. Fixed 2026-07-24 (ticket #29): the key now carries
+# an identity fingerprint over the activation config, the runtime mode, the
+# build and the packet-building source. This instrument no longer has to assume
+# any of that — :func:`fetch_cache_provenance` reads the live identity, TTL and
+# enabled flag off ``/api/knowledge/runtime/fast`` and records them in the
+# capture, so cache independence is VERIFIED rather than hoped for. Two arms
+# whose reports print the same ``fingerprint`` were not isolated by the key.
 DEFAULT_CACHE_TTL_S = 300.0
+
+# Where the server reports its packet-cache identity. Startup-safe: it does no
+# graph or artifact reads.
+RUNTIME_FAST_PATH = "/api/knowledge/runtime/fast"
 
 # --------------------------------------------------------------------------
 # rig
@@ -258,6 +265,83 @@ def _is_cache_served(lane: str | None, budget: dict[str, Any]) -> bool:
     return str(skip) in CACHE_LANES if skip else False
 
 
+def _first_present(payload: Mapping[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in payload:
+            return payload[name]
+    return None
+
+
+def read_cache_provenance(packet_cache: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Normalise a server ``stats.packetCache`` block into cache provenance.
+
+    Pure, so the three states can be tested without a server. They are distinct
+    on purpose:
+
+    * ``ok`` — the server reported its cache identity; the guard uses the real
+      TTL and can name the fingerprint the arm's keys carried.
+    * ``unreported`` — the server answered but predates ticket #29, so it has
+      no identity in its key. Falls back to the conservative assumption (cache
+      on, default TTL), which can only cause a refusal, never a false pass.
+    * ``unreachable`` — no answer at all.
+    """
+    if not isinstance(packet_cache, Mapping):
+        return {
+            "status": "unreported",
+            "enabled": None,
+            "ttlSeconds": None,
+            "fingerprint": None,
+            "keySchema": None,
+            "detail": "server did not report stats.packetCache",
+        }
+    fingerprint = _first_present(packet_cache, "fingerprint")
+    ttl = _first_present(packet_cache, "ttl_seconds", "ttlSeconds")
+    enabled = _first_present(packet_cache, "enabled")
+    key_schema = _first_present(packet_cache, "key_schema", "keySchema")
+    if fingerprint is None and ttl is None:
+        return {
+            "status": "unreported",
+            "enabled": bool(enabled) if enabled is not None else None,
+            "ttlSeconds": None,
+            "fingerprint": None,
+            "keySchema": None,
+            "detail": "server reports no packet-cache identity (pre-#29 build)",
+        }
+    return {
+        "status": "ok",
+        "enabled": bool(enabled) if enabled is not None else None,
+        "ttlSeconds": float(ttl) if isinstance(ttl, int | float) else None,
+        "fingerprint": str(fingerprint) if fingerprint is not None else None,
+        "keySchema": str(key_schema) if key_schema is not None else None,
+        "detail": None,
+    }
+
+
+def fetch_cache_provenance(
+    server_url: str,
+    *,
+    timeout: float = 10.0,
+    fetch: Callable[[str, float], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Read the live packet-cache identity. Read-only GET; never raises."""
+    getter = fetch or _get_json
+    url = f"{server_url.rstrip('/')}{RUNTIME_FAST_PATH}"
+    try:
+        payload = getter(url, timeout)
+    except Exception as exc:  # network/timeout/decode — recorded, never swallowed
+        return {
+            "status": "unreachable",
+            "enabled": None,
+            "ttlSeconds": None,
+            "fingerprint": None,
+            "keySchema": None,
+            "detail": f"{type(exc).__name__}: {exc}",
+        }
+    stats = payload.get("stats") if isinstance(payload, Mapping) else None
+    packet_cache = stats.get("packetCache") if isinstance(stats, Mapping) else None
+    return read_cache_provenance(packet_cache)
+
+
 def capture_runs(
     *,
     server_url: str = "http://127.0.0.1:8100",
@@ -282,6 +366,8 @@ def capture_runs(
     rig = rig or load_rig(rig_path)
     questions = rig_questions(rig)
     base = server_url.rstrip("/")
+    # Read before the probes: the identity is what the arm's keys will carry.
+    cache_provenance = fetch_cache_provenance(base, timeout=timeout)
     started_wall = time.time()
     captured_runs: list[dict[str, Any]] = []
 
@@ -330,6 +416,7 @@ def capture_runs(
         "durationS": round(time.time() - started_wall, 2),
         "limit": limit,
         "runs": runs,
+        "serverCache": cache_provenance,
         "rig": {
             "description": rig.get("description"),
             "questions": [
@@ -529,6 +616,25 @@ def score_capture(
     n_runs = len(runs)
     refusals: list[str] = []
 
+    # Cache provenance recorded at capture time beats the caller's assumption:
+    # a TTL passed on the command line is a guess about another process, and
+    # AUDIT-14's unshipped half was exactly that the server never reported it.
+    provenance = capture.get("serverCache")
+    if not isinstance(provenance, Mapping):
+        provenance = read_cache_provenance(None)
+    server_ttl = provenance.get("ttlSeconds")
+    if isinstance(server_ttl, int | float) and server_ttl >= 0:
+        cache_ttl_s = float(server_ttl)
+        ttl_source = "server"
+    else:
+        ttl_source = "assumed"
+    # A process with the cache OFF cannot replay a packet, so its repeats are
+    # not cache replays and need no TTL spacing. `recall_packet_cache_enabled`
+    # is the measurement-mode bypass; this is the check that it took effect,
+    # read from the measured process rather than from the config file a rig
+    # believes it edited.
+    cache_bypassed = provenance.get("enabled") is False
+
     per_question: list[dict[str, Any]] = []
     total_probes = 0
     error_probes = 0
@@ -599,7 +705,12 @@ def score_capture(
         usable = len(union_flags)
         gaps = [b - a for a, b in zip(timestamps, timestamps[1:], strict=False)]
         median_gap = statistics.median(gaps) if gaps else None
-        if median_gap is not None and median_gap < cache_ttl_s and len(timestamps) > 1:
+        if (
+            not cache_bypassed
+            and median_gap is not None
+            and median_gap < cache_ttl_s
+            and len(timestamps) > 1
+        ):
             unspaced_questions.append(qid)
         excluded = None
         if cached and usable == 0:
@@ -785,16 +896,24 @@ def score_capture(
         },
         "cache": {
             "ttlSeconds": cache_ttl_s,
+            "ttlSource": ttl_source,
+            "enabled": provenance.get("enabled"),
+            "bypassed": cache_bypassed,
+            "fingerprint": provenance.get("fingerprint"),
+            "keySchema": provenance.get("keySchema"),
+            "provenanceStatus": provenance.get("status"),
+            "provenanceDetail": provenance.get("detail"),
             "cacheServedProbes": cache_probes,
             "untimedProbes": untimed_probes,
             "unverifiableProbes": unverifiable_probes,
             "unspacedQuestions": unspaced_questions,
             "note": (
-                "packet cache key = group_id:scope:digest(query):digest(project_path) "
-                "with NO build/config component, persisted to a SQLite sidecar. In an "
-                "A/B, arm B can be served arm A's cached packets for the same query — "
-                "space probes beyond the TTL, clear the cache between arms, or vary "
-                "group_id per arm."
+                "The packet cache key carries an identity fingerprint (schema pc2) over "
+                "the activation config, runtime mode, build and packet-building source. "
+                "TWO ARMS THAT PRINT THE SAME fingerprint WERE NOT ISOLATED BY THE KEY: "
+                "isolate them with ENGRAM_PACKET_CACHE_NAMESPACE, or measure with "
+                "recall_packet_cache_enabled=False (reported here as bypassed=true). "
+                "Within one arm, repeats faster than ttlSeconds are cache replays."
             ),
         },
         "probes": {
@@ -883,6 +1002,15 @@ def format_meter_report(report: dict[str, Any]) -> str:
         f"- probes: {probes.get('total')} "
         f"({probes.get('errors')} error, {probes.get('degraded')} degraded, "
         f"{probes.get('cacheServed')} cache-replayed)"
+    )
+    cache = report.get("cache") or {}
+    # Printed on every report, resolved or not: an A/B is only cache-independent
+    # if the two arms show different fingerprints (or bypassed=yes).
+    lines.append(
+        f"- packet cache: fingerprint={cache.get('fingerprint')} "
+        f"({cache.get('provenanceStatus')}) enabled={cache.get('enabled')} "
+        f"bypassed={'yes' if cache.get('bypassed') else 'no'} "
+        f"ttl={cache.get('ttlSeconds')}s ({cache.get('ttlSource')})"
     )
     if score.get("perRunUnion"):
         lines.append(f"- per-run totals (union rule): {score.get('perRunUnion')}")

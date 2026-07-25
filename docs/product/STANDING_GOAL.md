@@ -83,13 +83,23 @@ a 1-answer effect, and **refuses to emit a headline when the run set cannot supp
 Respect the refusal. Do not go looking for a number it declined to give you.
 
 ### 2.4 Any A/B must defeat the packet cache, and say how
-`retrieval/packet_cache.py:117` keys on `group_id:scope:digest(topic):digest(project_path)` —
-**no build, config, or arm component** — with a 300 s TTL and SQLite persistence that
-survives restarts. Arm B can be served arm A's packets and report "no difference" for a
-change of any size, with a clean low-variance number.
+**CORRECTED 2026-07-24 (ticket #29 landed).** The key *used to be*
+`group_id:scope:digest(topic):digest(project_path)` — no build, config or arm component,
+300 s TTL, SQLite persistence across restarts — so arm B could be served arm A's packets
+and report "no difference" for a change of any size with a clean low-variance number.
 
-A tidy null result that did not explicitly defeat this cache is worthless. Vary queries
-between arms, space beyond the TTL, or verify per-probe — and state which you did.
+It is now `pc2:<fingerprint>:<group>:<scope>:<topic>:<project>`, where the fingerprint
+covers the activation config (minus five cache-plumbing fields), the runtime mode, the
+version and a digest of `retrieval/**` + `pipeline.py`. Foreign-fingerprint and pre-`pc2`
+rows are never loaded from the sidecar, which matters because `recent_packets()` serves
+the in-memory map without rebuilding a key.
+
+**The rule survives the fix.** Arms that differ by neither config nor code — a planted
+corpus, an uncommitted edit outside the digested tree — still share a fingerprint. So:
+compare the `fingerprint` line the two arm reports print (identical = not isolated), set
+`ENGRAM_PACKET_CACHE_NAMESPACE` per arm, or run `recall_packet_cache_enabled=False` and
+confirm `bypassed=yes` on the report. **State which you did.** And repeats inside the TTL
+are still replays, not samples — that half is unchanged.
 
 ### 2.5 The live dogfood brain is not an A/B substrate
 Measured: per-run totals `[4,4,4,5,5,7,7]`, sd 1.345, **N ≥ 105 runs/arm** to resolve one
@@ -195,7 +205,7 @@ resets. Status as of 2026-07-24 evening.
 ### T0 — measurement integrity
 | # | item | note |
 |---|---|---|
-| 29 | packet cache key has no build/config component | §2.4. Fix the key or add a measurement bypass; test that keys cannot collide across configs |
+| 29 | ~~packet cache key has no build/config component~~ | **DONE 2026-07-24.** Key is now `pc2:<fingerprint>:<group>:<scope>:<topic>:<project>`; fingerprint = whole `ActivationConfig` minus 5 cache-plumbing fields (TTL/path/max-entries/enabled/persistence — they change how long a packet is kept, never what it contains) + runtime mode + version + digest of `retrieval/**` + `pipeline.py`. Whole-config beat a "retrieval-relevant" allowlist on the asymmetry: 190/577 activation fields are read under `retrieval/`, an allowlist rots *silently*, and entries live 300 s so over-inclusion costs ≤1 TTL window of warmth while under-inclusion costs a clean wrong null. The subtler half was persistence: `recent_packets()` serves the in-memory map **without rebuilding a key**, so a key-only fix would still have leaked arm A's packets through the degraded-fallback lane — foreign-fingerprint rows are now never loaded, pre-`pc2` rows are purged. Verifiable, not hoped for: `stats.packetCache` reports `fingerprint`/`ttl_seconds`/`enabled`/`identity`, and `engram meter` reads it (server TTL replaces the compile-time guess — AUDIT-14's unshipped half), prints the fingerprint on every report, and accepts fast repeats **only** when it can verify the bypass. `tests/test_packet_cache_ab_isolation.py` (22 tests) proved red on 6 neuters; one neuter caught a **vacuous test in this same file** (two in-process caches cannot share regardless of the key) which was deleted rather than kept green |
 | 24 | effective config is launcher-dependent | §2.11. `engram doctor` shares the flaw |
 | 27 | ~~`config.hx.json` says 50 GB / ef_search 512; Rust hardcodes 20 GB / 768~~ | **DONE 2026-07-24.** All three copies pinned to the effective `queries.rs` literals with a leading `_authority` key; phantom `vector_config.db_max_size` removed. `tests/test_native_config_authority.py` fails on divergence in *either* direction, on the copies differing, on a key the Rust structs cannot honour, or on a fourth copy appearing. Proved red on: pre-fix JSON restored, single-copy edit-without-rebuild, `queries.rs` moved with JSON left behind, empty struct-allowlist, and a tautological `_effective()`. **Residual:** the Rust still does not read the JSON — closing that needs `make build-native`, deliberately deferred. Ticket 4's ef_search item is **not free and not reload-only**: it is `queries.rs` + all three JSONs + a rebuild |
 | — | **8 of 16 Helix schema-contract tests had been skipping, silently** | **DONE 2026-07-24.** `tests/test_helix_schema_contract.py:13` pointed at `helixdb-cfg/.helix/dev/helix-repo-copy/helix-container/src/queries.rs` — a path that does not exist (the artifact is one dir up) inside a gitignored tree, so it could never exist in CI either. Every assertion about the generated PyO3 bindings was green and vacuous. Repointed at the tracked `native/helix-repo/helix-python/src/queries.rs`, both `pytest.skip` branches replaced with hard assertions; 16/16 now run, proved red by renaming `Entity.name` in the generated Rust. **Generalisation:** any `pytest.skip` guarding a *git-tracked* path is a latent instance |
@@ -389,3 +399,14 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   No live measurement taken and no rebuild performed — the Rust still does not read the JSON.
   Correction landed in `RECALL_PERFORMANCE_PLAN.md`: its M1 "free, reload-only" ef_search win
   targets a dead file and is neither free nor reload-only. AUDIT-15/16 added.
+- **2026-07-24** — ticket 29 (T0): the packet-cache A/B trap is closed at the source. Key carries
+  an identity fingerprint (config + mode + build + `retrieval/**` source digest); the sidecar no
+  longer loads foreign-fingerprint or pre-`pc2` rows, which was the half that mattered because
+  `recent_packets()` bypasses `build_key` entirely. `engram meter` now *verifies* rather than
+  assumes: it reads the live TTL/fingerprint/enabled off `/api/knowledge/runtime/fast`, enforces
+  the server's TTL, prints the fingerprint on every report, and skips the spacing refusal only
+  when a bypass is confirmed in the measured process. Six neuters, six specific REDs — **one of
+  them caught a vacuous test in my own new file** (two in-process caches cannot share regardless
+  of the key), which was deleted rather than left green. **Not closed:** arms differing by neither
+  config nor code still share a fingerprint — use `ENGRAM_PACKET_CACHE_NAMESPACE`. No live
+  measurement taken (lane discipline); every claim is from source and unit tests.

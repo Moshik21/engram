@@ -1,10 +1,26 @@
-"""Memory packet cache for bounded recall surfaces."""
+"""Memory packet cache for bounded recall surfaces.
+
+**The key carries an identity fingerprint (ticket #29 / AUDIT-14).** Before
+2026-07-24 the key was ``group_id:scope:digest(topic):digest(project_path)``
+with no build, config or arm component, a 300 s TTL, and SQLite persistence
+that survives a restart. In an A/B whose arms differ by config or by code,
+**arm B could be served arm A's cached packets for the same query**, and the
+run would report "no difference" for a change of any size with a clean,
+low-variance, entirely convincing number. That is measured, not theoretical:
+the first ``engram meter`` capture reported ``sd = 0.0`` because
+``cache_satisfied`` had served 24/168 probes.
+
+The key is now ``<schema>:<fingerprint>:<group>:<scope>:<topic>:<project>``.
+See :func:`packet_cache_identity` for what goes into the fingerprint and,
+more importantly, what deliberately does not.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import os
 import sqlite3
 import time
 from collections import OrderedDict
@@ -16,6 +32,198 @@ from typing import Any
 LOGGER = logging.getLogger(__name__)
 _PERSISTENT_READ_UNAVAILABLE = object()
 _STARTUP_RESIDENT_SCOPES = frozenset({"identity_core", "project_home"})
+
+# Bump when the key LAYOUT changes. Rows written under an older layout can then
+# never be reached by a lookup (their keys cannot be produced), and they are
+# purged from the sidecar on load rather than left to rot or resurrect.
+KEY_SCHEMA = "pc2"
+
+# Set per arm in an A/B to guarantee two arms cannot share entries even when
+# their config, version and source digest are identical (a planted-corpus
+# difference, or an edit outside the digested tree). Read here rather than from
+# ActivationConfig on purpose: it is an identity label for a measurement run,
+# not a behaviour knob, and it must be settable by a harness that launches the
+# server without editing config files.
+NAMESPACE_ENV_VAR = "ENGRAM_PACKET_CACHE_NAMESPACE"
+
+# Fields EXCLUDED from the fingerprint, with the reason each one is excluded.
+# Every one of these changes how long or where a packet is kept, never what a
+# packet CONTAINS. Folding the TTL in would evict the entire cache whenever a
+# measurement rig retunes the TTL — the one change that provably cannot alter
+# an answer — so excluding them is what keeps the fingerprint honest rather
+# than merely paranoid.
+FINGERPRINT_EXCLUDED_FIELDS: dict[str, str] = {
+    "recall_packet_cache_enabled": "cache plumbing: gates use of the cache, not packet content",
+    "recall_packet_cache_ttl_seconds": "cache plumbing: entry lifetime, not packet content",
+    "recall_packet_cache_max_entries": "cache plumbing: in-process capacity, not packet content",
+    "recall_packet_cache_persistence_enabled": "cache plumbing: sidecar on/off, not packet content",
+    "recall_packet_cache_path": "cache plumbing: sidecar location, not packet content",
+}
+
+# Source tree hashed for the build component. Not a complete build identity —
+# it is the surface that decides packet CONTENT. Labelled in the identity
+# payload so a reader knows its scope instead of assuming it covers the repo.
+_SOURCE_DIGEST_SCOPE = "engram/retrieval/**/*.py + engram/pipeline.py"
+_source_digest_cache: tuple[str | None, str] | None = None
+
+
+@dataclass(frozen=True)
+class PacketCacheIdentity:
+    """Everything that can change a packet's content, compressed into a key part.
+
+    ``status`` is load-bearing. A cache built without an identity reports
+    ``unfingerprinted`` rather than a plausible-looking digest, so a rig can
+    tell "isolated by config+build" from "isolated by nothing".
+    """
+
+    fingerprint: str
+    status: str = "fingerprinted"
+    key_schema: str = KEY_SCHEMA
+    build: str | None = None
+    source_digest: str | None = None
+    source_digest_status: str = "unavailable"
+    namespace: str | None = None
+    runtime_mode: str | None = None
+    config_fields: int | None = None
+    excluded_fields: tuple[str, ...] = ()
+
+    @property
+    def key_prefix(self) -> str:
+        """Prefix every key written under this identity carries."""
+        return f"{self.key_schema}:{self.fingerprint}"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "keySchema": self.key_schema,
+            "fingerprint": self.fingerprint,
+            "build": self.build,
+            "sourceDigest": self.source_digest,
+            "sourceDigestStatus": self.source_digest_status,
+            "sourceDigestScope": _SOURCE_DIGEST_SCOPE,
+            "namespace": self.namespace,
+            "runtimeMode": self.runtime_mode,
+            "configFields": self.config_fields,
+            "excludedFields": list(self.excluded_fields),
+        }
+
+
+UNFINGERPRINTED_IDENTITY = PacketCacheIdentity(
+    fingerprint="unfingerprinted",
+    status="unfingerprinted",
+)
+
+
+def _source_digest() -> tuple[str | None, str]:
+    """Digest of the source that decides packet content. ``(digest, status)``.
+
+    Memoised: ~2.7 ms for 75 files, paid once per process. On any read failure
+    it returns ``(None, "unavailable")`` — absent, never a plausible constant,
+    because a constant would silently let two builds share a fingerprint.
+    """
+    global _source_digest_cache
+    if _source_digest_cache is not None:
+        return _source_digest_cache
+    root = Path(__file__).resolve().parent.parent
+    try:
+        paths = sorted(root.joinpath("retrieval").rglob("*.py"))
+        pipeline = root / "pipeline.py"
+        if pipeline.exists():
+            paths.append(pipeline)
+        digest = hashlib.sha256()
+        for path in paths:
+            digest.update(str(path.relative_to(root)).encode("utf-8"))
+            digest.update(path.read_bytes())
+        result: tuple[str | None, str] = (digest.hexdigest()[:16], f"{len(paths)} files")
+    except OSError:
+        LOGGER.debug("Packet cache source digest unavailable", exc_info=True)
+        result = (None, "unavailable")
+    _source_digest_cache = result
+    return result
+
+
+def packet_cache_identity(
+    activation_config: Any,
+    *,
+    runtime_mode: str | None = None,
+    namespace: str | None = None,
+    build: str | None = None,
+) -> PacketCacheIdentity:
+    """Fingerprint the things that can change a cached packet's content.
+
+    **What is included, and why.**
+
+    * The whole of ``ActivationConfig`` except :data:`FINGERPRINT_EXCLUDED_FIELDS`.
+      A narrower allowlist of "retrieval-relevant" fields was the obvious design
+      and was rejected: 190 of the 577 activation fields are read somewhere
+      under ``engram/retrieval/``, the boundary moves every time a knob is
+      added, and a field that falls off the list fails *silently* — it does not
+      break a build, it voids an A/B. The cost of over-inclusion is bounded and
+      small in a way that is easy to miss: entries expire in
+      ``recall_packet_cache_ttl_seconds`` (300 s by default), so evicting on an
+      unrelated knob change costs at most one TTL window of warmth, once, at a
+      config change that already required a restart. The cost of under-inclusion
+      is a clean, low-variance, wrong null result. The asymmetry decides it.
+    * The **runtime mode**, because the same query against a different backend
+      is a different retrieval.
+    * A **build component**: the package version plus a digest of the source
+      that builds packets (:data:`_SOURCE_DIGEST_SCOPE`). This is what stops the
+      most common local A/B shape — two arms that differ by an edit, not by a
+      knob — from sharing packets.
+    * An optional **namespace** (:data:`NAMESPACE_ENV_VAR`), the explicit lever
+      for arms that differ by neither config nor code (planted corpora, data
+      arms), and the only component a harness can set without a config edit.
+
+    **What is excluded, and why:** the five cache-plumbing fields in
+    :data:`FINGERPRINT_EXCLUDED_FIELDS`. They govern the cache, not the answer.
+
+    **What this does NOT cover, stated rather than implied:** the graph contents
+    themselves, storage-layer config outside ``ActivationConfig``, and source
+    outside the digested tree. Two arms differing only in those ways must set
+    :data:`NAMESPACE_ENV_VAR`, or disable the cache outright.
+    """
+    values: dict[str, Any] = {}
+    field_names: Sequence[str] = ()
+    model_fields = getattr(type(activation_config), "model_fields", None)
+    if isinstance(model_fields, Mapping):
+        field_names = sorted(model_fields)
+    for name in field_names:
+        if name in FINGERPRINT_EXCLUDED_FIELDS:
+            continue
+        values[name] = getattr(activation_config, name, None)
+
+    resolved_namespace = namespace if namespace is not None else os.environ.get(NAMESPACE_ENV_VAR)
+    resolved_namespace = resolved_namespace or None
+    if build is None:
+        try:
+            from engram import __version__ as engram_version
+
+            build = str(engram_version)
+        except Exception:  # pragma: no cover - version metadata is optional
+            build = None
+    source_digest, source_status = _source_digest()
+
+    payload = {
+        "schema": KEY_SCHEMA,
+        "activation": values,
+        "mode": runtime_mode,
+        "build": build,
+        "source": source_digest,
+        "namespace": resolved_namespace,
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()[:16]
+    return PacketCacheIdentity(
+        fingerprint=fingerprint,
+        build=build,
+        source_digest=source_digest,
+        source_digest_status=source_status,
+        namespace=resolved_namespace,
+        runtime_mode=runtime_mode,
+        config_fields=len(values),
+        excluded_fields=tuple(sorted(FINGERPRINT_EXCLUDED_FIELDS)),
+    )
 
 
 @dataclass
@@ -86,7 +294,11 @@ class MemoryPacketCache:
         persistence_path: str | Path | None = None,
         persistence_timeout_seconds: float = 0.05,
         persistent_sync_interval_seconds: float = 300.0,
+        identity: PacketCacheIdentity | None = None,
     ) -> None:
+        self._identity = identity or UNFINGERPRINTED_IDENTITY
+        self._schema_prefix = f"{self._identity.key_schema}:"
+        self._entry_prefix = f"{self._identity.key_prefix}:"
         self._max_entries = max(1, int(max_entries))
         self._default_ttl_seconds = max(0.0, float(default_ttl_seconds))
         self._entries: OrderedDict[str, MemoryPacketCacheEntry] = OrderedDict()
@@ -100,6 +312,7 @@ class MemoryPacketCache:
             float(persistent_sync_interval_seconds),
         )
         self._persistence_failed = False
+        self._foreign_entry_count = 0
         if self._persistence_path is not None:
             self._initialize_persistence()
             self._load_persistent_entries()
@@ -114,7 +327,12 @@ class MemoryPacketCache:
     ) -> str:
         topic_digest = _digest(topic_hint or "")
         project_digest = _digest(project_path or "")
-        return f"{group_id}:{scope}:{topic_digest}:{project_digest}"
+        return f"{self._entry_prefix}{group_id}:{scope}:{topic_digest}:{project_digest}"
+
+    @property
+    def identity(self) -> PacketCacheIdentity:
+        """Identity every key written by this cache carries."""
+        return self._identity
 
     def get(
         self,
@@ -292,6 +510,16 @@ class MemoryPacketCache:
             "scopes": _scope_counts(fresh),
             "persistent": self._persistence_path is not None and not self._persistence_failed,
             "path": str(self._persistence_path) if self._persistence_path else None,
+            # Measurement provenance. A rig must be able to VERIFY cache
+            # independence rather than hope for it, so the identity a key
+            # carries and the TTL a repeat must clear are reported on the
+            # runtime surface (AUDIT-14: the TTL was previously readable only
+            # as a compile-time default, so `engram meter` had to assume it).
+            "key_schema": self._identity.key_schema,
+            "fingerprint": self._identity.fingerprint,
+            "ttl_seconds": self._default_ttl_seconds,
+            "foreign_entry_count": self._foreign_entry_count,
+            "identity": self._identity.to_dict(),
         }
 
     def recent_packets(
@@ -415,13 +643,29 @@ class MemoryPacketCache:
             LOGGER.warning("Could not load persistent memory packet cache", exc_info=True)
             return False
 
+        foreign_keys = 0
         for row in rows:
+            key = str(row["cache_key"])
+            if not key.startswith(self._schema_prefix):
+                # Written under an older key layout. No lookup can ever produce
+                # this key again, but recent_packets() serves straight out of
+                # the in-memory map, so loading it would resurrect a pre-fix
+                # entry through the degraded-fallback lane. Purge instead.
+                expired_keys.append(key)
+                continue
+            expires_at = _float_or_none(row["expires_at"])
+            if expires_at is not None and expires_at <= now:
+                expired_keys.append(key)
+                continue
+            if not key.startswith(self._entry_prefix):
+                # Another build/config/arm wrote this. Leave it in the sidecar
+                # (that process may still want it; it expires on its own TTL)
+                # but never load it into this process's map.
+                foreign_keys += 1
+                continue
             entry = _entry_from_row(row)
             if entry is None:
-                expired_keys.append(str(row["cache_key"]))
-                continue
-            if entry.expires_at is not None and entry.expires_at <= now:
-                expired_keys.append(entry.cache_key)
+                expired_keys.append(key)
                 continue
             entry.last_persistent_sync_at = now
             existing = self._entries.get(entry.cache_key)
@@ -435,6 +679,7 @@ class MemoryPacketCache:
                 )
             self._entries[entry.cache_key] = entry
             self._entries.move_to_end(entry.cache_key)
+        self._foreign_entry_count = foreign_keys
         self._delete_persistent_keys(expired_keys)
         self._evict_oldest()
         return True

@@ -448,6 +448,41 @@ walking into consequence (2). Any future A/B must space probes beyond the TTL,
 clear the cache between arms, vary `group_id`/`project_path` per arm, or run
 with `recall_packet_cache_enabled=False`.
 
+**RESOLVED 2026-07-24 (ticket #29).** Consequence (2) is fixed at the source;
+consequence (1) is unchanged and still requires spacing or a bypass.
+
+- The key is now `pc2:<fingerprint>:<group>:<scope>:<topic>:<project>`
+  (`retrieval/packet_cache.py` `build_key` / `packet_cache_identity`). The
+  fingerprint covers the whole of `ActivationConfig` **except** five
+  cache-plumbing fields (`recall_packet_cache_{enabled,ttl_seconds,max_entries,
+  persistence_enabled,path}`), plus the runtime mode, the package version and a
+  digest of `engram/retrieval/**` + `engram/pipeline.py`. Whole-config over a
+  hand-picked "retrieval-relevant" allowlist is deliberate: 190 of 577
+  activation fields are read under `engram/retrieval/`, an allowlist rots
+  silently, and entries expire in 300 s — so over-inclusion costs at most one
+  TTL window of warmth while under-inclusion costs a clean, wrong null.
+- The **persistence** half is fixed too, and it was the subtler half:
+  `recent_packets()` serves the in-memory map without rebuilding a key, so a
+  key-only fix would still have let the degraded-fallback lane hand arm B a
+  packet arm A built. Foreign-fingerprint rows are never loaded (and are counted
+  as `foreign_entry_count`); pre-`pc2` rows are purged on load.
+- **Verifiable, not hoped for:** `stats.packetCache` on `/api/knowledge/runtime`
+  and `/runtime/fast` now reports `fingerprint`, `key_schema`, `ttl_seconds`,
+  `enabled` and the full `identity`. `engram meter` reads it at capture time,
+  enforces the **server's** TTL instead of the compile-time default, prints the
+  fingerprint on every report (two arms printing the same one were not isolated),
+  and treats a *verified* `enabled: false` as a genuine bypass so fast repeats
+  stop being refused.
+- **The measurement levers**, in order of preference:
+  `ENGRAM_PACKET_CACHE_NAMESPACE=<arm>` (isolates arms that differ by neither
+  config nor code, e.g. planted corpora, and keeps the cache live so the arm
+  still measures the product); or `recall_packet_cache_enabled=False` (hard
+  bypass, reported as `bypassed`, but it measures the retriever rather than the
+  shipped product).
+- Proof: `server/tests/test_packet_cache_ab_isolation.py`. Six neuters were run
+  and each turned a specific test RED — including one that caught a vacuous test
+  in the first draft of that same file.
+
 Detail: `docs/product/experiments/RECALL_METER.md` §4.
 
 ### AUDIT-15 — the declared engine config is not the effective one · HIGH · **FIXED**

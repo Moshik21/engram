@@ -225,11 +225,31 @@ added after noticing that the *first* capture — taken before the guard existed
 would otherwise have sailed through the new scorer reporting σ=0. A guard that
 is present and inert is this project's dominant bug class.
 
+**CORRECTED 2026-07-24 (ticket #29).** Consequence (b) is fixed at the source:
+the key now carries an identity fingerprint,
+`pc2:<fingerprint>:<group>:<scope>:<topic>:<project>`, over the whole activation
+config (minus five cache-plumbing fields), the runtime mode, the package
+version and a digest of `engram/retrieval/**` + `engram/pipeline.py`. Two arms
+that differ by any of those cannot share an entry, in memory or through the
+SQLite sidecar, and pre-`pc2` rows are purged on load rather than left where the
+degraded-fallback lane could serve them. Consequence (a) is unchanged — a repeat
+inside the TTL is still a replay.
+
+The meter no longer *assumes* any of this. `capture_runs` reads
+`/api/knowledge/runtime/fast` before probing and records `serverCache`
+(`fingerprint`, `ttlSeconds`, `enabled`, `keySchema`) in the capture;
+`score_capture` enforces the **server-reported** TTL rather than
+`--cache-ttl-s`, and prints the fingerprint on every report. **Two arm reports
+showing the same fingerprint were not isolated by the key.**
+
 **What any future A/B must do**, at minimum one of:
-space probes beyond the TTL; clear the packet cache between arms; vary
-`group_id` or `project_path` per arm; or run with
-`recall_packet_cache_enabled=False`. This belongs in the graph experiment's
-VOID pre-flight.
+let the fingerprint separate the arms and *verify* it by comparing the two
+reports' `fingerprint` lines; set `ENGRAM_PACKET_CACHE_NAMESPACE` per arm when
+the arms differ by neither config nor code (planted corpora); space probes
+beyond the TTL; or run with `recall_packet_cache_enabled=False`, which the
+report confirms as `bypassed=yes` (and which then makes fast repeats
+legitimate — the spacing refusal is skipped, because a cache that is off cannot
+replay). This belongs in the graph experiment's VOID pre-flight.
 
 ---
 
@@ -434,7 +454,11 @@ session scratchpad.
   on `perRunUnion` would let it *say* "this is drift, more runs will not help"
   instead of leaving that to the reader. That is the single highest-value next
   increment, and it is why §5.3's conclusion had to be written by hand.
-- **The 300 s TTL is a compile-time default, not read from the live server.**
-  `/api/knowledge/runtime` does not expose `recall_packet_cache_ttl_seconds`.
-  `--cache-ttl-s` exists so the guard can be told the truth; exposing the value
-  on the runtime surface would close this properly.
+- ~~**The 300 s TTL is a compile-time default, not read from the live server.**~~
+  **CLOSED 2026-07-24 (ticket #29).** `stats.packetCache` on
+  `/api/knowledge/runtime` and `/runtime/fast` now carries `ttl_seconds`,
+  `fingerprint`, `key_schema`, `enabled` and `identity`; the meter reads them at
+  capture time and reports `ttlSource: server`. `--cache-ttl-s` survives as the
+  fallback for a server that predates the change (`provenanceStatus:
+  unreported`), where the conservative default still applies — that can only
+  cause a refusal, never a false pass.

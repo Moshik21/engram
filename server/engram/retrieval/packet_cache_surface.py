@@ -70,4 +70,15 @@ def _camel_packet_cache_summary(summary: dict[str, Any]) -> dict[str, Any]:
         "scopes": summary.get("scopes") or {},
         "persistent": bool(summary.get("persistent")),
         "path": summary.get("path"),
+        # Measurement provenance (ticket #29 / AUDIT-14). None when the cache
+        # was built without an identity — absent, not a plausible default.
+        "enabled": summary.get("enabled"),
+        "keySchema": summary.get("key_schema") or summary.get("keySchema"),
+        "fingerprint": summary.get("fingerprint"),
+        "ttlSeconds": summary.get("ttl_seconds", summary.get("ttlSeconds")),
+        "foreignEntryCount": summary.get(
+            "foreign_entry_count",
+            summary.get("foreignEntryCount"),
+        ),
+        "identity": summary.get("identity"),
     }

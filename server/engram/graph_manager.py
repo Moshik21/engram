@@ -109,7 +109,11 @@ from engram.retrieval.memory_operations import (
     memory_operation_sample_from_mapping,
 )
 from engram.retrieval.near_miss import RecallNearMissBuilder, RecallNearMissMaterializer
-from engram.retrieval.packet_cache import MemoryPacketCache, MemoryPacketCacheHit
+from engram.retrieval.packet_cache import (
+    MemoryPacketCache,
+    MemoryPacketCacheHit,
+    packet_cache_identity,
+)
 from engram.retrieval.post_process import RecallPostProcessor
 from engram.retrieval.preference_feedback import PreferenceFeedbackRecorder
 from engram.retrieval.primary_results import RecallPrimaryResultMaterializer
@@ -286,6 +290,9 @@ class GraphManager:
                 if self._cfg.recall_packet_cache_persistence_enabled
                 else None
             ),
+            # Without this the key has no build/config/arm component and arm B
+            # of an A/B can be served arm A's packets (ticket #29 / AUDIT-14).
+            identity=packet_cache_identity(self._cfg, runtime_mode=self._runtime_mode),
         )
         self._recall_interaction_recorder = RecallInteractionRecorder(
             cfg=self._cfg,
@@ -1094,7 +1101,12 @@ class GraphManager:
 
     def get_memory_packet_cache_summary(self, group_id: str | None = None) -> dict:
         """Return packet cache health for runtime diagnostics."""
-        return self._packet_cache.summary(group_id=group_id)
+        summary = self._packet_cache.summary(group_id=group_id)
+        # The measurement-mode bypass is `recall_packet_cache_enabled=False`,
+        # and a rig has to be able to CHECK that it took effect in the process
+        # it is measuring rather than trust the config file it edited (§2.11).
+        summary["enabled"] = bool(self._cfg.recall_packet_cache_enabled)
+        return summary
 
     def get_recent_cached_memory_packets(
         self,
