@@ -84,44 +84,6 @@ def get_bm25_conflict_stats() -> dict[str, Any]:
     return {"counts": dict(_BM25_CONFLICT_STATS), "ids": list(_BM25_CONFLICT_IDS)}
 
 
-# ---------------------------------------------------------------------------
-# Ticket 26 — the episode->helix-id cold cliff.
-#
-# There is no ``find_episode_by_episode_id`` route (the Entity twin exists at
-# schema.hx:261), so an episode cache miss can only be served by
-# ``find_episodes_by_group``, which returns EVERY episode row in the group,
-# content included. Measured on the live brain: 533.2 ms cold vs 0.263 ms
-# warm, 4/4 alternating trials. Two amplifiers made that a T1 rather than a
-# one-off warm-up cost:
-#
-#   1. N concurrent misses issued N identical full scans. ``asyncio.gather``
-#      over 60 episode ids (episode_graph_signal) launched all 60 before any
-#      completed, so all 60 saw an empty cache and all 60 scanned — against a
-#      max_workers=4 native executor. That is ticket 31's contention mechanism.
-#   2. An id the scan does NOT find is not remembered, so an unresolvable
-#      episode (deleted, other group, or the ticket-21 index gap) paid a fresh
-#      full scan on EVERY call, forever — the "warm" number never applies to it.
-#
-# Fix: one scan per group per _EPISODE_SCAN_TTL_S, shared by all concurrent
-# callers. The scan runs as its own task behind ``asyncio.shield`` so a caller
-# cancelled by a stage timeout does not throw away work already queued on the
-# executor — the next caller finds the cache warm instead of re-queuing it.
-#
-# The TTL bounds the miss-rescan loop. Staleness direction is safe: an episode
-# created in THIS process caches its own helix id at create time, so the only
-# thing a stale window can hide is an episode written by another process
-# within the last _EPISODE_SCAN_TTL_S, and hiding it costs a graph read, not a
-# wrong answer.
-#
-# The real fix is the missing route; it is a three-line schema.hx addition
-# mirroring find_entity_by_entity_id, and would make this scan a fallback
-# rather than the primary path.
-# ---------------------------------------------------------------------------
-
-_EPISODE_SCAN_TTL_S = 5.0
-_EPISODE_SCAN_ALL_KEY = "\x00all"
-
-
 def _parse_dt(value: str | None) -> datetime | None:
     """Parse an ISO 8601 datetime string or return None."""
     if not value:
@@ -438,10 +400,6 @@ class HelixGraphStore:
         self._episode_id_cache: dict[str, Any] = {}
         # (group_id, episode_id) -> Helix internal node ID for tenant-safe lookups
         self._episode_group_id_cache: dict[tuple[str, str], Any] = {}
-        # Ticket 26: full-group episode scans, coalesced and TTL'd. Keyed by
-        # group_id (or _EPISODE_SCAN_ALL_KEY for the unscoped scan).
-        self._episode_scan_inflight: dict[str, asyncio.Task] = {}
-        self._episode_scan_done_at: dict[str, float] = {}
         # rel_id (our UUID) -> Helix internal edge ID
         self._rel_id_cache: dict[str, Any] = {}
         # evidence_id -> Helix internal node ID
@@ -625,71 +583,43 @@ class HelixGraphStore:
             self._entity_id_cache[entity_id] = None
         return None
 
-    async def _run_episode_scan(self, group_id: str | None) -> None:
-        """Warm the episode-id caches from one full scan. See ticket 26 above."""
-        if group_id is None:
-            results = await self._query("find_episodes_all", {})
-        else:
-            results = await self._query("find_episodes_by_group", {"gid": group_id})
-        for item in results:
-            hid = self._extract_helix_id(item)
-            if hid is not None:
-                self._cache_episode(
-                    hid,
-                    item.get("episode_id", ""),
-                    item.get("group_id") or group_id,
-                )
-        self._episode_scan_done_at[group_id or _EPISODE_SCAN_ALL_KEY] = time.monotonic()
-
-    async def _ensure_episodes_scanned(self, group_id: str | None) -> None:
-        """At most one in-flight full scan per group, and at most one per TTL.
-
-        Concurrent cache misses share the SAME scan task instead of each
-        issuing its own ``find_episodes_by_group``; ``shield`` keeps the scan
-        alive when a caller is cancelled by a stage timeout, so the work
-        already queued on the 4-worker native executor still warms the cache.
-        """
-        key = group_id or _EPISODE_SCAN_ALL_KEY
-        task = self._episode_scan_inflight.get(key)
-        if task is None or task.done():
-            done_at = self._episode_scan_done_at.get(key)
-            if done_at is not None and (time.monotonic() - done_at) < _EPISODE_SCAN_TTL_S:
-                return
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self._run_episode_scan(group_id))
-            # Every waiter can be cancelled before the shielded task settles, in
-            # which case nobody retrieves its exception; consume it so a failed
-            # scan does not spam "exception was never retrieved" from a hot path.
-            task.add_done_callback(lambda t: t.cancelled() or t.exception())
-            self._episode_scan_inflight[key] = task
-        elif task.get_loop() is not asyncio.get_running_loop():
-            # A task from a previous event loop can never complete here.
-            await self._run_episode_scan(group_id)
-            return
-        try:
-            await asyncio.shield(task)
-        finally:
-            if self._episode_scan_inflight.get(key) is task and task.done():
-                self._episode_scan_inflight.pop(key, None)
-
     async def _resolve_episode_helix_id(self, episode_id: str, group_id: str) -> int | None:
         """Resolve an episode UUID to a Helix internal ID via cache or query."""
         cached = self._episode_group_id_cache.get((group_id, episode_id))
         if cached is not None:
             return cached
-        await self._ensure_episodes_scanned(group_id)
-        return self._episode_group_id_cache.get((group_id, episode_id))
+        results = await self._query("find_episodes_by_group", {"gid": group_id})
+        for item in results:
+            eid = item.get("episode_id", "")
+            hid = self._extract_helix_id(item)
+            if hid is not None:
+                self._cache_episode(hid, eid, item.get("group_id") or group_id)
+            if eid == episode_id:
+                return hid
+        return None
 
     async def _resolve_episode_helix_id_unscoped(self, episode_id: str) -> int | None:
         """Resolve an episode UUID only when it is unique across all groups."""
         if episode_id in self._episode_id_cache:
             cached = self._episode_id_cache[episode_id]
             return cached if cached is not None else None
-        # _remember_unique_id_cache collapses the entry to None as soon as the
-        # scan sees a second helix id for this episode_id, so reading the cache
-        # back IS the uniqueness check.
-        await self._ensure_episodes_scanned(None)
-        return self._episode_id_cache.get(episode_id)
+
+        matches: list[int] = []
+        results = await self._query("find_episodes_all", {})
+        for item in results:
+            eid = item.get("episode_id", "")
+            hid = self._extract_helix_id(item)
+            if hid is not None:
+                self._cache_episode(hid, eid, item.get("group_id"))
+            if eid == episode_id and hid is not None:
+                matches.append(hid)
+
+        unique_matches = {str(hid): hid for hid in matches}
+        if len(unique_matches) == 1:
+            return next(iter(unique_matches.values()))
+        if matches:
+            self._episode_id_cache[episode_id] = None
+        return None
 
     async def _resolve_rel_helix_id(self, rel_id: str, source_helix_id: int) -> int | None:
         """Resolve a relationship UUID to a Helix internal edge ID."""
@@ -1373,7 +1303,6 @@ class HelixGraphStore:
         self._entity_helix_id_cache.clear()
         self._episode_id_cache.clear()
         self._episode_group_id_cache.clear()
-        self._episode_scan_done_at.clear()
         self._rel_id_cache.clear()
 
     async def find_entities(

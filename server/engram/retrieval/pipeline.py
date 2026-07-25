@@ -1510,23 +1510,20 @@ async def retrieve(
             )
 
     # Step 4.5: Merge spreading-discovered entities with real semantic similarity
+    #
+    # This block had never executed in production (it is gated on `bonuses`, and
+    # spreading always returned {}), so nothing downstream was sized for it:
+    # unbounded, a working traversal injected ~450 entities into a ~38-candidate
+    # pool and pushed MMR from completing on 33/34 recalls to timing out on
+    # 30/34. The selection rule lives in ONE place —
+    # `spread_injection.select_spread_injections` — because the benchmark
+    # harness runs the same step and a second copy of the cap is how the two
+    # diverged.
+    from engram.retrieval.spread_injection import select_spread_injections
+
     existing_ids = {eid for eid, _ in candidates}
-    new_ids = [nid for nid in bonuses if nid not in existing_ids and bonuses[nid] > 0.0]
-    # Spreading is a bonus channel, not the primary result set, so it may only
-    # supplement the pool — never swamp it. This block had never executed in
-    # production (it is gated on `bonuses`, and spreading always returned {}),
-    # so nothing downstream was sized for it: unbounded, a working traversal
-    # injected ~450 entities into a ~38-candidate pool and pushed MMR from
-    # completing on 33/34 recalls to timing out on 30/34. Keep the strongest by
-    # spreading bonus; ties break on id so the pool stays deterministic.
-    injection_cap = cfg.spread_candidate_injection_max
-    # Pre-cap count. Without it the cap is invisible: `injected == 32` on every
-    # recall reads as "32 was enough" when it actually means "the cap bound and
-    # ~450 discoveries were thrown away".
-    _set_stage_metric(stage_timings_ms, "recall_spread_discovered", len(new_ids))
-    if injection_cap and len(new_ids) > injection_cap:
-        new_ids.sort(key=lambda nid: (-bonuses[nid], nid))
-        del new_ids[injection_cap:]
+    new_ids, discovered = select_spread_injections(bonuses, existing_ids, cfg)
+    _set_stage_metric(stage_timings_ms, "recall_spread_discovered", discovered)
     # Written AFTER the re-score below, from what actually reached the pool.
     # Writing it here would report intent, and would over-report by exactly the
     # full amount on the degraded path — i.e. it would look healthiest at the

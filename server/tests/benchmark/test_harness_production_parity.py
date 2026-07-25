@@ -27,7 +27,9 @@ that the signal is non-zero and load-bearing on the fixture.
 
 from __future__ import annotations
 
+import ast
 import time
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -38,6 +40,7 @@ from engram.models.activation import ActivationState
 from engram.models.entity import Entity
 from engram.models.episode import Episode, EpisodeProjectionState, EpisodeStatus
 from engram.retrieval.pipeline import retrieve
+from engram.retrieval.spread_injection import select_spread_injections
 from engram.utils.dates import utc_now
 
 # ── Fixtures (shape copied from tests/test_episode_graph_signal.py so both
@@ -249,3 +252,226 @@ class TestHarnessProductionParity:
         for sr in episodes:
             assert (sr.activation, sr.spreading, sr.edge_proximity) == (0.0, 0.0, 0.0)
         assert [sr.node_id for sr in episodes] == ["ep_lead", "ep_trail"]
+
+
+# ── Ticket #32: the injection cap must be ONE cap ────────────────────
+#
+# `spread_candidate_injection_max` bounds how many graph-discovered entities may
+# enter the recall candidate pool. Production applied it; the harness's forked
+# copy of the same step did not. Measured on the dogfood corpus: production
+# injected exactly 32 on 100% of 51 completions out of 453-487 discovered, while
+# the harness injected all ~450 — a 12x pool divergence in the one wrapper that
+# exists to guarantee the A/B measures production's scoring code.
+#
+# Harmless while spreading always returned {} live. Not harmless after 390866b.
+
+_FANOUT = 8
+_GRAPH_SIZE = 4000
+_SEED_COUNT = 15
+_INJECTION_CAP = 8
+
+
+def _fanout_graph_store():
+    """A hub-and-spoke graph wide enough that spreading discovers >> the cap.
+
+    Shape taken from ``tests/test_spreading_reaches_graph.py``, which calibrated
+    it against the live brain (~488 traversal reads on a real recall). Size is
+    load-bearing: on a graph small enough that the traversal discovers fewer
+    entities than the cap, an uncapped harness and a capped production agree by
+    accident and the parity test passes on the bug.
+    """
+
+    async def neighbors(*args, **kwargs):
+        node_id = args[0] if args else (kwargs.get("node_id") or kwargs.get("entity_id"))
+        try:
+            idx = int(str(node_id).removeprefix("e"))
+        except ValueError:
+            return []
+        # Disjoint neighbourhoods, so each hop opens onto fresh nodes instead of
+        # rediscovering the same handful.
+        return [
+            (f"e{(idx * _FANOUT + step) % _GRAPH_SIZE}", 0.9, "RELATES_TO", "Thing")
+            for step in range(1, _FANOUT + 1)
+        ]
+
+    store = AsyncMock()
+    store.get_active_neighbors_with_weights = neighbors
+    store.get_entity = AsyncMock(return_value=None)
+    store.get_relationships = AsyncMock(return_value=[])
+    store.get_episode_entities = AsyncMock(return_value=[])
+    store.get_episodes_for_entity = AsyncMock(return_value=[])
+    store.update_episode = AsyncMock()
+    store.update_episode_cue = AsyncMock()
+    return store
+
+
+def _fanout_search_index():
+    idx = AsyncMock()
+    # Descending seed strength: with every seed pinned equal the seed block fills
+    # the result cap and no discovered entity is observable.
+    idx.search = AsyncMock(return_value=[(f"e{i}", 0.9 - 0.03 * i) for i in range(_SEED_COUNT)])
+    idx.search_episodes = AsyncMock(return_value=[])
+    idx.search_episode_cues = AsyncMock(return_value=[])
+
+    async def similarity(query="", entity_ids=None, group_id=None, **_kw):
+        return {eid: 0.8 for eid in (entity_ids or [])}
+
+    idx.compute_similarity = similarity
+    idx._embeddings_enabled = False
+    return idx
+
+
+def _spread_cfg(**overrides) -> ActivationConfig:
+    base = dict(
+        episode_retrieval_enabled=False,
+        cue_recall_enabled=False,
+        chunk_search_enabled=False,
+        mmr_enabled=False,
+        gc_mmr_enabled=False,
+        retrieval_spread_timeout_ms=5000,
+        spread_candidate_injection_max=_INJECTION_CAP,
+        # Keep the 1-hop candidate pool narrower than the traversal's reach, so
+        # discovered entities are genuinely traversal-only.
+        pool_graph_seed_count=1,
+        pool_graph_max_neighbors=1,
+        pool_graph_limit=5,
+    )
+    base.update(overrides)
+    return ActivationConfig(**base)
+
+
+async def _spread_production(cfg, timings):
+    return await retrieve(
+        query="spreading parity probe",
+        group_id="default",
+        graph_store=_fanout_graph_store(),
+        activation_store=_activation_store(),
+        search_index=_fanout_search_index(),
+        cfg=cfg,
+        stage_timings_ms=timings,
+        limit=50,
+    )
+
+
+async def _spread_harness(cfg, timings):
+    return await run_retrieval(
+        "spreading parity probe",
+        "default",
+        _fanout_graph_store(),
+        _activation_store(),
+        _fanout_search_index(),
+        _method(cfg),
+        limit=50,
+        stage_timings_ms=timings,
+    )
+
+
+def _is_traversal_discovered(entity_id: str) -> bool:
+    """Seeds are e0..e14; anything else can only have come from the traversal."""
+    try:
+        return int(entity_id.removeprefix("e")) >= _SEED_COUNT
+    except ValueError:
+        return False
+
+
+class TestSpreadInjectionParity:
+    @pytest.mark.asyncio
+    async def test_harness_injects_the_same_bounded_pool_production_injects(self):
+        """THE divergence test for #32.
+
+        RED against the pre-fix harness two ways at once: it emitted neither
+        counter (KeyError on ``recall_spread_injected``) and it injected every
+        discovery rather than the cap.
+        """
+        cfg = _spread_cfg()
+        prod: dict[str, float] = {}
+        harness: dict[str, float] = {}
+        await _spread_production(cfg, prod)
+        await _spread_harness(cfg, harness)
+
+        # Positive probes FIRST. Equality between two paths that discovered
+        # nothing is 0 == 0 — exactly the vacuous pass this file exists to stop.
+        assert prod.get("recall_spread_discovered", 0) > _INJECTION_CAP, (
+            "fixture is inert: production's traversal found nothing to cap"
+        )
+        assert harness.get("recall_spread_discovered", 0) > _INJECTION_CAP, (
+            "fixture is inert: the harness's traversal found nothing to cap"
+        )
+
+        assert prod["recall_spread_injected"] == _INJECTION_CAP, (
+            "production stopped applying the cap; this test no longer measures parity"
+        )
+        assert harness["recall_spread_injected"] == prod["recall_spread_injected"]
+
+    @pytest.mark.asyncio
+    async def test_harness_pool_is_not_swamped_by_the_traversal(self):
+        """Independent of the counter: the pool the scorer saw must be bounded.
+
+        A harness that emitted the right number and still appended every
+        discovery would pass the test above. This one reads the candidate pool
+        through the scored results instead of through the metric.
+        """
+        cfg = _spread_cfg()
+        harness: dict[str, float] = {}
+        results = await _spread_harness(cfg, harness)
+        entity_ids = {sr.node_id for sr in results if sr.result_type != "episode"}
+        discovered_in_pool = {eid for eid in entity_ids if _is_traversal_discovered(eid)}
+
+        assert harness["recall_spread_discovered"] > _INJECTION_CAP
+        assert len(discovered_in_pool) <= _INJECTION_CAP, (
+            f"{len(discovered_in_pool)} traversal-discovered entities reached the "
+            f"scored pool with a cap of {_INJECTION_CAP}"
+        )
+
+    def test_the_injection_cap_has_exactly_one_read_site(self):
+        """A duplicated constant drifts — that is how #32 was born.
+
+        Attribute reads only, so the kill rig's provenance list (which names the
+        field as a string) is not counted as a second implementation.
+        """
+        engram_root = Path(__file__).resolve().parents[2] / "engram"
+        readers = set()
+        for path in engram_root.rglob("*.py"):
+            source = path.read_text()
+            if "spread_candidate_injection_max" not in source:
+                continue
+            for node in ast.walk(ast.parse(source)):
+                if (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "spread_candidate_injection_max"
+                ):
+                    readers.add(path.relative_to(engram_root).as_posix())
+        assert readers == {"retrieval/spread_injection.py"}, (
+            f"the injection cap is read in {sorted(readers)}; it must have one "
+            "implementation that every caller shares"
+        )
+
+
+class TestSpreadInjectionSelector:
+    """The shared rule itself. Cheap, and it pins the properties both callers rely on."""
+
+    def test_cap_keeps_the_strongest_bonuses(self):
+        bonuses = {f"e{i}": (i + 1) / 100.0 for i in range(50)}
+        chosen, discovered = select_spread_injections(
+            bonuses, set(), ActivationConfig(spread_candidate_injection_max=3)
+        )
+        assert discovered == 50
+        assert chosen == ["e49", "e48", "e47"]
+
+    def test_zero_cap_is_unbounded(self):
+        bonuses = {f"e{i}": 0.5 for i in range(50)}
+        chosen, discovered = select_spread_injections(
+            bonuses, set(), ActivationConfig(spread_candidate_injection_max=0)
+        )
+        assert discovered == 50
+        assert len(chosen) == 50
+
+    def test_ties_break_on_id_so_the_pool_is_deterministic(self):
+        bonuses = {"eb": 0.5, "ea": 0.5, "ec": 0.5}
+        cfg = ActivationConfig(spread_candidate_injection_max=2)
+        assert select_spread_injections(bonuses, set(), cfg)[0] == ["ea", "eb"]
+
+    def test_already_pooled_entities_are_not_re_injected(self):
+        bonuses = {"ea": 0.5, "eb": 0.5}
+        cfg = ActivationConfig(spread_candidate_injection_max=0)
+        assert select_spread_injections(bonuses, {"ea"}, cfg) == (["eb"], 1)

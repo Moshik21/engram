@@ -34,6 +34,10 @@ from engram.retrieval.scorer import (
     ScoredResult,
     score_candidates,
 )
+
+# The production injection rule, imported rather than re-implemented: the fork
+# that used to live at step 3.7 ran uncapped while production capped at 32.
+from engram.retrieval.spread_injection import select_spread_injections
 from engram.storage.protocols import ActivationStore, GraphStore, SearchIndex
 
 if TYPE_CHECKING:
@@ -396,6 +400,8 @@ async def run_retrieval(
         3. If ``method.spreading_enabled``: identify seeds and spread
            activation through the graph.
         3.5. Add working memory entities as additional seeds.
+        3.7. Merge spreading-discovered entities into the candidate pool under
+           the SAME injection cap production applies.
         4. Score all candidates (deterministic composite).
         4.01. Snapshot the per-entity ACT-R signal for the episode lane.
         5. Cross-encoder re-ranking (if enabled).
@@ -583,22 +589,35 @@ async def run_retrieval(
             context_gate=context_gate,
         )
 
-        # 3.7. Merge spreading-discovered entities with real semantic similarity
-        existing_ids = {eid for eid, _ in candidates}
-        new_ids = [
-            nid
-            for nid in spreading_bonuses
-            if nid not in existing_ids and spreading_bonuses[nid] > 0.0
-        ]
-        if new_ids:
-            new_states = await activation_store.batch_get(new_ids)
-            activation_states.update(new_states)
-            discovered_sims = await search_index.compute_similarity(
-                query=query,
-                entity_ids=new_ids,
-                group_id=group_id,
-            )
-            candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
+    # 3.7. Merge spreading-discovered entities with real semantic similarity
+    # (production Step 4.5). Sits OUTSIDE the spreading branch exactly as
+    # production does, so the two counters below are emitted on every run and a
+    # spreading-off arm reports 0 rather than nothing.
+    #
+    # The cap is applied by CALLING production's selector, not by copying its
+    # constant. Uncapped, this lane injected every discovery — ~450 entities on
+    # the corpus where production injects 32 — so an A/B driven through this
+    # wrapper scored a 12x larger candidate pool than the one it claimed to
+    # measure, and every stage after it (MMR, rerank, top-K) saw a pool
+    # production never builds.
+    existing_ids = {eid for eid, _ in candidates}
+    new_ids, discovered = select_spread_injections(spreading_bonuses, existing_ids, cfg)
+    _set_stage_metric(stage_timings_ms, "recall_spread_discovered", discovered)
+    injected = 0
+    if new_ids:
+        new_states = await activation_store.batch_get(new_ids)
+        activation_states.update(new_states)
+        discovered_sims = await search_index.compute_similarity(
+            query=query,
+            entity_ids=new_ids,
+            group_id=group_id,
+        )
+        candidates = candidates + [(nid, discovered_sims.get(nid, 0.0)) for nid in new_ids]
+        injected = len(new_ids)
+    # Written from what actually reached the pool, not from what was selected —
+    # production writes it the same way and for the same reason.
+    _set_stage_metric(stage_timings_ms, "recall_spread_injected", injected)
+
     # 4. Score candidates (deterministic; TS deleted per M5.3/F4)
     scored = score_candidates(
         candidates=candidates,
