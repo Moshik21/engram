@@ -165,6 +165,26 @@ unblocks the most other items.
 **Escape hatch:** if you have worked three items without the §1 number moving, stop and go to
 §7. Do not grind the ledger.
 
+### 3.1 Keep going. Do not wait to be told.
+
+This is a **standing** goal, not a request queue. Judgement is delegated. When a piece of work
+lands, **do not stop, report, and wait** — take the next item by §3 and start it. Reporting is
+something you do *while* the next thing runs, not instead of running it.
+
+Concretely:
+- A workflow finishing is **not** a stopping point. It is an intake event (§5) and a trigger to
+  start the next tier.
+- Do not ask "shall I continue?" or "what next?". §3 answers both. If it genuinely cannot,
+  that is a defect in §3 — fix §3 and keep moving.
+- **Parallelise across tiers when the files do not collide.** T0 and T1 can run at once if they
+  touch disjoint paths; §2.13 only serialises the *shell* and shared hot files, not all work.
+- Push at boundaries (§6) as you go, so stopping is never required to make progress durable.
+- The only legitimate stops: a §2 rule says ask; the work would be unsafe or irreversible; or
+  §7 needs a decision that is genuinely Konner's rather than an engineering call.
+
+*Added 2026-07-24 after the harness agent halted between workflows and had to be prompted
+twice. The doc told it what to work on and never told it to keep working.*
+
 ---
 
 ## 4. The ledger
