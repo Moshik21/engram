@@ -12,6 +12,14 @@ from typing import Any
 from urllib import error, request
 
 from engram.config import EngramConfig
+from engram.config_provenance import (
+    TRACKED_KEYS,
+    Resolution,
+    compare_to_runtime,
+    contested_keys,
+    local_effective_values,
+    resolve_provenance,
+)
 from engram.evaluation.brain_loop_report import (
     EVALUATION_SIGNAL_ORDER,
     unmeasured_evaluation_signals,
@@ -22,6 +30,7 @@ from engram.storage.resolver import EngineMode, resolve_mode
 
 CHECK_ORDER = (
     "config",
+    "config_resolution",
     "sqlite",
     "mode",
     "lifecycle_snapshot",
@@ -142,6 +151,8 @@ async def build_doctor_report(args: argparse.Namespace) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     config = _load_config(args, checks)
     resolved_mode: str | None = None
+
+    _check_config_resolution(config, args, checks)
 
     if config is not None:
         _check_sqlite_config(config, checks)
@@ -367,20 +378,183 @@ def _load_config(
         _add_check(checks, "config", "fail", f"config failed to load: {exc}")
         return None
 
+    # Ticket 24 / AUDIT-6: reporting the resolved values without their provenance is
+    # what made this check a lying instrument — it said `pass: standard` while the
+    # service ran `quiet`. Name the file or env var that won, every time.
+    try:
+        resolutions = resolve_provenance()
+    except Exception as exc:  # pragma: no cover - diagnostics must not mask the config
+        resolutions = {}
+        _add_check(checks, "config", "warn", f"config provenance unavailable: {exc}")
+        return config
+
+    contested = contested_keys(resolutions)
+    metadata = {
+        "configured_mode": config.mode,
+        "default_group_id": config.default_group_id,
+        "consolidation_profile": config.activation.consolidation_profile,
+        "recall_profile": config.activation.recall_profile,
+        "integration_profile": config.activation.integration_profile,
+        "provenance": _provenance_metadata(resolutions),
+        "contested_keys": sorted(contested),
+    }
+    # The verdict lives in `config_resolution`, not here: a contested chain is only a
+    # defect if it is unverified or actually divergent. A repo-local `.env` override
+    # that happens to agree with the service is a normal dev setup, and warning on it
+    # would train operators to ignore the check.
+    detail = "config loaded"
+    if contested:
+        detail = (
+            f"config loaded; {len(contested)} setting(s) are launcher-dependent "
+            f"({', '.join(sorted(contested))}) — see config_resolution"
+        )
+    _add_check(checks, "config", "pass", detail, metadata)
+    return config
+
+
+def _provenance_metadata(resolutions: Mapping[str, Resolution]) -> dict[str, Any]:
+    return {
+        key: {
+            "value": res.value,
+            "source": res.source,
+            "shadowed": [{"source": src, "value": val} for src, val in res.shadowed],
+        }
+        for key, res in sorted(resolutions.items())
+    }
+
+
+def _fetch_runtime_payload(args: argparse.Namespace) -> tuple[dict[str, Any] | None, str]:
+    """Read the live shell's own resolved config. Returns (payload, detail)."""
+    base_url = str(args.server_url).rstrip("/")
+    timeout = max(0.1, float(args.timeout))
+    last_error = "no endpoint tried"
+    # Prefer the fast packet: it carries the same activation/runtime block without
+    # touching the graph, so the check cannot perturb what it is measuring.
+    for path in ("/api/knowledge/runtime/fast", "/api/knowledge/runtime"):
+        url = f"{base_url}{path}"
+        try:
+            with request.urlopen(url, timeout=timeout) as resp:
+                if resp.status != 200:
+                    last_error = f"{url} returned HTTP {resp.status}"
+                    continue
+                payload = json.loads(resp.read().decode("utf-8"))
+        except (OSError, error.URLError, TimeoutError, ValueError) as exc:
+            last_error = f"{url}: {exc}"
+            continue
+        except Exception as exc:  # noqa: BLE001 - reported as UNKNOWN, never swallowed
+            last_error = f"{url}: unexpected {type(exc).__name__}: {exc}"
+            continue
+        if isinstance(payload, dict):
+            return payload, url
+        last_error = f"{url}: unexpected payload type {type(payload).__name__}"
+    return None, last_error
+
+
+def _check_config_resolution(
+    config: EngramConfig | None,
+    args: argparse.Namespace,
+    checks: list[dict[str, Any]],
+) -> None:
+    """Compare this process's effective config against the running shell's.
+
+    The whole point of ticket 24: a CLI run and the launchd service resolve the same
+    settings from different sources, so a doctor that only reports its *own* resolution
+    cannot detect the flaw it shares. This check asks the service what it actually has
+    and fails loudly when the two disagree. When the shell is unreachable the verdict is
+    `unknown`, never `pass` — absence of evidence is reported as absence.
+    """
+    if config is None:
+        _add_check(checks, "config_resolution", "skipped", "config did not load")
+        return
+
+    try:
+        resolutions = resolve_provenance()
+    except Exception:  # pragma: no cover - provenance is best-effort context
+        resolutions = {}
+    contested = sorted(contested_keys(resolutions))
+
+    if getattr(args, "skip_server", False):
+        note = ""
+        if contested:
+            note = (
+                f" — and {len(contested)} setting(s) are launcher-dependent here "
+                f"({', '.join(contested)}), so this process may not be on the "
+                "service's values"
+            )
+        _add_check(
+            checks,
+            "config_resolution",
+            "skipped",
+            f"server checks skipped; CLI-vs-service config divergence NOT verified{note}",
+            {"contested_keys": contested},
+        )
+        return
+
+    payload, detail = _fetch_runtime_payload(args)
+    if payload is None:
+        _add_check(
+            checks,
+            "config_resolution",
+            "warn",
+            (
+                "UNKNOWN: live shell unreachable, so this process's config could NOT be "
+                f"verified against the running service ({detail}). Any measurement taken "
+                "now may be reading a different configuration than the service."
+            ),
+            {"probe_error": detail, "contested_keys": contested},
+        )
+        return
+
+    # `--mode` overrides the resolved value on purpose, so comparing it would be noise.
+    skip_keys = ("ENGRAM_MODE",) if getattr(args, "mode", None) else ()
+    divergences, unverifiable = compare_to_runtime(
+        local_values=local_effective_values(config),
+        runtime_payload=payload,
+        resolutions=resolutions,
+        skip_keys=skip_keys,
+    )
+    metadata = {
+        "runtime_url": detail,
+        "unverifiable_keys": unverifiable,
+        "divergences": [
+            {
+                "key": d.key,
+                "cli_value": d.local_value,
+                "cli_source": d.local_source,
+                "service_value": d.runtime_value,
+            }
+            for d in divergences
+        ],
+    }
+    if divergences:
+        summary = ", ".join(
+            f"{d.key}: this process={d.local_value} (from {d.local_source}) "
+            f"but service={d.runtime_value}"
+            for d in divergences
+        )
+        _add_check(
+            checks,
+            "config_resolution",
+            "fail",
+            (
+                "CONFIG DIVERGENCE — this process is NOT running the service's config. "
+                f"Every measurement taken from this process is void until fixed. {summary}"
+            ),
+            metadata,
+        )
+        return
+    compared = len(TRACKED_KEYS) - len([key for key in unverifiable if key in TRACKED_KEYS])
     _add_check(
         checks,
-        "config",
+        "config_resolution",
         "pass",
-        "config loaded",
-        {
-            "configured_mode": config.mode,
-            "default_group_id": config.default_group_id,
-            "consolidation_profile": config.activation.consolidation_profile,
-            "recall_profile": config.activation.recall_profile,
-            "integration_profile": config.activation.integration_profile,
-        },
+        (
+            f"this process matches the live service on {compared} comparable setting(s); "
+            f"{len(unverifiable)} not exposed by the runtime packet and therefore "
+            "unverified"
+        ),
+        metadata,
     )
-    return config
 
 
 def _check_sqlite_config(config: EngramConfig, checks: list[dict[str, Any]]) -> None:

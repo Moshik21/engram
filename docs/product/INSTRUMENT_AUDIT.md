@@ -198,6 +198,66 @@ flaw (`server/engram/doctor.py:365` constructs a bare `EngramConfig()`).
 **Consequence for every future measurement:** verify live config via
 `GET /api/knowledge/runtime`. Never by instantiating `EngramConfig()`.
 
+#### 2026-07-24 — re-measured, widened, and now DETECTED (ticket 24)
+
+Re-reproduced live, and it is **worse than three lines of the ledger said**. Same
+venv, same machine, one minute apart:
+
+| where | `consolidation_profile` | `recall_profile` | winner |
+|---|---|---|---|
+| CLI, `cwd=server/` | `standard` | `all` | `server/.env` |
+| CLI, `cwd=` repo root or `/tmp` | `standard` | `wave2` | repo `.env` / `~/.engram/.env` |
+| launchd service (`GET /api/knowledge/runtime/fast`) | **`quiet`** | **`wave2`** | exported process env |
+
+**Three** answers, not two — `recall_profile` also depends on the *directory you
+stood in*, which the original entry did not capture. A third contested key was
+found that had never been catalogued: `ENGRAM_ACTIVATION__WORKER_ENABLED` is
+`true` in the repo-root `.env` and `false` in `~/.engram/.env`.
+
+**Shipped:** `server/engram/config_provenance.py` replays the precedence chain and
+records which file or env var won each key and which sources it shadowed.
+
+- `EngramConfig.model_post_init` prints a one-shot stderr banner whenever two
+  sources set the same key to different values — a condition detectable **offline,
+  with no server**, so it fires for every CLI command, for `python -m engram serve`
+  under launchd, and for the ad-hoc `python -c` one-liners agents use.
+- `engram doctor` gained a `config_resolution` check that reads the service's own
+  resolved config from `/api/knowledge/runtime/fast` and **fails** (exit 1) when the
+  two disagree, naming the file that won locally. When the shell is unreachable it
+  reports `UNKNOWN`, never `pass`.
+- The old `config` check — which reported `pass: consolidation_profile=standard`
+  while the service ran `quiet`, i.e. the lying instrument itself — now carries full
+  provenance metadata and names the contested keys.
+
+Live output on the dogfood machine, shipped code:
+
+```
+[FAIL] config_resolution: CONFIG DIVERGENCE — this process is NOT running the
+service's config. Every measurement taken from this process is void until fixed.
+ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE: this process=standard
+(from /Users/konnermoshier/Engram/server/.env) but service=quiet,
+ENGRAM_ACTIVATION__RECALL_PROFILE: this process=all (...) but service=wave2
+```
+
+**Honest limit — this is DETECTION, not ELIMINATION.** The divergence still exists
+on disk. Removing it needs one of two decisions that were out of this lane's scope:
+(a) reorder `DEFAULT_ENV_FILES` so `~/.engram/.env` has the highest *file*
+precedence, matching what the launcher already does by exporting it — a behaviour
+change across the whole suite; or (b) stop the LaunchAgent sourcing the file at all
+and let the dotenv chain apply, which means editing a user-owned plist and
+restarting the shell. Until one lands, the doctor screams but the trap is still
+armed.
+
+**Scope of the comparison, stated rather than implied:** the runtime packet carries
+`mode`, `consolidationProfile`, `recallProfile`, `integrationProfile` — four keys.
+`worker_enabled`, `runtime_role`, `helix.transport` and `helix.data_dir` are NOT
+exposed, so divergence in those is **unverifiable**, and the check reports them as
+such instead of counting silence as agreement.
+
+Enforced by `server/tests/test_config_provenance.py`, including a test that the
+provenance replay predicts what pydantic-settings *actually* resolves — if the model
+of precedence ever drifts from the resolver, the report becomes another AUDIT-1.
+
 ### AUDIT-7 — META: the harness lied, not the instrument · HIGH
 
 An agent ran a measurement subprocess under `env HOME=<sandbox>` and reported a

@@ -3423,6 +3423,10 @@ class EngramConfig(BaseSettings):
             and "default_group_id" not in self.auth.model_fields_set
         ):
             self.auth.default_group_id = self.default_group_id
+        # Ticket 24 / AUDIT-6: shout once per process when the env chain is ambiguous.
+        from engram.config_provenance import warn_if_config_resolution_is_ambiguous
+
+        warn_if_config_resolution_is_ambiguous()
 
     def shell_runs_in_process_brain(self) -> bool:
         """Whether serve should start scheduler / EpisodeWorker in-process."""

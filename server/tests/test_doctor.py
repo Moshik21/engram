@@ -199,10 +199,18 @@ async def test_doctor_checks_mcp_streamable_http_endpoint(tmp_path, monkeypatch)
     assert checks["server"]["status"] == "pass"
     assert checks["mcp"]["status"] == "pass"
     assert checks["mcp"]["metadata"]["url"] == "http://localhost:8100/mcp"
+    # Ticket 24: `config_resolution` probes the runtime surface first so CLI-vs-service
+    # config divergence is detected. This fake has no `read()`, so both runtime probes
+    # fail and the check reports UNKNOWN — which is the point: it must not report `pass`
+    # when it could not read the service.
     assert seen_urls == [
+        "http://localhost:8100/api/knowledge/runtime/fast",
+        "http://localhost:8100/api/knowledge/runtime",
         "http://localhost:8100/health",
         "http://localhost:8100/mcp",
     ]
+    assert checks["config_resolution"]["status"] == "warn"
+    assert "UNKNOWN" in checks["config_resolution"]["detail"]
 
 
 @pytest.mark.asyncio
