@@ -316,6 +316,99 @@ def main():
         "(gate B4); vacuous-clean (zero results everywhere) also fails",
     )
 
+    # --- meter ---
+    meter_parser = subparsers.add_parser(
+        "meter",
+        help="Recall meter: per-question hit rate over N runs, multi-source "
+        "scoring, lane attribution, honest refusal (the battery cannot resolve "
+        "a +/-1-answer change)",
+    )
+    meter_parser.add_argument(
+        "--against-live",
+        action="store_true",
+        help="Capture N runs from a live server (read-only recall GETs)",
+    )
+    meter_parser.add_argument(
+        "--server-url",
+        default="http://127.0.0.1:8100",
+        help="Server URL for --against-live (default http://127.0.0.1:8100)",
+    )
+    meter_parser.add_argument(
+        "--runs",
+        type=int,
+        default=10,
+        help="Number of full rig passes to capture (default 10)",
+    )
+    meter_parser.add_argument(
+        "--limit",
+        type=int,
+        default=3,
+        help="Recall limit per query (default 3 = battery-identical retrieval)",
+    )
+    meter_parser.add_argument(
+        "--k",
+        type=int,
+        default=3,
+        help="Scoring depth: rows considered per question (default 3)",
+    )
+    meter_parser.add_argument(
+        "--max-sources",
+        type=int,
+        default=2,
+        help="Max rows an answer may be assembled from (default 2)",
+    )
+    meter_parser.add_argument(
+        "--delta-answers",
+        type=float,
+        default=1.0,
+        help="Effect size the instrument must resolve, in answers (default 1)",
+    )
+    meter_parser.add_argument(
+        "--sleep",
+        type=float,
+        default=0.0,
+        help="Seconds to sleep between queries (be kind to a busy shell)",
+    )
+    meter_parser.add_argument(
+        "--run-gap-s",
+        type=float,
+        default=0.0,
+        help="Seconds between full rig passes. Must exceed the server's packet "
+        "cache TTL (default 300s) or repeats are cache replays, not samples",
+    )
+    meter_parser.add_argument(
+        "--cache-ttl-s",
+        type=float,
+        default=300.0,
+        help="Server recall_packet_cache_ttl_seconds; probes re-issued faster "
+        "than this are refused as non-independent (default 300)",
+    )
+    meter_parser.add_argument(
+        "--rig-path",
+        default=None,
+        help="Override path to the meter rig JSON",
+    )
+    meter_parser.add_argument(
+        "--capture",
+        default=None,
+        help="Write the raw capture here so it can be rescored without new load",
+    )
+    meter_parser.add_argument(
+        "--score-capture",
+        default=None,
+        help="Score an existing capture file instead of hitting the server",
+    )
+    meter_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON instead of markdown",
+    )
+    meter_parser.add_argument(
+        "--require-resolved",
+        action="store_true",
+        help="Exit nonzero when the run set cannot resolve --delta-answers",
+    )
+
     # --- axi ---
     axi_parser = subparsers.add_parser(
         "axi",
@@ -664,6 +757,58 @@ def main():
                 )
                 failed = True
         sys.exit(1 if failed else 0)
+
+    # --- meter ---
+    if args.command == "meter":
+        import json as _json
+        from pathlib import Path as _Path
+
+        from engram.evaluation.meter import (
+            format_meter_report,
+            load_capture,
+            run_meter_against_live,
+            score_capture,
+        )
+
+        if args.score_capture:
+            capture = load_capture(_Path(args.score_capture))
+            report = score_capture(
+                capture,
+                k=args.k,
+                max_sources=args.max_sources,
+                delta_answers=args.delta_answers,
+                cache_ttl_s=args.cache_ttl_s,
+            )
+        elif args.against_live:
+
+            def _progress(run_index: int, total: int, qid: str) -> None:
+                print(f"  run {run_index + 1}/{total}: {qid}", file=sys.stderr)
+
+            _capture, report = run_meter_against_live(
+                server_url=args.server_url,
+                rig_path=_Path(args.rig_path) if args.rig_path else None,
+                runs=args.runs,
+                limit=args.limit,
+                k=args.k,
+                max_sources=args.max_sources,
+                delta_answers=args.delta_answers,
+                sleep_s=args.sleep,
+                run_gap_s=args.run_gap_s,
+                cache_ttl_s=args.cache_ttl_s,
+                capture_path=_Path(args.capture) if args.capture else None,
+                on_progress=_progress,
+            )
+        else:
+            print("meter requires --against-live or --score-capture")
+            sys.exit(2)
+
+        if args.json:
+            print(_json.dumps(report, indent=2, default=str))
+        else:
+            print(format_meter_report(report))
+        if args.require_resolved and report.get("status") != "resolved":
+            sys.exit(1)
+        sys.exit(0)
 
     # --- axi ---
     if args.command == "axi":

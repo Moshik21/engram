@@ -398,6 +398,15 @@ only A. Verify bridge structure present **before** scoring, per-question.
 4. **Residual measurement (cheap, run first, reported separately):** on the A/B corpus,
    measure the fraction of questions where the *linking episode itself* fails to rank in arm
    A's top-10. This is the graph's actual addressable market.
+5. **Packet-cache isolation** (added 2026-07-24, task #18; `INSTRUMENT_AUDIT.md` AUDIT-14).
+   The recall packet cache is keyed `group_id:scope:digest(query):digest(project_path)`
+   (`retrieval/packet_cache.py` `build_key`) — **no build, config or arm component** — with a
+   300 s TTL and SQLite persistence that survives a restart. Running arm B after arm A on the
+   same queries can therefore serve **arm A's cached packets to arm B**, reporting "no
+   difference" for a change of any size, with a clean low-variance number. Isolate by one of:
+   `recall_packet_cache_enabled=False`; a distinct `group_id` per arm; clearing the cache
+   between arms; or spacing every repeat beyond the TTL. **State which was used** — a run
+   that does not is VOID.
 
 ### Arms
 | Arm | Description |
@@ -494,6 +503,14 @@ spans the link and gold episodes — beside the id-based default. Never `engram 
 `engram battery`. Its scoring rule requires all tokens of one group inside **one** top-3
 result (M16); all 10 questions are single-episode-servable. A two-source answer scores MISS by
 construction. Re-running it after any graph repair produces a number that means nothing.
+
+**Use `engram meter` instead** (built 2026-07-24 for this experiment, task #18;
+`server/engram/evaluation/meter.py`, `docs/product/experiments/RECALL_METER.md`). It scores
+answers assembled from up to two rows, reports per-question hit rate and variance over N runs,
+attributes each answer to the rescue lane that produced it, derives the minimum N needed to
+resolve a 1-answer difference at the observed variance, and **refuses to emit a headline score
+when the run set cannot support one**. It carries the battery's ten questions verbatim, so one
+capture can be scored under both rules and the difference is visible rather than argued.
 
 ---
 

@@ -1,0 +1,26 @@
+{
+  "description": "Recall-meter rig. Section 1 is the agent_experience_battery.json question set copied VERBATIM, so one capture can be scored under both the meter's union rule and the battery's own one-row rule on identical retrievals. Section 2 adds multi-source questions — the case battery.py scores MISS by construction (GRAPH_THESIS.md M16).",
+  "scoring": "hitUnion = some expected_tokens group is covered by at most maxSources of the top-k rows; hitSingle = some group lands wholly inside ONE row (the battery's rule). Both are always reported; a shuffled control measures the union rule's false-positive rate.",
+  "provenance": {
+    "single_source": "Verbatim from tests/rigs/agent_experience_battery.json (seeded 2026-07-22 from a session where the grader held ground truth). tests/test_recall_meter.py asserts the copy stays byte-identical.",
+    "multi_source": "CONSTRUCTED, not invented: each group is a conjunction of expected_tokens drawn from TWO DIFFERENT battery questions, so the two halves of the answer are known to be separate facts in the corpus and cannot both be satisfied by one fact. tests/test_recall_meter.py machine-verifies that every multi_source token traces to a battery question and that a group never draws both halves from the same one. The construction was checked against the live brain read-only on 2026-07-24 before it was committed; the observed splits are recorded in docs/product/experiments/RECALL_METER.md rather than asserted here.",
+    "caveat": "A conjunctive question is a WEAKER multi-hop probe than a natural bridge question: it asks for two facts rather than requiring one hop to reach the second. It is what can be built from validated ground truth today. A natural bridge set needs the planted-corpus rig (M3.1), not the live brain."
+  },
+  "questions": [
+    {"id": "flip-condition", "kind": "single_source", "q": "what is the flip condition for usage ranking", "expected_tokens": [["organic", "yield"], ["usage_ranking_enabled", "False"]]},
+    {"id": "recall-outage", "kind": "single_source", "q": "what broke deep recall on the dogfood brain", "expected_tokens": [["vector", "index", "empty"], ["BM25", "timeout"]]},
+    {"id": "ts-kill", "kind": "single_source", "q": "why was Thompson sampling removed", "expected_tokens": [["Thompson", "noise"], ["ts_", "deleted"]]},
+    {"id": "north-star", "kind": "single_source", "q": "what is the product north star metric", "expected_tokens": [["LongMemEval", "not"], ["continuity"]]},
+    {"id": "deleted-phases", "kind": "single_source", "q": "which consolidation phases were deleted", "expected_tokens": [["mature"], ["semanticize"], ["schema"]]},
+    {"id": "durable-lane", "kind": "single_source", "q": "what does the durable result boost do in ranking", "expected_tokens": [["reserved", "lane"], ["type_rank"], ["2.5"]]},
+    {"id": "fastembed-outage", "kind": "single_source", "q": "what was the FastEmbed outage root cause", "expected_tokens": [["model.onnx"], ["interrupted", "download"]]},
+    {"id": "vector-write-path", "kind": "single_source", "q": "how are episode vectors written now capture or projection", "expected_tokens": [["capture-time"], ["outbox"]]},
+    {"id": "bm25-breaker", "kind": "single_source", "q": "what does the BM25 circuit breaker do", "expected_tokens": [["skip", "BM25"], ["zombie"], ["over-budget"]]},
+    {"id": "founder-identity", "kind": "single_source", "q": "who is the founder of Engram and what are his goals", "expected_tokens": [["Konner"], ["local"]]},
+
+    {"id": "pair-outage-fastembed", "kind": "multi_source", "q": "what broke deep recall and what was the FastEmbed outage root cause", "from": ["recall-outage", "fastembed-outage"], "expected_tokens": [["BM25", "model.onnx"], ["BM25", "interrupted"], ["vector", "model.onnx"]]},
+    {"id": "pair-northstar-phases", "kind": "multi_source", "q": "what is the product north star metric and which consolidation phases were deleted", "from": ["north-star", "deleted-phases"], "expected_tokens": [["continuity", "semanticize"], ["continuity", "mature"], ["LongMemEval", "semanticize"]]},
+    {"id": "pair-founder-vectors", "kind": "multi_source", "q": "who is the founder of Engram and how are episode vectors written now", "from": ["founder-identity", "vector-write-path"], "expected_tokens": [["Konner", "capture-time"], ["Konner", "outbox"], ["local", "outbox"]]},
+    {"id": "pair-ts-flip", "kind": "multi_source", "q": "why was Thompson sampling removed and what is the flip condition for usage ranking", "from": ["ts-kill", "flip-condition"], "expected_tokens": [["Thompson", "organic"], ["Thompson", "usage_ranking_enabled"], ["noise", "organic"]]}
+  ]
+}

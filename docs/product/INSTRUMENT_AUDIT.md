@@ -344,6 +344,52 @@ returns `{"items": [], "total": 0, "status": "timeout", "detail": ...}` —
 an empty result that **says it is empty because it failed**. That is the shape
 every degradation should take.
 
+### AUDIT-14 — the packet cache makes any repeated-measures rig lie · HIGH
+
+Found 2026-07-24 while building the recall meter (task #18), which is the only
+reason it was found at all: the meter records which lane served each probe.
+
+A 12-pass, 168-probe capture over the live shell reported **σ = 0.0** and
+"resolving a 1-answer difference needs N ≥ 2 runs/arm". Both numbers are false.
+`cache_satisfied` served **24/168** probes — two questions, on all twelve
+passes — and the same rig run once ten minutes earlier scored one answer higher.
+The cache had frozen a value and held it for the whole block.
+
+Mechanism, all verified in source:
+
+- `config.py`: `recall_packet_cache_ttl_seconds = 300.0`, enabled by default,
+  **persistence enabled** (SQLite sidecar, survives restart).
+- `retrieval/packet_cache.py` `build_key`:
+  `f"{group_id}:{scope}:{digest(topic_hint)}:{digest(project_path)}"`.
+
+Two consequences:
+
+1. **Repeated-measures noise is understated.** Any rig that loops the same
+   queries faster than 300 s measures the cache. Within-block variance is a
+   *floor* on the real noise, not an estimate of it. This is very likely part of
+   why `engram battery` produced 0-4 spreads: back-to-back runs were partly
+   cache replays, minutes-apart runs were not.
+2. **The key has no build/config/arm component.** In an A/B where the arms
+   differ only by server configuration — the shape of the graph experiment's
+   arms A and B — **arm B can be served arm A's cached packets for the same
+   query**. The A/B would report "no difference" for a change of any size, with
+   a clean-looking low-variance number. This is the most expensive failure mode
+   in this ledger, because it makes a *null* look rigorous.
+
+This is pattern 5 (environment drift) with the drift inside the server rather
+than the harness: the measurement describes cache state, not retrieval.
+
+**Mitigation shipped:** `engram meter` excludes cache-served probes, refuses
+captures whose per-question probe spacing is inside `--cache-ttl-s`, and refuses
+captures with no timing/cache provenance at all. **Mitigation NOT shipped:** the
+TTL is not exposed on `/api/knowledge/runtime`, so the guard uses the
+compile-time default; and nothing prevents an A/B written outside the meter from
+walking into consequence (2). Any future A/B must space probes beyond the TTL,
+clear the cache between arms, vary `group_id`/`project_path` per arm, or run
+with `recall_packet_cache_enabled=False`.
+
+Detail: `docs/product/experiments/RECALL_METER.md` §4.
+
 ---
 
 ## The five patterns
@@ -361,9 +407,9 @@ Everything above is one of five shapes. Grep for these when adding a metric:
 4. **Dual-method divergence** — two paths report the same named quantity by
    different methods, with no reconciliation and no way for a caller to know
    which it got. *(AUDIT-5, and AUDIT-1 vs AUDIT-8 on `relationships`)*
-5. **Environment drift** — the harness resolves config/paths from ambient
-   process state, so the measurement describes a different machine.
-   *(AUDIT-6, AUDIT-7)*
+5. **Environment drift** — the measurement describes ambient state rather than
+   the system under test: config resolved from process env (AUDIT-6, AUDIT-7),
+   or a result replayed from a cache the rig cannot see (AUDIT-14).
 
 ---
 
