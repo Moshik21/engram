@@ -443,6 +443,53 @@ It scores a retrieval list. The north star says the real consumer is the harness
 clean win here is a win on a proxy that has never been validated against the actual consumer.
 **Do not let it flip a default without an agent-task arm.** Say so in the results doc.
 
+### The rig (built 2026-07-24, NOT yet run as the experiment)
+
+`server/engram/evaluation/graph_kill_rig/` — arms A/B/C, the VOID pre-flight, and the
+thresholds above **encoded as a pure function** (`thresholds.evaluate`) whose truth table is
+pinned by `server/tests/test_graph_kill_rig.py`. They cannot be renegotiated after a result is
+on the table, which is the point.
+
+```bash
+cd server && uv run python -m engram.evaluation.graph_kill_rig --scratch <dir> --n 60
+uv run python -m engram.evaluation.graph_kill_rig --scratch <dir> --fault drop-relationships  # prove it refuses
+```
+
+Six checks gate the run, not four: the thesis's producer / consumer-byte / spread / residual,
+plus **vector-index coverage** (the rig's own first run measured a keyword-only system —
+`FastEmbedProvider.dimension()` returns 768 on a provider whose ONNX never loaded, and
+`FASTEMBED_CACHE_PATH` is a plain env var the launchd unit exports and a CLI run does not:
+M13 again) and a **scored-set floor** at N=36 (absolute thresholds are gameable by shrinking N).
+On any failure it emits `status: VOID` with reachability and the verdict **withheld**, exit 2.
+
+Three findings from building it, all pre-experiment:
+
+1. **`--fault starve-spread` measured 72,240 chars of traversal rows reaching the answerer
+   while ZERO of them were edge-derived.** That is M3.1 incidental finding #1 reproduced on
+   demand: a loose byte probe passes on a graph that contributed nothing. The consumer byte
+   probe therefore counts only rows carrying a non-zero `spreading` bonus or literal
+   relationship JSON — `activation/bfs.py:162` writes `bonuses` for neighbours only (seeds get
+   `hop_distances[seed]=0` at `:53-55` and no bonus), so `spreading > 0` is exactly "an edge
+   was walked". Note this signal is also launcher-proof: `recall_spread_reached` and
+   `recall_spread_injected` both existed in `pipeline.py` while the rig was written and neither
+   is emitted by the tree it now runs against.
+2. **K is still not the binding constraint on traversal.** On a 210-episode corpus with 55
+   committed `WORKS_ON` edges and 51/60 bridges verified in the store, arm B appended ~7 rows
+   per query, carried real spreading signal, and reached the gold episode 0/51 times at both
+   `entity_episode_max_entities=5` and `=20`. That is M3.1's own residual diagnosis —
+   spread-backfilled candidates carry raw cosine and lose to lexically-similar distractors, so
+   the topic entity never becomes a traversal parent. **The pool-scoring fix M3.1 filed as a
+   follow-up was never landed, and the deciding experiment will measure its absence.**
+3. **A bridge corpus can auto-fire K4.** The residual measured **0.0%** — arm A ranked the
+   linking episode in its top-10 on 51/51 questions. K4 kills on residual < 10%, so corpus
+   construction alone can decide the verdict. Whoever runs this must either build genuine
+   distractor pressure on A or report that the market test fired for corpus reasons. This is a
+   property of the question set, not of the graph.
+
+The rig scores with lane 1's recall meter (`evaluation/meter.py`) as a second reading —
+`--scorer multi_source_cover`, `max_sources=2`, every question carrying a token group that
+spans the link and gold episodes — beside the id-based default. Never `engram battery`.
+
 ### Not a valid instrument
 `engram battery`. Its scoring rule requires all tokens of one group inside **one** top-3
 result (M16); all 10 questions are single-episode-servable. A two-source answer scores MISS by
