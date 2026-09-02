@@ -6,12 +6,14 @@ import asyncio
 import heapq
 import json
 import logging
+import os
 import random
 import re
 import time
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from engram.config import HelixDBConfig
@@ -217,6 +219,48 @@ def _as_float(value: Any) -> float:
     # silent-ok: stored-field parse tolerance; malformed value degrades to 0.0
     except (TypeError, ValueError):
         return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Cue write quarantine (2026-09-02). Sixteen EpisodeCue records on the dogfood
+# brain SIGBUS the whole process on `update_cue` (reads are fine): their
+# overflow pages carry stale headers from a past LMDB compaction (the master3
+# branch copies overflow pages verbatim, then restarts the txn counter, so the
+# page stamps sit "in the future" and LMDB overwrites them in place inside the
+# read-only map). The cold brain died on the first of them 203 times. Until
+# those records are rebuilt, any episode id listed in this file is never
+# written through update_episode_cue -- by the brain OR the shell.
+# ---------------------------------------------------------------------------
+_cue_quarantine_cache: tuple[float, frozenset[str]] | None = None
+_cue_quarantine_warned: set[str] = set()
+
+
+def _cue_quarantine_path() -> Path:
+    home = os.environ.get("ENGRAM_HOME") or str(Path.home() / ".engram")
+    return Path(home).expanduser() / "cue-quarantine.txt"
+
+
+def _cue_write_quarantine() -> frozenset[str]:
+    """Episode ids whose cue must not be written. Re-read when the file changes."""
+    global _cue_quarantine_cache
+    path = _cue_quarantine_path()
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        _cue_quarantine_cache = None
+        return frozenset()
+    if _cue_quarantine_cache is not None and _cue_quarantine_cache[0] == mtime:
+        return _cue_quarantine_cache[1]
+    try:
+        ids = frozenset(
+            line.split()[0]
+            for line in path.read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+    except OSError:
+        ids = frozenset()
+    _cue_quarantine_cache = (mtime, ids)
+    return ids
 
 
 def _count_statuses(rows: list[dict]) -> dict[str, int]:
@@ -2418,6 +2462,16 @@ class HelixGraphStore:
         group_id: str = "default",
     ) -> None:
         if not updates:
+            return
+        if episode_id in _cue_write_quarantine():
+            # See _cue_write_quarantine: writing this cue SIGBUSes the process.
+            if episode_id not in _cue_quarantine_warned:
+                _cue_quarantine_warned.add(episode_id)
+                logger.warning(
+                    "Cue write for %s skipped: episode is in the cue write quarantine (%s)",
+                    episode_id,
+                    _cue_quarantine_path(),
+                )
             return
         existing = await self._query(
             "find_cue_by_episode",
