@@ -1206,11 +1206,6 @@ schema: Some(r#"{
         "cues"
       ]
     },
-    {
-      "name": "delete_episode_vector",
-      "parameters": {
-        "id": "ID"
-      },
       "returns": []
     },
     {
@@ -5754,7 +5749,6 @@ let response = json!({
 txn.commit().map_err(|e| GraphError::New(format!("Failed to commit transaction: {:?}", e)))?;
 Ok(input.request.out_fmt.create_response(&response))
 }
-
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct delete_episode_vectorInput {

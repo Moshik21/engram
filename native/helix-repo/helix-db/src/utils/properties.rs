@@ -31,6 +31,35 @@ pub struct ImmutablePropertiesMap<'arena> {
     _phantom: marker::PhantomData<(&'arena str, &'arena Value)>,
 }
 
+/// Move a deserialised `Value`'s heap bytes into the arena.
+///
+/// The `Value` slots of an `ImmutablePropertiesMap` live in the bump arena,
+/// the map is `Copy` with no `Drop`, and `bumpalo::Bump` never runs
+/// destructors -- so a `Value::String(String)` written into a slot orphaned
+/// its heap buffer when the arena was dropped. Measured 2026-09-02 on an
+/// 8 GB store: one full-label scan leaked every scanned node's string bytes
+/// (find_cue_by_episode +8.5 MB per call, find_episode_by_episode_id
+/// +25-50 MB per call, linear, until Jetsam). The slots are never dropped,
+/// mutated or reallocated (the map is immutable and readers only get
+/// `&Value`), so a `String` whose buffer is arena memory is sound here: it
+/// is freed with the arena and never handed to the global allocator.
+fn arena_backed(value: Value, arena: &bumpalo::Bump) -> Value {
+    match value {
+        Value::String(s) => {
+            let bytes: &mut [u8] = arena.alloc_slice_copy(s.as_bytes());
+            // SAFETY: `bytes` is valid UTF-8 (copied from a `str`), lives as long
+            // as the arena, and this `String` is never dropped, grown or
+            // shrunk: it sits in an immutable arena slot behind `&Value`.
+            let backed = unsafe {
+                String::from_raw_parts(bytes.as_mut_ptr(), bytes.len(), bytes.len())
+            };
+            drop(s);
+            Value::String(backed)
+        }
+        other => other,
+    }
+}
+
 impl<'arena> ImmutablePropertiesMap<'arena> {
     pub fn new(
         len: usize,
@@ -81,6 +110,7 @@ impl<'arena> ImmutablePropertiesMap<'arena> {
         let mut index = 0;
         for entry in items {
             let (key, value) = entry?;
+            let value = arena_backed(value, arena);
             let (key_data, key_length) = (key.as_ptr(), key.len());
 
             unsafe {
