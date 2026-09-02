@@ -300,8 +300,14 @@ class NativeTransport:
                     endpoint,
                 )
                 return []
-            _count_failure(endpoint, "errors")
-            logger.error("Native query %s failed: %s", endpoint, exc)
+            if "No value found" in str(exc):
+                # collect_to_obj routes (N<T>({index: key})) report an absent
+                # row as a GraphError; the caller maps it to "not found". It is
+                # not a store failure and must not count or log as one.
+                logger.debug("Native query %s: no row (%s)", endpoint, exc)
+            else:
+                _count_failure(endpoint, "errors")
+                logger.error("Native query %s failed: %s", endpoint, exc)
             raise NativeQueryError(
                 endpoint,
                 exc_str[:300],
