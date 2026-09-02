@@ -138,17 +138,33 @@ class FastEmbedProvider(EmbeddingProvider):
         "nomic-ai/nomic-embed-text-v1.5-Q": 768,  # quantized; same dim, smaller download
     }
 
+    # Memory bound for the local ONNX model. nomic-embed has an 8192-token
+    # window and attention memory grows with the square of the input, and the
+    # ONNX runtime never returns its arena: measured 2026-09-02 on the dogfood
+    # brain, ONE 40k-char episode cost 7.4 GB / 15 s, 64 x 4.5k chars at
+    # batch 64 cost 11 GB / 76 s, and the startup outbox drain took the shell
+    # to a 17 GB footprint on a 16 GB Mac (Jetsam SIGKILL). 2000 chars matches
+    # the chunk window (HelixSearchIndex._chunk_text), so long content is still
+    # covered by its chunk vectors; at 2000 chars / batch 16 the same 64 texts
+    # cost 2.1 GB / 7.7 s.
+    DEFAULT_MAX_CHARS = 2000
+    DEFAULT_BATCH_SIZE = 16
+
     def __init__(
         self,
         model: str = "nomic-ai/nomic-embed-text-v1.5",
         dimensions: int | None = None,
         cache_dir: str | None = None,
+        max_chars: int = DEFAULT_MAX_CHARS,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         import importlib.util
 
         if importlib.util.find_spec("fastembed") is None:
             raise ImportError("fastembed not installed")
 
+        self._max_chars = max(0, int(max_chars))
+        self._batch_size = max(1, int(batch_size))
         self._model_name = model
         self._cache_dir = cache_dir or default_fastembed_cache_dir()
         self._model: Any | None = None
@@ -249,7 +265,9 @@ class FastEmbedProvider(EmbeddingProvider):
             # stores with present-but-empty vectors that later reads treated
             # as real (truthy list of falsy vectors).
             return []
-        return [vec.tolist() for vec in model.embed(texts)]
+        if self._max_chars > 0:
+            texts = [t[: self._max_chars] for t in texts]
+        return [vec.tolist() for vec in model.embed(texts, batch_size=self._batch_size)]
 
     async def embed_query(self, text: str) -> list[float]:
         """Embed query with LRU cache."""

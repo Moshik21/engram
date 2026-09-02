@@ -286,3 +286,59 @@ class TestFactoryProviderResolution:
 
         assert provider.dimension() == 42
         assert provider.is_materialized is True
+
+
+# --- memory bound -----------------------------------------------------------
+# One 40k-char episode through nomic-embed (8192-token window) measured 7.4 GB;
+# the startup outbox drain took the shell to 17 GB on a 16 GB Mac and Jetsam
+# killed it (2026-09-02). The provider is the single choke point every embed
+# call passes through, so the bound lives here.
+
+
+class _RecordingModel:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[str], int | None]] = []
+
+    def embed(self, texts, batch_size=None):
+        import numpy as np
+
+        self.calls.append((list(texts), batch_size))
+        return [np.zeros(4) for _ in texts]
+
+
+def _provider_with_recording_model(**kwargs):
+    from engram.embeddings.provider import FastEmbedProvider
+
+    provider = FastEmbedProvider(dimensions=4, **kwargs)
+    model = _RecordingModel()
+    provider._model = model
+    return provider, model
+
+
+@pytest.mark.asyncio
+async def test_local_embed_caps_text_length_and_batch_size() -> None:
+    provider, model = _provider_with_recording_model()
+    long_text = "x" * 40_000
+    vecs = await provider.embed([long_text, "short"])
+    assert len(vecs) == 2
+    (texts, batch_size), = model.calls
+    assert max(len(t) for t in texts) == provider.DEFAULT_MAX_CHARS
+    assert texts[1] == "short"
+    assert batch_size == provider.DEFAULT_BATCH_SIZE
+
+
+@pytest.mark.asyncio
+async def test_local_embed_cap_is_configurable_and_zero_disables() -> None:
+    provider, model = _provider_with_recording_model(max_chars=100, batch_size=4)
+    await provider.embed(["y" * 500])
+    assert len(model.calls[0][0][0]) == 100 and model.calls[0][1] == 4
+
+    provider, model = _provider_with_recording_model(max_chars=0)
+    await provider.embed(["y" * 500])
+    assert len(model.calls[0][0][0]) == 500
+
+
+def test_factory_wires_local_max_chars() -> None:
+    from engram.config import EmbeddingConfig
+
+    assert EmbeddingConfig().local_max_chars == 2000

@@ -85,6 +85,7 @@ def _create_embedding_provider(config: EngramConfig):
                 dimensions=(
                     config.embedding.dimensions if config.embedding.dimensions > 0 else None
                 ),
+                max_chars=config.embedding.local_max_chars,
             )
             config.embedding.dimensions = provider.dimension()
             logger.info(

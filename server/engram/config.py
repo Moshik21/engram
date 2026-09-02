@@ -108,6 +108,9 @@ class EmbeddingConfig(BaseModel):
     model: str = "voyage-4-lite"  # voyage model name
     gemini_model: str = "gemini-embedding-2-preview"
     local_model: str = "nomic-ai/nomic-embed-text-v1.5"  # fastembed model
+    # Per-text char cap for the LOCAL model only (see FastEmbedProvider.DEFAULT_MAX_CHARS):
+    # a hardware bound, not a quality knob. 0 disables the cap.
+    local_max_chars: int = 2000
     dimensions: int = 0  # 0 = use provider default (gemini=3072, voyage=1024, local=768)
     storage_dimensions: int = 0  # 0 = same as native dimension (no truncation)
     api_key: str = ""  # voyage API key
