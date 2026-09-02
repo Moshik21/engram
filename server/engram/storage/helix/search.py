@@ -1570,6 +1570,15 @@ class HelixSearchIndex:
                 if len(chunks) > 1:  # Only chunk if content actually splits
                     # Check if native transport (server-side Embed() won't work)
                     is_native = getattr(self._helix_config, "transport", "http") == "native"
+                    # One batched embed for every chunk on the native path: an
+                    # 80k-char episode is ~44 chunks, and embedding them one
+                    # call at a time was ~15 s per episode in the startup
+                    # drain (2026-09-02). The provider batches internally.
+                    batched_chunk_vecs: list[list[float]] = []
+                    if is_native:
+                        batched_chunk_vecs = await self._embed_texts(list(chunks))
+                        if len(batched_chunk_vecs) != len(chunks):
+                            batched_chunk_vecs = []
                     for i, chunk_text in enumerate(chunks):
                         used_server_embed = False
                         if not is_native:
@@ -1590,7 +1599,11 @@ class HelixSearchIndex:
                                 # to client-side embedding below when it fails.
                                 pass
                         if not used_server_embed:
-                            chunk_vecs = await self._embed_texts([chunk_text])
+                            chunk_vecs = (
+                                [batched_chunk_vecs[i]]
+                                if batched_chunk_vecs
+                                else await self._embed_texts([chunk_text])
+                            )
                             if chunk_vecs:
                                 await self._query(
                                     "create_episode_chunk_vec",
