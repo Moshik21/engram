@@ -99,3 +99,43 @@ async def test_post_timeout_rescue_is_bounded_by_the_remaining_wall() -> None:
     elapsed = (time.perf_counter() - started) * 1000
     assert metadata["status"] == "degraded"
     assert elapsed < WALL_MS * 1.25, f"recall took {elapsed:.0f}ms against a {WALL_MS}ms wall"
+
+
+@pytest.mark.asyncio
+async def test_probes_that_timed_out_back_off_on_the_next_recall() -> None:
+    """Second recall inside the backoff window skips both timed-out probes."""
+    calls = {"exact": 0, "preflight": 0}
+
+    async def hang_exact(*_a, **_k):
+        calls["exact"] += 1
+        await asyncio.sleep(60)
+
+    async def hang_preflight(*_a, **_k):
+        calls["preflight"] += 1
+        await asyncio.sleep(60)
+
+    async def recall(**_kwargs):
+        return [{"entity": {"id": "e1", "name": "x", "type": "Fact"}, "score": 1.0}]
+
+    manager = _manager(recall)
+    manager._graph.find_entities_exact_name = hang_exact
+    manager._graph.find_entity_candidates = hang_exact
+    manager.fast_recall_fallback = hang_preflight
+    manager.search_entities = hang_exact
+
+    _, first = await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="reranker on the default tier", limit=5,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    started = time.perf_counter()
+    _, second = await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="reranker on the default tier", limit=5,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    pre_ms = (time.perf_counter() - started) * 1000
+    assert "durable_entity_first" in first["stage_timings_ms"]
+    assert "recall_fast_preflight" in first["stage_timings_ms"]
+    assert "durable_entity_first_backoff" in second["stage_timings_ms"]
+    assert "recall_fast_preflight_backoff" in second["stage_timings_ms"]
+    assert calls["exact"] == 1 and calls["preflight"] == 1, calls
+    assert pre_ms < 200, f"second recall still paid {pre_ms:.0f}ms before the pipeline"

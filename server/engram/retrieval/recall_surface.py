@@ -579,6 +579,32 @@ async def build_mcp_recall_surface(
     return response
 
 
+# Pre-pipeline probes back off after a timeout. Measured live 2026-09-02 under
+# an indexing drain: durable_entity_first and recall_fast_preflight hit their
+# caps on 10/10 recalls, 650 ms per recall of nothing on the critical path.
+# A probe that just timed out is not asked again for _PROBE_BACKOFF_SECONDS;
+# on an idle shell the probes succeed fast and keep running as before.
+_PROBE_BACKOFF_SECONDS = 30.0
+_PROBE_BACKOFF_ATTR = "_recall_probe_backoff"
+
+
+def _probe_backing_off(manager: Any, probe: str) -> bool:
+    memo = getattr(manager, _PROBE_BACKOFF_ATTR, None)
+    until = memo.get(probe) if isinstance(memo, dict) else None
+    return bool(until) and time.monotonic() < float(until)
+
+
+def _probe_note_timeout(manager: Any, probe: str) -> None:
+    memo = getattr(manager, _PROBE_BACKOFF_ATTR, None)
+    if not isinstance(memo, dict):
+        memo = {}
+        try:
+            setattr(manager, _PROBE_BACKOFF_ATTR, memo)
+        except (AttributeError, TypeError):
+            return
+    memo[probe] = time.monotonic() + _PROBE_BACKOFF_SECONDS
+
+
 async def _run_explicit_recall_with_budget(
     manager: Any,
     *,
@@ -676,18 +702,25 @@ async def _run_explicit_recall_with_budget_inner(
     # high-signal durable fact with strong overlap; otherwise the deep
     # pipeline runs as before (later rescue stages still cover miss/timeout).
     durable_first_started = time.perf_counter()
-    durable_first = await _durable_entity_name_rescue(
-        manager,
-        group_id=group_id,
-        query=query,
-        limit=limit,
+    durable_first: list[dict[str, Any]] = []
+    if _probe_backing_off(manager, "durable_entity_first"):
+        stage_timings["durable_entity_first_backoff"] = 1.0
+    else:
         # A tenth of the wall: the pipeline's serial substage caps are sized to
         # the FULL wall (see recall_deep_pipeline_wall_budget_enabled), so every
         # millisecond spent here is taken from a stage that was budgeted for it.
-        timeout_seconds=min(0.4, max(0.1, timeout_seconds * 0.1)),
-        fast_probe_when_degraded=True,
-    )
-    stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
+        durable_first_cap = min(0.4, max(0.1, timeout_seconds * 0.1))
+        durable_first = await _durable_entity_name_rescue(
+            manager,
+            group_id=group_id,
+            query=query,
+            limit=limit,
+            timeout_seconds=durable_first_cap,
+            fast_probe_when_degraded=True,
+        )
+        stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
+        if not durable_first and stage_timings["durable_entity_first"] >= durable_first_cap * 1000:
+            _probe_note_timeout(manager, "durable_entity_first")
     if durable_first and not _durable_first_short_circuit_allowed(query, durable_first):
         stage_timings["durable_entity_first_gated"] = 1.0
         durable_first = []
@@ -721,7 +754,9 @@ async def _run_explicit_recall_with_budget_inner(
             fallback_result_count=len(durable_first),
         )
 
-    if _fast_recall_preflight_enabled(cfg):
+    if _fast_recall_preflight_enabled(cfg) and _probe_backing_off(manager, "recall_fast_preflight"):
+        stage_timings["recall_fast_preflight_backoff"] = 1.0
+    elif _fast_recall_preflight_enabled(cfg):
         fallback_started = time.perf_counter()
         preflight_timeout_seconds = _fast_recall_preflight_timeout_seconds(cfg)
         if context_packet_count > 0:
@@ -738,6 +773,8 @@ async def _run_explicit_recall_with_budget_inner(
             timeout_seconds=preflight_timeout_seconds,
         )
         stage_timings["recall_fast_preflight"] = _elapsed_ms(fallback_started)
+        if fallback_status == "timeout":
+            _probe_note_timeout(manager, "recall_fast_preflight")
         if fallback_results:
             duration_ms = round((time.perf_counter() - started) * 1000, 4)
             await record_manager_memory_operation(
