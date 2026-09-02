@@ -15,6 +15,7 @@ from engram.extraction.promotion import (
     is_relationship_triple_entity as _is_relationship_triple_entity,
 )
 from engram.models.recall import MemoryPacket
+from engram.retrieval import recall_activity
 from engram.retrieval.budgets import (
     RecallBudget,
     budget_profile_for_source,
@@ -592,7 +593,40 @@ async def _run_explicit_recall_with_budget(
     project_file_fallback_path: str | None = None,
     project_file_max_packets: int = 0,
 ) -> tuple[list[dict], dict[str, Any]]:
-    """Run the live recall stage under the shared explicit recall budget."""
+    """Run the live recall stage under the shared explicit recall budget.
+
+    Marks the recall in flight so background indexing yields (recall_activity).
+    """
+    async with recall_activity.active():
+        return await _run_explicit_recall_with_budget_inner(
+            manager,
+            group_id=group_id,
+            query=query,
+            limit=limit,
+            cfg=cfg,
+            operation_source=operation_source,
+            project_path=project_path,
+            context_packet_count=context_packet_count,
+            project_file_fallback_task=project_file_fallback_task,
+            project_file_fallback_path=project_file_fallback_path,
+            project_file_max_packets=project_file_max_packets,
+        )
+
+
+async def _run_explicit_recall_with_budget_inner(
+    manager: Any,
+    *,
+    group_id: str,
+    query: str,
+    limit: int,
+    cfg: Any,
+    operation_source: str,
+    project_path: str | None = None,
+    context_packet_count: int = 0,
+    project_file_fallback_task: asyncio.Task[tuple[list[dict[str, Any]], float]] | None = None,
+    project_file_fallback_path: str | None = None,
+    project_file_max_packets: int = 0,
+) -> tuple[list[dict], dict[str, Any]]:
     budget = recall_budget_for_profile(
         cfg,
         budget_profile_for_source(operation_source),

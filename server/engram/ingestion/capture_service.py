@@ -25,6 +25,7 @@ from engram.ingestion.cue_index_outbox import CueIndexOutbox
 from engram.ingestion.projection_state import sync_projection_state
 from engram.ingestion.salience import classify_salience, vector_index_exempt
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
+from engram.retrieval import recall_activity
 from engram.storage.protocols import GraphStore, SearchIndex
 from engram.utils.dates import utc_now
 
@@ -686,13 +687,18 @@ class EpisodeCaptureService:
             limit=replay_limit,
             include_failed=include_failed,
         )
+        # Yield to any explicit recall in flight before each item: the
+        # native worker pool is shared, and a recall's reads otherwise queue
+        # behind this drain's HNSW inserts (see retrieval/recall_activity.py).
         for item in items:
+            await recall_activity.wait_idle()
             await self._index_episode_cue_best_effort(item.cue)
         episode_items = self._cue_index_outbox.pending_episodes(
             limit=replay_limit,
             include_failed=include_failed,
         )
         for episode_item in episode_items:
+            await recall_activity.wait_idle()
             await self._index_episode_vector_best_effort(episode_item.episode)
         return len(items) + len(episode_items)
 
