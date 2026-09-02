@@ -1197,6 +1197,16 @@ schema: Some(r#"{
       ]
     },
     {
+      "name": "find_cue_by_episode_indexed",
+      "parameters": {
+        "ep_id": "String",
+        "gid": "String"
+      },
+      "returns": [
+        "cues"
+      ]
+    },
+    {
       "name": "delete_episode_vector",
       "parameters": {
         "id": "ID"
@@ -5650,6 +5660,101 @@ let response = json!({
 txn.commit().map_err(|e| GraphError::New(format!("Failed to commit transaction: {:?}", e)))?;
 Ok(input.request.out_fmt.create_response(&response))
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct find_cue_by_episode_indexedInput {
+
+pub ep_id: String,
+pub gid: String
+}
+#[derive(Serialize, Default)]
+pub struct Find_cue_by_episode_indexedCuesReturnType<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    pub episode_id: Option<&'a Value>,
+    pub group_id: Option<&'a Value>,
+    pub cue_version: Option<&'a Value>,
+    pub discourse_class: Option<&'a Value>,
+    pub cue_text: Option<&'a Value>,
+    pub supporting_spans_json: Option<&'a Value>,
+    pub temporal_markers_json: Option<&'a Value>,
+    pub quote_spans_json: Option<&'a Value>,
+    pub contradiction_keys_json: Option<&'a Value>,
+    pub first_spans_json: Option<&'a Value>,
+    pub projection_state: Option<&'a Value>,
+    pub cue_score: Option<&'a Value>,
+    pub salience_score: Option<&'a Value>,
+    pub projection_priority: Option<&'a Value>,
+    pub route_reason: Option<&'a Value>,
+    pub hit_count: Option<&'a Value>,
+    pub surfaced_count: Option<&'a Value>,
+    pub selected_count: Option<&'a Value>,
+    pub used_count: Option<&'a Value>,
+    pub near_miss_count: Option<&'a Value>,
+    pub policy_score: Option<&'a Value>,
+    pub projection_attempts: Option<&'a Value>,
+    pub last_hit_at: Option<&'a Value>,
+    pub last_feedback_at: Option<&'a Value>,
+    pub last_projected_at: Option<&'a Value>,
+    pub created_at: Option<&'a Value>,
+    pub updated_at: Option<&'a Value>,
+}
+
+#[handler]
+pub fn find_cue_by_episode_indexed (input: HandlerInput) -> Result<Response, GraphError> {
+let db = Arc::clone(&input.graph.storage);
+let data = input.request.in_fmt.deserialize::<find_cue_by_episode_indexedInput>(&input.request.body)?;
+let arena = Bump::new();
+let txn = db.graph_env.read_txn().map_err(|e| GraphError::New(format!("Failed to start read transaction: {:?}", e)))?;
+    let cues = G::new(&db, &txn, &arena)
+.n_from_index("EpisodeCue", "episode_id", &data.ep_id)
+
+.filter_ref(|val, txn|{
+                if let Ok(val) = val {
+                    Ok(val
+                    .get_property("group_id")
+                    .map_or(false, |v| *v == data.gid.clone()))
+                } else {
+                    Ok(false)
+                }
+            }).collect_to_obj()?;
+let response = json!({
+    "cues": Find_cue_by_episode_indexedCuesReturnType {
+        id: uuid_str(cues.id(), &arena),
+        label: cues.label(),
+        episode_id: cues.get_property("episode_id"),
+        group_id: cues.get_property("group_id"),
+        cue_version: cues.get_property("cue_version"),
+        discourse_class: cues.get_property("discourse_class"),
+        cue_text: cues.get_property("cue_text"),
+        supporting_spans_json: cues.get_property("supporting_spans_json"),
+        temporal_markers_json: cues.get_property("temporal_markers_json"),
+        quote_spans_json: cues.get_property("quote_spans_json"),
+        contradiction_keys_json: cues.get_property("contradiction_keys_json"),
+        first_spans_json: cues.get_property("first_spans_json"),
+        projection_state: cues.get_property("projection_state"),
+        cue_score: cues.get_property("cue_score"),
+        salience_score: cues.get_property("salience_score"),
+        projection_priority: cues.get_property("projection_priority"),
+        route_reason: cues.get_property("route_reason"),
+        hit_count: cues.get_property("hit_count"),
+        surfaced_count: cues.get_property("surfaced_count"),
+        selected_count: cues.get_property("selected_count"),
+        used_count: cues.get_property("used_count"),
+        near_miss_count: cues.get_property("near_miss_count"),
+        policy_score: cues.get_property("policy_score"),
+        projection_attempts: cues.get_property("projection_attempts"),
+        last_hit_at: cues.get_property("last_hit_at"),
+        last_feedback_at: cues.get_property("last_feedback_at"),
+        last_projected_at: cues.get_property("last_projected_at"),
+        created_at: cues.get_property("created_at"),
+        updated_at: cues.get_property("updated_at"),
+    }
+});
+txn.commit().map_err(|e| GraphError::New(format!("Failed to commit transaction: {:?}", e)))?;
+Ok(input.request.out_fmt.create_response(&response))
+}
+
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct delete_episode_vectorInput {

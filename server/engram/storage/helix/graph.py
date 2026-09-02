@@ -1422,10 +1422,7 @@ class HelixGraphStore:
                 episode_id = str(ep.get("episode_id") or "")
                 if episode_id:
                     try:
-                        cues = await self._query(
-                            "find_cue_by_episode",
-                            {"ep_id": episode_id, "gid": group_id},
-                        )
+                        cues = await self._find_cue_rows(episode_id, group_id)
                         for cue in cues:
                             cue_hid = self._extract_helix_id(cue)
                             if cue_hid is not None:
@@ -2413,10 +2410,7 @@ class HelixGraphStore:
 
     async def upsert_episode_cue(self, cue: EpisodeCue) -> None:
         # Check if cue already exists
-        existing = await self._query(
-            "find_cue_by_episode",
-            {"ep_id": cue.episode_id, "gid": cue.group_id},
-        )
+        existing = await self._find_cue_rows(cue.episode_id, cue.group_id)
         now = utc_now_iso()
         payload = _cue_model_payload(cue, now)
 
@@ -2444,10 +2438,7 @@ class HelixGraphStore:
                 self._cue_id_cache[cue.episode_id] = hid
 
     async def get_episode_cue(self, episode_id: str, group_id: str) -> EpisodeCue | None:
-        results = await self._query(
-            "find_cue_by_episode",
-            {"ep_id": episode_id, "gid": group_id},
-        )
+        results = await self._find_cue_rows(episode_id, group_id)
         if not results:
             return None
         d = results[0]
@@ -2473,10 +2464,7 @@ class HelixGraphStore:
                     _cue_quarantine_path(),
                 )
             return
-        existing = await self._query(
-            "find_cue_by_episode",
-            {"ep_id": episode_id, "gid": group_id},
-        )
+        existing = await self._find_cue_rows(episode_id, group_id)
         if not existing:
             return
         hid = self._extract_helix_id(existing[0])
@@ -2926,6 +2914,32 @@ class HelixGraphStore:
                 exc_info=True,
             )
             return None
+
+    def _find_cue_by_episode_route(self) -> str:
+        """Indexed cue lookup when the engine has it; the scanning route otherwise.
+
+        The scanning form (`N<EpisodeCue>::WHERE(...)`) decodes every cue in
+        the label and leaks ~8.5 MB natively per call (2026-09-02: the brain
+        mop child hit 11 GB in 75 s doing nothing else). The indexed form reads
+        one node via the secondary INDEX on episode_id.
+        """
+        if self._native_route_missing("find_cue_by_episode_indexed"):
+            return "find_cue_by_episode"
+        return "find_cue_by_episode_indexed"
+
+    async def _find_cue_rows(self, episode_id: str, group_id: str) -> list[dict]:
+        """Rows for one episode's cue: [] when absent, on either route.
+
+        The indexed route is compiled with collect_to_obj, so "no such cue" is
+        a `No value found` error instead of an empty list; map it back.
+        """
+        route = self._find_cue_by_episode_route()
+        try:
+            return await self._query(route, {"ep_id": episode_id, "gid": group_id})
+        except Exception as exc:  # NativeQueryError or transport error
+            if route == "find_cue_by_episode_indexed" and "No value found" in str(exc):
+                return []
+            raise
 
     def _native_route_missing(self, endpoint: str) -> bool:
         """True when the native engine definitively lacks *endpoint*.

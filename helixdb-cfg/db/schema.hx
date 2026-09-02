@@ -468,6 +468,14 @@ QUERY find_cue_by_episode(ep_id: String, gid: String) =>
     cues <- N<EpisodeCue>::WHERE(AND(_::{episode_id}::EQ(ep_id), _::{group_id}::EQ(gid)))
     RETURN cues
 
+// 2026-09-02: the WHERE form above compiles to a full EpisodeCue label scan
+// (n_from_type + filter_ref) that LEAKS its scanned bytes natively, ~8.5 MB
+// per call, on every capture and on every cue-hygiene item. This form uses
+// the secondary INDEX on episode_id (n_from_index): one node, no scan.
+QUERY find_cue_by_episode_indexed(ep_id: String, gid: String) =>
+    cues <- N<EpisodeCue>({episode_id: ep_id})::WHERE(_::{group_id}::EQ(gid))
+    RETURN cues
+
 // NOTE: unbounded (no k/limit param) — materializes every cue row; measured
 // 20s+ on an 8.7k-cue native brain. Stats-path only; budgeted drains must
 // probe per-episode via find_cue_by_episode instead.
