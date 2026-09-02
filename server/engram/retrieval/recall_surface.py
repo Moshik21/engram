@@ -647,7 +647,10 @@ async def _run_explicit_recall_with_budget(
         group_id=group_id,
         query=query,
         limit=limit,
-        timeout_seconds=min(0.75, max(0.2, timeout_seconds * 0.4)),
+        # A tenth of the wall: the pipeline's serial substage caps are sized to
+        # the FULL wall (see recall_deep_pipeline_wall_budget_enabled), so every
+        # millisecond spent here is taken from a stage that was budgeted for it.
+        timeout_seconds=min(0.4, max(0.1, timeout_seconds * 0.1)),
         fast_probe_when_degraded=True,
     )
     stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
@@ -767,47 +770,10 @@ async def _run_explicit_recall_with_budget(
                 stage_timings["project_file_soft_hold"] = float(len(packets))
                 # Continue into manager.recall() below with remaining budget.
 
-        # Cheap durable-entity rescue after preflight miss/timeout: name lookup
-        # for high-signal types without waiting on the full activation pipeline.
-        if not fallback_results and fallback_status in {"miss", "filtered", "timeout"}:
-            rescue_started = time.perf_counter()
-            rescue = await _durable_entity_name_rescue(
-                manager,
-                group_id=group_id,
-                query=query,
-                limit=limit,
-                fast_probe_when_degraded=True,
-            )
-            stage_timings["durable_entity_rescue"] = _elapsed_ms(rescue_started)
-            if rescue:
-                duration_ms = round((time.perf_counter() - started) * 1000, 4)
-                await record_manager_memory_operation(
-                    manager,
-                    group_id,
-                    MemoryOperationSample(
-                        operation="recall",
-                        source=operation_source,
-                        mode=operation_source,
-                        status="ok",
-                        duration_ms=duration_ms,
-                        timeout=False,
-                        degraded=False,
-                        budget_miss=budget.exceeded(duration_ms),
-                        budget_ms=budget.budget_ms,
-                        budget_tokens=budget.budget_tokens,
-                        result_count=len(rescue),
-                        packet_count=0,
-                    ),
-                )
-                return list(rescue), _recall_budget_metadata(
-                    budget,
-                    status="ok",
-                    duration_ms=duration_ms,
-                    budget_miss=budget.exceeded(duration_ms),
-                    stage_timings_ms=stage_timings,
-                    fallback_status="durable_entity_rescue",
-                    fallback_result_count=len(rescue),
-                )
+        # No second durable probe here: it was the same lookup as
+        # durable_entity_first with a longer cap (measured 2.0s live), and the
+        # deep pipeline's entity lane covers the miss. The post-timeout rescue
+        # below still exists for a pipeline that blows the wall.
 
     try:
         # Honor BOTH search stage budget and overall wall budget. Previously only
@@ -884,7 +850,9 @@ async def _run_explicit_recall_with_budget(
                 group_id=group_id,
                 query=query,
                 limit=limit,
-                timeout_seconds=1.25,
+                # Whatever is left of the wall, floored so a blown wall still
+                # gets one indexed exact-name probe rather than seconds more.
+                timeout_seconds=max(0.2, min(1.25, budget.stage_timeout_seconds(None))),
             )
             stage_timings["durable_entity_rescue_after_timeout"] = _elapsed_ms(rescue_started)
             if rescue:
@@ -1383,10 +1351,10 @@ async def _durable_entity_name_rescue(
                 timeout_seconds=timeout_seconds,
                 fast_probe_when_degraded=fast_probe_when_degraded,
             ),
-            # Aggregate wall bound: per-probe timeouts alone allowed up to
-            # 4 probes x ~1.9s of stacked waits (~7.6s theoretical) before
-            # the budgeted stages even started.
-            timeout=max(0.2, timeout_seconds * 2.0),
+            # Aggregate wall bound. ``timeout_seconds`` is the caller's cap for
+            # the WHOLE probe; it used to be doubled here, so "0.75s" cost 1.5s
+            # and the 1.25s post-timeout rescue cost 2.5s (measured 2026-09-02).
+            timeout=max(0.2, timeout_seconds),
         )
     except TimeoutError:
         return []
