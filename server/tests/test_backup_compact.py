@@ -70,8 +70,13 @@ def _fake_compact(after: dict[str, Any], *, compacted_bytes: int = 16384):
     async def brain_stats(data_dir: Path) -> dict[str, Any]:
         return after
 
-    return patch("engram.backup_cli._snapshot_and_compact", snapshot_and_compact), patch(
-        "engram.backup_cli._brain_stats", brain_stats
+    async def write_probe(data_dir: Path) -> str | None:
+        return None
+
+    return (
+        patch("engram.backup_cli._snapshot_and_compact", snapshot_and_compact),
+        patch("engram.backup_cli._brain_stats", brain_stats),
+        patch("engram.backup_cli._write_probe", write_probe),
     )
 
 
@@ -161,9 +166,9 @@ def test_refuses_while_the_shell_is_up(brain: Path) -> None:
 
 
 def test_stages_a_verified_copy_without_touching_the_original(brain: Path, capsys) -> None:
-    compact_patch, stats_patch = _fake_compact(STATS)
+    compact_patch, stats_patch, probe_patch = _fake_compact(STATS)
     shell_patch, serve_patch = _no_shell()
-    with compact_patch, stats_patch, shell_patch, serve_patch:
+    with compact_patch, stats_patch, probe_patch, shell_patch, serve_patch:
         assert _run(_args(data_dir=brain)) == 0
 
     report = json.loads(capsys.readouterr().out)
@@ -182,9 +187,9 @@ def test_stages_a_verified_copy_without_touching_the_original(brain: Path, capsy
 
 
 def test_apply_swaps_in_the_copy_and_keeps_the_original_aside(brain: Path, capsys) -> None:
-    compact_patch, stats_patch = _fake_compact(STATS)
+    compact_patch, stats_patch, probe_patch = _fake_compact(STATS)
     shell_patch, serve_patch = _no_shell()
-    with compact_patch, stats_patch, shell_patch, serve_patch:
+    with compact_patch, stats_patch, probe_patch, shell_patch, serve_patch:
         assert _run(_args(data_dir=brain, apply=True)) == 0
 
     report = json.loads(capsys.readouterr().out)
@@ -197,9 +202,9 @@ def test_apply_swaps_in_the_copy_and_keeps_the_original_aside(brain: Path, capsy
 def test_apply_refuses_to_swap_when_counts_differ(brain: Path, capsys) -> None:
     lossy = json.loads(json.dumps(STATS))
     lossy["projection_metrics"]["yield"]["linked_entity_count"] = 7000
-    compact_patch, stats_patch = _fake_compact(lossy)
+    compact_patch, stats_patch, probe_patch = _fake_compact(lossy)
     shell_patch, serve_patch = _no_shell()
-    with compact_patch, stats_patch, shell_patch, serve_patch:
+    with compact_patch, stats_patch, probe_patch, shell_patch, serve_patch:
         assert _run(_args(data_dir=brain, apply=True)) == 1
 
     report = json.loads(capsys.readouterr().out)
@@ -255,3 +260,19 @@ def test_client_compact_requires_the_native_transport() -> None:
     client._native_transport = None
     with pytest.raises(ImportError, match="native transport"):
         asyncio.run(client.compact("/tmp/nowhere"))
+
+
+def test_apply_refuses_to_swap_when_the_write_probe_fails(brain: Path) -> None:
+    """Count parity passed on copies that crashed on their first write (2026-09-02)."""
+    snap, stats, _probe = _fake_compact(STATS)
+
+    async def failing_probe(data_dir: Path) -> str | None:
+        return "write probe failed: SIGBUS-shaped store"
+
+    shell_patch, serve_patch = _no_shell()
+    probe_patch = patch("engram.backup_cli._write_probe", failing_probe)
+    with snap, stats, shell_patch, serve_patch, probe_patch:
+        rc = _run(_args(data_dir=brain, apply=True))
+    assert rc == 1
+    assert (brain / "data.mdb").exists(), "original must stay in place"
+    assert not list(brain.parent.glob("*.pre-compact.*"))

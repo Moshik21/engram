@@ -113,6 +113,17 @@ def configure_backup_parser(parser: argparse.ArgumentParser) -> None:
         default="text",
         help="Output format",
     )
+    _configure_ovfix_parser(sub)
+
+
+def _configure_ovfix_parser(sub) -> None:
+    p = sub.add_parser(
+        "ovfix",
+        help="Repair stale LMDB overflow-page headers left by a compaction (shell must be down)",
+    )
+    p.add_argument("--data-dir", type=Path, default=None, help="Native data dir override")
+    p.add_argument("--apply", action="store_true", help="Write the repair (default: report only)")
+    p.add_argument("--force-local", action="store_true", help="Skip the shell-down safety check")
 
 
 def _resolve_data_dir(override: Path | None) -> Path:
@@ -351,6 +362,112 @@ def _open_native_graph(data_dir: Path) -> Any:
     return graph_store
 
 
+# ─── overflow-header repair ───────────────────────────────────────
+# LMDB master3 (heed3) decides whether a page is the current txn's own dirty
+# page by comparing the txn stamp in the page header to the txn counter
+# (IS_MUTABLE). Its compacting copy rewrites leaf/branch pages with fresh
+# headers but copies overflow pages VERBATIM and restarts the counter, so
+# every pre-existing overflow record keeps a page number and a stamp from its
+# previous life. The first in-place update of such a record writes into the
+# read-only map: SIGBUS. Measured 2026-09-02 on the dogfood brain: 16 cue
+# records crashed the process on update (the cold brain died on the first of
+# them 203 times), a fresh engine.compact() copy crashed on EVERY record, and
+# a DROP was refused with MDB_PROBLEM. Rewriting pgno := position and
+# stamp := 1 (what compaction writes for the pages it does rewrite) on every
+# overflow-head page whose number disagrees with its position fixed all of it:
+# 16/16 updated, 10,747 no-op updates clean, delete + recreate clean.
+_LMDB_PAGE_SIZE = 16384
+_LMDB_P_OVERFLOW = 0x04
+
+
+def repair_overflow_headers(data_mdb: Path, *, apply: bool) -> list[tuple[int, int, int]]:
+    """Return (position, stale_pgno, stale_stamp) for each stale overflow head; fix if apply."""
+    import struct
+
+    size = data_mdb.stat().st_size
+    pages = size // _LMDB_PAGE_SIZE
+    stale: list[tuple[int, int, int]] = []
+    with open(data_mdb, "r+b" if apply else "rb") as fh:
+        for index in range(pages):
+            fh.seek(index * _LMDB_PAGE_SIZE)
+            header = fh.read(24)
+            if len(header) < 24:
+                break
+            pgno, stamp, _pad, flags, lower, upper = struct.unpack("<QQHHHH", header)
+            # overflow-head signature: flags == P_OVERFLOW, page count in
+            # `lower`, `upper` unused. A free page matching it is harmless to
+            # touch: LMDB never reads a free page's header before overwriting.
+            if flags != _LMDB_P_OVERFLOW or upper != 0 or not (1 <= lower <= 64):
+                continue
+            if pgno == index:
+                continue
+            stale.append((index, pgno, stamp))
+            if apply:
+                fh.seek(index * _LMDB_PAGE_SIZE)
+                fh.write(struct.pack("<QQ", index, 1))
+    return stale
+
+
+async def _write_probe(data_dir: Path) -> str | None:
+    """Prove the store accepts an in-place write; None when it does, else the error.
+
+    Count parity is a READ check; it passed on copies that crashed on their
+    first write. One identical-payload cue update exercises the overflow
+    overwrite path that failed.
+    """
+    import json
+
+    try:
+        import helix_native
+    except ImportError as exc:
+        return f"write probe unavailable: {exc}"
+    engine = helix_native.HelixEngine(data_dir=str(data_dir))
+    try:
+        raw = engine.query("find_cues_by_group", json.dumps({"gid": "default"}))
+        rows = json.loads(raw)
+        rows = rows if isinstance(rows, list) else next(iter(rows.values()), [])
+        if not rows:
+            return None
+        cue = rows[0]
+        skip = ("id", "label", "episode_id", "group_id", "created_at")
+        payload = {k: v for k, v in cue.items() if k not in skip}
+        payload["id"] = cue["id"]
+        engine.query("update_cue", json.dumps(payload))
+        return None
+    except Exception as exc:  # the probe's whole job is to surface this
+        return f"write probe failed: {exc}"
+    finally:
+        engine.close()
+
+
+async def _ovfix(args: argparse.Namespace) -> int:
+    data_dir = _resolve_data_dir(args.data_dir)
+    source = data_dir / "data.mdb"
+    if not source.is_file():
+        print(f"ovfix: no data.mdb under {data_dir} (native brain only)", file=sys.stderr)
+        return 2
+    from engram.brain_runtime import ExclusiveAccessError, require_exclusive_local_access
+
+    try:
+        with require_exclusive_local_access(force=bool(args.force_local)):
+            stale = repair_overflow_headers(source, apply=bool(args.apply))
+            probe = await _write_probe(data_dir) if args.apply else None
+    except ExclusiveAccessError as exc:
+        print(f"ovfix: {exc}", file=sys.stderr)
+        print("ovfix: stop the shell first (engramctl stop), then re-run.", file=sys.stderr)
+        return 2
+    verb = "repaired" if args.apply else "would repair"
+    print(f"ovfix: {verb} {len(stale)} stale overflow-head headers under {data_dir}")
+    for index, pgno, stamp in stale[:10]:
+        print(f"  page {index}: header pgno={pgno} stamp={stamp}")
+    if probe:
+        print(f"ovfix: {probe}", file=sys.stderr)
+        return 1
+    if args.apply:
+        print("ovfix: write probe OK")
+    return 0
+
+
 async def _snapshot_and_compact(data_dir: Path, staging: Path) -> tuple[dict[str, Any], int]:
     """Read exact counts and write the compacting copy from ONE engine open."""
     graph_store = _open_native_graph(data_dir)
@@ -429,8 +546,16 @@ async def _compact(args: argparse.Namespace) -> int:
                     shutil.copy2(sidecar, staging / sidecar.name)
                 elif sidecar.is_dir():
                     shutil.copytree(sidecar, staging / sidecar.name, dirs_exist_ok=True)
+            # The copy's overflow pages carry their old headers (see
+            # repair_overflow_headers); repair before anything reads them
+            # for writing, then prove a write works. Count parity alone
+            # passed on copies that crashed on their first write.
+            repaired = repair_overflow_headers(staging / "data.mdb", apply=True)
             after = await _brain_stats(staging)
             problems = compare_brain_counts(before, after)
+            probe = await _write_probe(staging)
+            if probe:
+                problems.append(probe)
             duration_s = round(time.monotonic() - started, 2)
 
             aside: Path | None = None
@@ -463,6 +588,8 @@ async def _compact(args: argparse.Namespace) -> int:
         "bloat_ratio": round(source_bytes / compacted_bytes, 3) if compacted_bytes else 0.0,
         "duration_s": duration_s,
         "verified_counts": len(_flatten_counts(before)),
+        "repaired_overflow_headers": len(repaired),
+        "write_probe": "ok" if not probe else probe,
         "verify_problems": problems,
         "applied": aside is not None,
         "previous_data_dir": str(aside) if aside is not None else None,
@@ -506,5 +633,7 @@ async def run_backup_command(args: argparse.Namespace) -> int:
         return _restore(args)
     if cmd == "compact":
         return await _compact(args)
+    if cmd == "ovfix":
+        return await _ovfix(args)
     print(f"Unknown backup command: {cmd}", file=sys.stderr)
     return 2
