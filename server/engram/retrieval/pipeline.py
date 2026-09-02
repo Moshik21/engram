@@ -544,6 +544,35 @@ def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | No
     return timeout_ms / 1000.0
 
 
+_STATS_MEMO_SECONDS = 300.0
+_STATS_BACKOFF_SECONDS = 60.0
+_STATS_MEMO_ATTR = "_recall_stats_memo"
+
+
+def _stats_memo_get(graph_store, group_id: str) -> tuple[int, str] | None:
+    """Return (total_entities, kind) if the store carries a live memo."""
+    memo = getattr(graph_store, _STATS_MEMO_ATTR, None)
+    entry = memo.get(group_id) if isinstance(memo, dict) else None
+    if not entry:
+        return None
+    expires_at, total_entities, kind = entry
+    if time.monotonic() >= expires_at:
+        return None
+    return int(total_entities), str(kind)
+
+
+def _stats_memo_set(graph_store, group_id: str, total_entities: int, kind: str, ttl: float) -> None:
+    """Memoise on the store object itself, so the memo dies with the store."""
+    memo = getattr(graph_store, _STATS_MEMO_ATTR, None)
+    if not isinstance(memo, dict):
+        memo = {}
+        try:
+            setattr(graph_store, _STATS_MEMO_ATTR, memo)
+        except (AttributeError, TypeError):
+            return
+    memo[group_id] = (time.monotonic() + ttl, int(total_entities), kind)
+
+
 async def _get_graph_stats_for_recall(graph_store, group_id: str) -> dict:
     """Fetch graph stats while supporting stores that do not accept exact=False."""
     try:
@@ -632,29 +661,45 @@ async def retrieve(
     planner_trace = None
     primary_search_timed_out = False
 
-    # Fetch entity count for dynamic pool sizing
+    # Fetch entity count for dynamic pool sizing. The count only feeds
+    # _scale_limit (sqrt(n/1000), so 1,122 entities is a x1.06 adjustment) and
+    # changes slowly, yet this probe ran serially in front of the primary
+    # search on EVERY recall: measured live 2026-09-02 it hit its 1500 ms cap
+    # on 8/10 recalls under an indexing drain and the primary search was then
+    # cancelled at 1.6 s. The result is memoised on the store for
+    # _STATS_MEMO_SECONDS; a timeout backs off for _STATS_BACKOFF_SECONDS so
+    # a contended store is not re-probed on every recall. The live probe is
+    # unchanged when it does run, because recall_stats_timeout is also the
+    # graph gate's honest store probe (see candidate_pool).
     total_entities = 0
     stats_started = time.perf_counter()
-    try:
-        timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_stats_timeout_ms")
-        stats = (
-            await asyncio.wait_for(
-                _get_graph_stats_for_recall(graph_store, group_id),
-                timeout=timeout_seconds,
+    memo = _stats_memo_get(graph_store, group_id)
+    if memo is not None:
+        total_entities, memo_kind = memo
+        _add_stage_timing(stage_timings_ms, f"recall_stats_{memo_kind}", stats_started)
+    else:
+        try:
+            timeout_seconds = _stage_timeout_seconds(cfg, "retrieval_stats_timeout_ms")
+            stats = (
+                await asyncio.wait_for(
+                    _get_graph_stats_for_recall(graph_store, group_id),
+                    timeout=timeout_seconds,
+                )
+                if timeout_seconds is not None
+                else await _get_graph_stats_for_recall(graph_store, group_id)
             )
-            if timeout_seconds is not None
-            else await _get_graph_stats_for_recall(graph_store, group_id)
-        )
-        _add_stage_timing(stage_timings_ms, "recall_stats", stats_started)
-        if isinstance(stats, dict):
-            total_entities = int(stats.get("entity_count", stats.get("entities", 0)) or 0)
-    except asyncio.TimeoutError:
-        _add_stage_timing(stage_timings_ms, "recall_stats_timeout", stats_started)
-    except asyncio.CancelledError:
-        _add_stage_timing(stage_timings_ms, "recall_stats_cancelled", stats_started)
-        raise
-    except Exception:
-        pass
+            _add_stage_timing(stage_timings_ms, "recall_stats", stats_started)
+            if isinstance(stats, dict):
+                total_entities = int(stats.get("entity_count", stats.get("entities", 0)) or 0)
+            _stats_memo_set(graph_store, group_id, total_entities, "cached", _STATS_MEMO_SECONDS)
+        except asyncio.TimeoutError:
+            _add_stage_timing(stage_timings_ms, "recall_stats_timeout", stats_started)
+            _stats_memo_set(graph_store, group_id, 0, "backoff", _STATS_BACKOFF_SECONDS)
+        except asyncio.CancelledError:
+            _add_stage_timing(stage_timings_ms, "recall_stats_cancelled", stats_started)
+            raise
+        except Exception:
+            pass
 
     # Step 0.1a: Graph-anchored query expansion (LLM-free).
     # Expands the query using real entities, relationships, and summaries from
