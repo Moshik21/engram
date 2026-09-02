@@ -382,6 +382,45 @@ QUERY find_episodes_by_session(sid: String) =>
         ::WHERE(_::{session_id}::EQ(sid))
     RETURN episodes
 
+// Ticket 34: exact episode lookup by business key, the Episode twin of
+// find_entity_by_entity_id above. Without it an episode cache miss can only be
+// served by scanning the whole group into Python.
+QUERY find_episode_by_episode_id(eid: String, gid: String) =>
+    episodes <- N<Episode>::WHERE(AND(_::{group_id}::EQ(gid), _::{episode_id}::EQ(eid)))
+    RETURN episodes
+
+// Ticket 22: BOUNDED episode page routes. `find_episodes_by_group` and friends
+// return every row in the group, so serving one 200-row listing page moved the
+// whole store across the PyO3/HTTP boundary -- ~60 MB per request on the live
+// ~9.4k-episode brain, which took the shell down twice. ORDER<Desc> + RANGE do
+// the sort and the truncation inside the engine, so only `limit` rows are ever
+// materialised by the caller.
+//
+// The cursor is keyset, not offset: `before` is an exclusive upper bound on
+// created_at (ISO-8601, lexicographically ordered), matching the pre-existing
+// Python semantics `created_at < cursor` exactly. Page 1 passes a sentinel that
+// sorts above every real timestamp. `LT` on a String property needs
+// `PartialOrd<String> for Value` -- see native/helix-repo/PATCHES.md #3.
+//
+// One route per reachable filter combination (the endpoint accepts `source` and
+// `status` independently and together); a Python-side re-filter cannot be used
+// here because it can only see rows the page already contains.
+QUERY find_episodes_by_group_page(gid: String, before: String, limit: I64) =>
+    episodes <- N<Episode>::WHERE(AND(_::{group_id}::EQ(gid), _::{created_at}::LT(before)))::ORDER<Desc>(_::{created_at})::RANGE(0, limit)
+    RETURN episodes
+
+QUERY find_episodes_by_source_page(gid: String, src: String, before: String, limit: I64) =>
+    episodes <- N<Episode>::WHERE(AND(_::{group_id}::EQ(gid), _::{source}::EQ(src), _::{created_at}::LT(before)))::ORDER<Desc>(_::{created_at})::RANGE(0, limit)
+    RETURN episodes
+
+QUERY find_episodes_by_status_page(gid: String, st: String, before: String, limit: I64) =>
+    episodes <- N<Episode>::WHERE(AND(_::{group_id}::EQ(gid), _::{status}::EQ(st), _::{created_at}::LT(before)))::ORDER<Desc>(_::{created_at})::RANGE(0, limit)
+    RETURN episodes
+
+QUERY find_episodes_by_source_status_page(gid: String, src: String, st: String, before: String, limit: I64) =>
+    episodes <- N<Episode>::WHERE(AND(_::{group_id}::EQ(gid), _::{source}::EQ(src), _::{status}::EQ(st), _::{created_at}::LT(before)))::ORDER<Desc>(_::{created_at})::RANGE(0, limit)
+    RETURN episodes
+
 QUERY update_episode_full(id: ID, status: String, updated_at: String, error: String, retry_count: I32, processing_duration_ms: I64, content: String, skipped_meta: Boolean, skipped_triage: Boolean, encoding_context_json: String, memory_tier: String, consolidation_cycles: I32, entity_coverage: F64, projection_state: String, last_projection_reason: String, last_projected_at: String, conversation_date: String, attachments_json: String) =>
     episode <- N<Episode>(id)
         ::UPDATE({status: status, updated_at: updated_at, error: error, retry_count: retry_count, processing_duration_ms: processing_duration_ms, content: content, skipped_meta: skipped_meta, skipped_triage: skipped_triage, encoding_context_json: encoding_context_json, memory_tier: memory_tier, consolidation_cycles: consolidation_cycles, entity_coverage: entity_coverage, projection_state: projection_state, last_projection_reason: last_projection_reason, last_projected_at: last_projected_at, conversation_date: conversation_date, attachments_json: attachments_json})

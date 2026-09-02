@@ -1363,6 +1363,23 @@ impl PartialOrd<u128> for Value {
     }
 }
 
+/// Ordering against a bare `String`, so `LT`/`GT`/`LTE`/`GTE` work on String
+/// properties. The grammar (`grammar.pest`) and the analyzer both accept
+/// `_::{some_string_field}::LT(param)`, and `Ord for Value` already compares
+/// `Value::String` lexicographically -- only this cross-type operator impl was
+/// missing, so the compiler emitted `Value < String` and rustc rejected it with
+/// E0277. Delegating to `Ord` (rather than returning `None` for non-strings)
+/// keeps the comparison TOTAL and consistent with `order_by_desc`, whose
+/// comparator also falls back to `Value::Empty`.
+/// `Value::String(..)` is constructed directly, not via `From<String>`, to match
+/// `PartialEq<String> for Value` -- `From` trims surrounding quotes and would
+/// make `EQ` and `LT` disagree about what the parameter is.
+impl PartialOrd<String> for Value {
+    fn partial_cmp(&self, other: &String) -> Option<Ordering> {
+        Some(self.cmp(&Value::String(other.clone())))
+    }
+}
+
 impl PartialOrd<ID> for Value {
     fn partial_cmp(&self, other: &ID) -> Option<Ordering> {
         match self {

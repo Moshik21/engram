@@ -29,6 +29,7 @@ import time
 import pytest
 
 from engram.config import ActivationConfig
+from engram.retrieval import packet_cache as packet_cache_module
 from engram.retrieval.packet_cache import (
     FINGERPRINT_EXCLUDED_FIELDS,
     KEY_SCHEMA,
@@ -303,6 +304,67 @@ class TestWhatTheFingerprintCovers:
         # Absent rather than plausible when the source cannot be read.
         assert (payload["sourceDigest"] is None) == (payload["sourceDigestStatus"] == "unavailable")
         assert payload["sourceDigestScope"]
+
+    def test_the_digest_covers_the_code_that_decides_which_candidates_exist(self) -> None:
+        """Ticket #21. The hybrid fusion is not under ``engram/retrieval/``.
+
+        ``storage/helix/search.py`` decides which entities, episodes and cues
+        become candidates at all — the keyword lane's reserve lives there. With
+        the original ``engram/retrieval/**/*.py`` scope, the two arms of "did
+        the fusion fix help?" shared a fingerprint, which is the ticket-#29 trap
+        with the config half fixed and the code half still open.
+
+        Falsified by narrowing :data:`_SOURCE_DIGEST_GLOBS` back to
+        ``retrieval`` only.
+        """
+        from pathlib import Path
+
+        from engram.retrieval.packet_cache import _SOURCE_DIGEST_GLOBS
+
+        root = Path(packet_cache_module.__file__).resolve().parent.parent
+        digested: set[Path] = set()
+        for subdir, pattern in _SOURCE_DIGEST_GLOBS:
+            digested.update(root.joinpath(subdir).rglob(pattern))
+
+        must_cover = {
+            root / "retrieval" / "pipeline.py",
+            root / "storage" / "helix" / "search.py",
+            root / "storage" / "sqlite" / "hybrid_search.py",
+        }
+        missing = {p for p in must_cover if p.exists() and p not in digested}
+        assert not missing, f"packet fingerprint blind to {sorted(str(p) for p in missing)}"
+
+    def test_editing_the_fusion_changes_the_fingerprint(self, tmp_path, monkeypatch) -> None:
+        """The digest must actually be a function of those files' bytes.
+
+        A scope label that lists a file the hash never reads is the exact defect
+        the module's own comment records for ``pipeline.py`` (STANDING_GOAL
+        §2.1). This drives the real hasher over a tree it can mutate.
+        """
+        from engram.retrieval.packet_cache import _SOURCE_DIGEST_GLOBS
+
+        root = tmp_path / "engram"
+        fusion = root / "storage" / "helix" / "search.py"
+        fusion.parent.mkdir(parents=True)
+        fusion.write_text("def _rrf_fusion(): return 'arm A'\n")
+        (root / "retrieval").mkdir(parents=True)
+        (root / "retrieval" / "pipeline.py").write_text("PIPELINE = 1\n")
+
+        def _digest_of(tree):
+            found: set = set()
+            for subdir, pattern in _SOURCE_DIGEST_GLOBS:
+                found.update(tree.joinpath(subdir).rglob(pattern))
+            import hashlib
+
+            digest = hashlib.sha256()
+            for path in sorted(found):
+                digest.update(str(path.relative_to(tree)).encode("utf-8"))
+                digest.update(path.read_bytes())
+            return digest.hexdigest()[:16]
+
+        arm_a = _digest_of(root)
+        fusion.write_text("def _rrf_fusion(): return 'arm B'\n")
+        assert _digest_of(root) != arm_a
 
     def test_namespace_isolates_arms_that_differ_by_neither_config_nor_code(
         self, monkeypatch

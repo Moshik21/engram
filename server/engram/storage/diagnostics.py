@@ -42,6 +42,17 @@ def _bm25_breaker_stats() -> dict[str, dict[str, Any]]:
         return {}
 
 
+def _rrf_lane_stats() -> dict[str, int]:
+    """Hybrid RRF fusion lane counters (empty when unavailable)."""
+    try:
+        from engram.storage.helix.search import get_rrf_lane_stats
+
+        return get_rrf_lane_stats()
+    except Exception:
+        # silent-ok: helix search module absent means no fusion stats to report.
+        return {}
+
+
 def default_helix_native_data_dir() -> Path:
     """Return the default path used by the bundled PyO3 Helix runtime."""
     return Path.home() / ".helix" / "engram-native"
@@ -246,6 +257,13 @@ class StorageDiagnostics:
                 # over-budget BM25 calls so zombie native queries stop starving
                 # the vector lanes. Skips/opens are counted here per backend.
                 "bm25Breaker": _bm25_breaker_stats(),
+                # Ticket #21: weighted RRF handed the vector lane an ~80-rank
+                # handicap over BM25, so the keyword lane could not place a
+                # document in any shipped page. ``ftsReservePromotions`` counts
+                # the documents the reserve rescued; 0 across many
+                # ``fusedPages`` means the two lanes agree, not that the
+                # reserve is unwired.
+                "hybridFusion": _rrf_lane_stats(),
                 "stageTimingsMs": {
                     "storage_counts": count_ms,
                     "storage_paths": path_ms,

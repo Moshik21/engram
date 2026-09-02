@@ -69,6 +69,23 @@ _FAST_BM25_LOW_SIGNAL_TERMS = frozenset(
 )
 
 
+# Hybrid-fusion counters. The keyword lane's reserve is exactly the kind of
+# mechanism that goes silently inert (STANDING_GOAL 2.2): it fires only when the
+# two lanes disagree, so "0 promotions" and "not wired up" look identical from
+# the outside. Surfaced through storage/diagnostics.py so the difference is
+# visible without a debugger.
+_RRF_LANE_STATS: dict[str, int] = {
+    "fused_pages": 0,
+    "fts_reserve_pages": 0,
+    "fts_reserve_promotions": 0,
+}
+
+
+def get_rrf_lane_stats() -> dict[str, int]:
+    """Return hybrid-fusion lane counters for external diagnostics."""
+    return dict(_RRF_LANE_STATS)
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors using numpy."""
     if len(a) != len(b) or len(a) == 0:
@@ -82,16 +99,87 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return float(np.dot(va, vb) / (na * nb))
 
 
+def fts_lane_reserve(limit: int, fts_weight: float, vec_weight: float) -> int:
+    """Slots of a ``limit``-sized fused page guaranteed to the keyword lane.
+
+    Ticket #21. Weighted RRF scores rank *r* at ``w/(k+r+1)``, so a lane weight
+    is really a RANK HANDICAP: the keyword lane's #1 document ties the vector
+    lane's document at rank ``k*(w_vec/w_fts - 1)`` — **80** at the shipped
+    ``0.3/0.7`` and ``k=60``. Any page shorter than that (every shipped one:
+    the episode lane asks for 30, the entity lane for `retrieval_top_k`) is
+    therefore filled end-to-end by the vector lane, and a BM25-only document —
+    a rare literal, an id, an error string, a function name — cannot place at
+    all. Nobody chose an 80-rank handicap; it is an artifact of pairing linear
+    merge weights with a rank-fusion formula (the lite path's ``_merge_rrf``
+    fuses UNWEIGHTED, which is why lite never had this defect).
+
+    The reserve reads the weight the way an operator would: ``fts_weight=0.3``
+    means the keyword lane is worth 30% of the page. ``0.0`` restores the
+    pre-fix behaviour exactly, and the knob is monotone in between.
+    """
+    total = fts_weight + vec_weight
+    if limit <= 0 or fts_weight <= 0 or total <= 0:
+        return 0
+    return max(1, min(limit, int(round(limit * fts_weight / total))))
+
+
+def _apply_fts_lane_reserve(
+    merged: list[tuple[str, float]],
+    fts_results: list[tuple[str, float]],
+    reserve: int,
+    limit: int,
+) -> list[tuple[str, float]]:
+    """Seat the keyword lane's top ``reserve`` documents, fill the rest by rank.
+
+    Reserved documents keep their fused score and their fused position — the
+    reserve decides who is on the page, never what they are worth, so the score
+    scale downstream consumers read (``pipeline.py`` multiplies the fused score
+    into the candidate weight) is untouched.
+
+    Self-limiting: a keyword hit the vector lane also found occupies one of its
+    own lane's reserved slots, so lanes that agree produce a byte-identical page
+    and only genuine disagreement spends a slot.
+    """
+    head = merged[:limit]
+    if reserve <= 0 or len(merged) <= limit:
+        return head
+    scores = dict(merged)
+    seated = {
+        item_id for item_id, _ in fts_results[:reserve] if item_id in scores
+    }
+    if not seated:
+        return head
+    promotions = sum(1 for item_id, _ in merged[limit:] if item_id in seated)
+    if not promotions:
+        return head
+    page = [row for row in merged if row[0] in seated]
+    for row in merged:
+        if len(page) >= limit:
+            break
+        if row[0] not in seated:
+            page.append(row)
+    page.sort(key=lambda x: (-x[1], x[0]))
+    _RRF_LANE_STATS["fts_reserve_promotions"] += promotions
+    _RRF_LANE_STATS["fts_reserve_pages"] += 1
+    return page[:limit]
+
+
 def _rrf_fusion(
     fts_results: list[tuple[str, float]],
     vec_results: list[tuple[str, float]],
     fts_weight: float,
     vec_weight: float,
     k: int = _RRF_K,
+    limit: int | None = None,
 ) -> list[tuple[str, float]]:
     """Reciprocal Rank Fusion: score(d) = sum_i w_i / (k + rank_i(d)).
 
     Returns (id, score) pairs sorted descending, normalized to 0-1.
+
+    When *limit* is given the page is truncated here rather than by the caller,
+    so the keyword lane's reserve (:func:`fts_lane_reserve`) can survive the
+    truncation. Callers that pass no *limit* get the unbounded fused list and
+    the pre-ticket-#21 behaviour.
     """
     scores: dict[str, float] = {}
     for rank, (item_id, _) in enumerate(fts_results):
@@ -101,6 +189,15 @@ def _rrf_fusion(
 
     # Stable tie-break by item id so equal RRF scores order deterministically.
     merged = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+
+    if limit is not None:
+        merged = _apply_fts_lane_reserve(
+            merged,
+            fts_results,
+            fts_lane_reserve(limit, fts_weight, vec_weight),
+            limit,
+        )
+        _RRF_LANE_STATS["fused_pages"] += 1
 
     # Normalize to 0-1
     if merged:
@@ -1672,12 +1769,13 @@ class HelixSearchIndex:
         if not vec_results:
             return self._normalize_scores(fts_results[:limit])
 
-        # RRF fusion
+        # RRF fusion (truncates internally so the keyword lane's reserve survives)
         fused = _rrf_fusion(
             fts_results,
             vec_results,
             self._fts_weight,
             self._vec_weight,
+            limit=limit,
         )
         return fused[:limit]
 
@@ -1722,6 +1820,7 @@ class HelixSearchIndex:
             vec_results,
             self._fts_weight,
             self._vec_weight,
+            limit=limit,
         )
         return fused[:limit]
 
@@ -1826,6 +1925,7 @@ class HelixSearchIndex:
             vec_results,
             self._fts_weight,
             self._vec_weight,
+            limit=limit,
         )
         return fused[:limit]
 

@@ -63,7 +63,21 @@ FINGERPRINT_EXCLUDED_FIELDS: dict[str, str] = {
 # Source tree hashed for the build component. Not a complete build identity —
 # it is the surface that decides packet CONTENT. Labelled in the identity
 # payload so a reader knows its scope instead of assuming it covers the repo.
-_SOURCE_DIGEST_SCOPE = "engram/retrieval/**/*.py"
+#
+# WIDENED 2026-07-24 (ticket #21). `engram/retrieval/**` alone was too narrow to
+# be honest: the hybrid RRF fusion that decides which entities, episodes and
+# cues even become candidates lives in `storage/*/search.py` and
+# `storage/sqlite/hybrid_search.py`. Ticket #21's fix — the keyword lane's
+# reserve — changes recall composition on every query and would have shared a
+# fingerprint with its own control. The two arms of "did the fusion fix help?"
+# would have been served each other's packets, which is exactly the trap ticket
+# #29 was opened to close.
+_SOURCE_DIGEST_GLOBS: tuple[tuple[str, str], ...] = (
+    ("retrieval", "*.py"),
+    ("storage", "search.py"),
+    ("storage", "hybrid_search.py"),
+)
+_SOURCE_DIGEST_SCOPE = "engram/retrieval/**/*.py + engram/storage/**/{search,hybrid_search}.py"
 _source_digest_cache: tuple[str | None, str] | None = None
 
 
@@ -131,7 +145,10 @@ def _source_digest() -> tuple[str | None, str]:
         # by the rglob above. The `if .exists()` made it a silent no-op, so the
         # advertised scope claimed a file the digest never hashed. Exactly the
         # accurate-or-absent rule (STANDING_GOAL §2.1) applied to a scope label.
-        paths = sorted(root.joinpath("retrieval").rglob("*.py"))
+        found: set[Path] = set()
+        for subdir, pattern in _SOURCE_DIGEST_GLOBS:
+            found.update(root.joinpath(subdir).rglob(pattern))
+        paths = sorted(found)
         digest = hashlib.sha256()
         for path in paths:
             digest.update(str(path.relative_to(root)).encode("utf-8"))

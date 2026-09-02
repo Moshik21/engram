@@ -113,13 +113,59 @@ def get_bm25_conflict_stats() -> dict[str, Any]:
 # within the last _EPISODE_SCAN_TTL_S, and hiding it costs a graph read, not a
 # wrong answer.
 #
-# The real fix is the missing route; it is a three-line schema.hx addition
-# mirroring find_entity_by_entity_id, and would make this scan a fallback
-# rather than the primary path.
+# UPDATE (ticket 34, this commit): the route now exists —
+# ``find_episode_by_episode_id`` is in schema.hx and in the built native
+# binary. It is wired into ``get_episode_by_id``, which is single-shot and
+# where it is unambiguously cheaper. It is deliberately NOT wired in front of
+# the shared scan below: ``episode_graph_signal`` resolves ~60 ids through
+# ``asyncio.gather``, so a per-id targeted lookup would issue 60 Rust-side
+# label scans on a 4-worker executor instead of the one shared scan this
+# block exists to guarantee — that is ticket 31's contention shape, and no
+# native fixture can be built to measure which side wins (ticket 35, ENOSPC).
+# Left as an explicit measured decision rather than a guess.
 # ---------------------------------------------------------------------------
 
 _EPISODE_SCAN_TTL_S = 5.0
 _EPISODE_SCAN_ALL_KEY = "\x00all"
+
+# ---------------------------------------------------------------------------
+# Ticket 22 — GET /api/episodes?limit=200 takes the shell down.
+#
+# `limit` is validated `ge=1, le=200`, so 200 is an ACCEPTED value and any
+# caller could kill the server with it. A prior fix bounded HYDRATION to the
+# page (406 ms/89.2 MB -> 207 ms/61.1 MB against a 167 ms/60.5 MB transport
+# floor) but left the cause untouched: `find_episodes_by_group` returns EVERY
+# row in the group, content included, so the store still materialised the
+# whole ~9.4k-episode brain in Python on every request.
+#
+# The bounded page routes do the ordering and the truncation inside the
+# engine, so at most `limit + 1` rows ever cross the transport. The cursor is
+# keyset (`created_at < before`), byte-identical to the Python semantics it
+# replaces; page 1 passes a sentinel that sorts above every real ISO-8601
+# timestamp.
+#
+# Routes are keyed by which filters the caller supplied, because a Python-side
+# re-filter can only see rows the page already contains — filtering after
+# truncation returns short pages and a wrong cursor.
+# ---------------------------------------------------------------------------
+
+_EPISODE_PAGE_MAX_CURSOR = "9999-12-31T23:59:59.999999+00:00"
+_EPISODE_PAGE_ROUTES: dict[tuple[bool, bool], str] = {
+    (False, False): "find_episodes_by_group_page",
+    (True, False): "find_episodes_by_source_page",
+    (False, True): "find_episodes_by_status_page",
+    (True, True): "find_episodes_by_source_status_page",
+}
+# Bounded vs full-scan listing counts. The unbounded path is a LIVE state, not
+# a hypothetical: any install whose native binary predates these routes falls
+# back to it, so it has to be visible rather than silently slow.
+_EPISODE_PAGE_STATS: dict[str, int] = {"bounded": 0, "unbounded_fallback": 0}
+_EPISODE_PAGE_FALLBACK_WARNED = False
+
+
+def get_episode_page_stats() -> dict[str, int]:
+    """Counts of bounded vs full-group-scan episode listings."""
+    return dict(_EPISODE_PAGE_STATS)
 
 
 def _parse_dt(value: str | None) -> datetime | None:
@@ -2179,6 +2225,30 @@ class HelixGraphStore:
         return episodes[offset : offset + limit]
 
     async def get_episode_by_id(self, episode_id: str, group_id: str) -> Episode | None:
+        # Ticket 34: one targeted native lookup returning at most one row. The
+        # id-resolution fallback below reaches this episode only by scanning the
+        # whole group into Python, which is the ticket-22 memory profile paid to
+        # fetch a single episode.
+        if not self._native_route_missing("find_episode_by_episode_id"):
+            answered = True
+            try:
+                rows = await self._query(
+                    "find_episode_by_episode_id",
+                    {"eid": episode_id, "gid": group_id},
+                )
+            except Exception as exc:
+                if not self._is_missing_route_error(exc):
+                    raise
+                answered, rows = False, []
+            if answered:
+                # The route applies the same (episode_id, group_id) predicate the
+                # fallback scan would, so an empty answer is a real absence — a
+                # full group scan cannot turn it into a hit, only into 60 MB.
+                for row in rows:
+                    self._cache_episode(self._extract_helix_id(row), episode_id, group_id)
+                    return self._dict_to_episode(row, group_id)
+                return None
+
         helix_id = await self._resolve_episode_helix_id(episode_id, group_id)
         if helix_id is None:
             return None
@@ -2803,6 +2873,79 @@ class HelixGraphStore:
             )
             return None
 
+    def _native_route_missing(self, endpoint: str) -> bool:
+        """True when the native engine definitively lacks *endpoint*.
+
+        False means present OR unknown (HTTP transport / no engine handle);
+        unknown callers proceed and rely on the error path. Mirrors
+        ``HelixSearchIndex._native_route_missing``.
+        """
+        transport = getattr(self._helix_client, "_native_transport", None)
+        engine = getattr(transport, "_engine", None)
+        has_route = getattr(engine, "has_route", None)
+        if engine is None or not callable(has_route):
+            return False
+        try:
+            return not bool(has_route(endpoint))
+        except Exception:  # silent-ok: capability probe only; treat as unknown
+            return False
+
+    @staticmethod
+    def _is_missing_route_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return any(marker in text for marker in ("not found", "no handler", "unknown", "404"))
+
+    async def _query_episode_page(
+        self,
+        group_id: str,
+        cursor: str | None,
+        limit: int,
+        source: str | None,
+        status: str | None,
+    ) -> tuple[list[Episode], str | None] | None:
+        """One bounded page straight out of the engine (ticket 22).
+
+        Returns ``None`` — never a partial or empty page — when this engine
+        does not carry the route, so the caller can fall back to the full-scan
+        path. An empty *page* is a legitimate answer and is returned as one.
+        """
+        endpoint = _EPISODE_PAGE_ROUTES[(bool(source), bool(status))]
+        if self._native_route_missing(endpoint):
+            return None
+
+        payload: dict[str, Any] = {
+            "gid": group_id,
+            "before": cursor or _EPISODE_PAGE_MAX_CURSOR,
+            # One extra row is the has-more probe: the pre-existing contract
+            # emits a cursor only when more rows remain beyond the page.
+            "limit": int(limit) + 1,
+        }
+        if source:
+            payload["src"] = source
+        if status:
+            payload["st"] = status
+
+        try:
+            rows = await self._query(endpoint, payload)
+        except Exception as exc:
+            if self._is_missing_route_error(exc):
+                return None
+            raise
+
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        for row in rows:
+            self._cache_episode(
+                self._extract_helix_id(row),
+                row.get("episode_id", ""),
+                row.get("group_id") or group_id,
+            )
+        episodes = [self._dict_to_episode(row, group_id) for row in rows]
+        next_cursor = None
+        if has_more and episodes:
+            next_cursor = episodes[-1].created_at.isoformat()
+        return episodes, next_cursor
+
     async def get_episodes_paginated(
         self,
         group_id: str | None = None,
@@ -2811,6 +2954,27 @@ class HelixGraphStore:
         source: str | None = None,
         status: str | None = None,
     ) -> tuple[list[Episode], str | None]:
+        # Ticket 22: bounded page route first. Only the group-scoped listing has
+        # one — the group-less variant is not reachable from the REST endpoint
+        # (the tenant always supplies a group) and is left on the legacy path.
+        if group_id:
+            page = await self._query_episode_page(group_id, cursor, limit, source, status)
+            if page is not None:
+                _EPISODE_PAGE_STATS["bounded"] += 1
+                return page
+            global _EPISODE_PAGE_FALLBACK_WARNED
+            _EPISODE_PAGE_STATS["unbounded_fallback"] += 1
+            if not _EPISODE_PAGE_FALLBACK_WARNED:
+                _EPISODE_PAGE_FALLBACK_WARNED = True
+                logger.warning(
+                    "Episode listing fell back to a full group scan: this engine "
+                    "lacks the bounded page route %s. Every page materialises the "
+                    "whole group in Python (~60MB on a 9.4k-episode brain, the "
+                    "ticket-22 crash profile). Rebuild native (`make build-native`) "
+                    "or redeploy the Helix instance to pick the route up.",
+                    _EPISODE_PAGE_ROUTES[(bool(source), bool(status))],
+                )
+
         if group_id and source:
             all_eps = await self._query(
                 "find_episodes_by_source",
