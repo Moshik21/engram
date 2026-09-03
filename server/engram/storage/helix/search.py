@@ -129,40 +129,68 @@ def _apply_fts_lane_reserve(
     reserve: int,
     limit: int,
 ) -> list[tuple[str, float]]:
-    """Seat the keyword lane's top ``reserve`` documents, fill the rest by rank.
+    """Seat the keyword lane's top ``reserve`` documents INSIDE the consumer's cut.
 
-    Reserved documents keep their fused score and their fused position — the
-    reserve decides who is on the page, never what they are worth, so the score
-    scale downstream consumers read (``pipeline.py`` multiplies the fused score
-    into the candidate weight) is untouched.
+    Seated documents take spread positions across the page (1, 1+step, ...,
+    the vector lane's best stays first) and the fused score of the position
+    they now occupy, so every downstream cut -- ``pipeline.py`` keeps the top
+    ``episode_retrieval_max`` by score and multiplies that score into the
+    candidate weight -- sees the same order the page shows.
 
-    Self-limiting: a keyword hit the vector lane also found occupies one of its
-    own lane's reserved slots, so lanes that agree produce a byte-identical page
-    and only genuine disagreement spends a slot.
+    Measured 2026-09-03 on the dogfood brain ("why was Thompson sampling
+    removed"): the keyword lane held the answer at ranks 3-4; the earlier
+    reserve put those rows on the 15-row page at positions 14-15 with fused
+    scores 0.30 against 0.65-1.0 for eleven vector rows from other projects,
+    and the pipeline's top-5 cut dropped them every time. A seat that keeps
+    the fused position and score is a seat on a page nobody reads that far.
+
+    Self-limiting: a keyword hit the vector lane also ranked inside the cut
+    keeps its own position, so lanes that agree produce a byte-identical page.
     """
     head = merged[:limit]
-    if reserve <= 0 or len(merged) <= limit:
+    if reserve <= 0 or not fts_results:
         return head
     scores = dict(merged)
-    seated = {
-        item_id for item_id, _ in fts_results[:reserve] if item_id in scores
-    }
-    if not seated:
+    seated_ids = [item_id for item_id, _ in fts_results[:reserve] if item_id in scores]
+    if not seated_ids:
         return head
-    promotions = sum(1 for item_id, _ in merged[limit:] if item_id in seated)
-    if not promotions:
+    step = max(1, limit // reserve) if reserve < limit else 1
+    seats = {1 + n * step for n in range(len(seated_ids)) if 1 + n * step < limit}
+    if reserve >= limit:
+        seats = set(range(min(limit, len(seated_ids))))
+    head_positions = {item_id: pos for pos, (item_id, _) in enumerate(head)}
+    # A seated row already inside its seat or above it keeps its own place.
+    needs_seat = [
+        item_id
+        for item_id in seated_ids
+        if head_positions.get(item_id, limit) > (1 + seated_ids.index(item_id) * step)
+    ]
+    if not needs_seat:
         return head
-    page = [row for row in merged if row[0] in seated]
-    for row in merged:
-        if len(page) >= limit:
+    promotions = sum(1 for item_id in needs_seat if item_id not in head_positions)
+    pending = list(needs_seat)
+    page: list[tuple[str, float]] = []
+    others = iter(row for row in merged if row[0] not in needs_seat)
+    for pos in range(limit):
+        if pos in seats and pending:
+            page.append((pending.pop(0), 0.0))
+            continue
+        nxt = next(others, None)
+        if nxt is None:
             break
-        if row[0] not in seated:
-            page.append(row)
-    page.sort(key=lambda x: (-x[1], x[0]))
+        page.append(nxt)
+    while pending and len(page) < limit:
+        page.append((pending.pop(0), 0.0))
+    # The seat is worth what the position was worth: re-derive every score
+    # from the original page's score at that position (monotone in position).
+    original = [score for _, score in head]
+    rescored = [
+        (item_id, original[pos] if pos < len(original) else original[-1] if original else 0.0)
+        for pos, (item_id, _) in enumerate(page)
+    ]
     _RRF_LANE_STATS["fts_reserve_promotions"] += promotions
     _RRF_LANE_STATS["fts_reserve_pages"] += 1
-    return page[:limit]
-
+    return rescored[:limit]
 
 def _rrf_fusion(
     fts_results: list[tuple[str, float]],

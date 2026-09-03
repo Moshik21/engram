@@ -94,6 +94,7 @@ class RecallService:
         priming_buffer: dict[str, tuple[float, float]],
         goal_cache: object | None,
         memory_need: object | None,
+        project_path: str | None = None,
     ) -> RecallServiceResult:
         """Run retrieval, primary materialization, and post-processing."""
         fetch_limit = recall_fetch_limit(
@@ -148,6 +149,7 @@ class RecallService:
                 conv_context=conv_context,
                 priming_buffer=priming_buffer if self._cfg.retrieval_priming_enabled else None,
                 goal_cache=goal_cache,
+                project_path=project_path,
                 record_feedback=record_feedback,
                 memory_need=memory_need,
                 stage_timings_ms=stage_timings_ms,

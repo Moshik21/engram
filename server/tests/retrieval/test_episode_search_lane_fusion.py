@@ -296,25 +296,29 @@ async def test_fts_weight_zero_restores_the_pre_fix_page_exactly():
 
 
 @pytest.mark.asyncio
-async def test_the_reserve_does_not_touch_the_score_scale():
-    """Downstream multiplies the fused score into a candidate weight.
-
-    ``pipeline.py`` Step 1.1 does ``weight_semantic * sem_sim * mult``, so a
-    reserve that inflated a promoted document's score would be a *second*
-    silent distortion. Seated documents keep the score the fusion gave them.
+async def test_a_seated_keyword_document_is_inside_the_consumers_cut_and_worth_its_seat():
+    """2026-09-03: the earlier reserve kept seated rows' fused position and
+    score, which put the answer at page position 14 of 15 with score 0.30 --
+    on the page, and outside every downstream cut (pipeline keeps the top
+    episode_retrieval_max by score). A seat is a position inside the cut and
+    the score that position was worth; the vector lane's best stays first.
     """
     limit = _shipped_episode_lane_limit(ActivationConfig())
     bm25_ids, vector_ids = _disjoint_lanes(limit)
 
     index = _index(bm25_ids, vector_ids)
     fused = await index.search_episodes("q", group_id=GROUP, limit=limit)
-    scores = dict(fused)
+    ids = [item_id for item_id, _ in fused]
+    scores = [s for _, s in fused]
 
-    assert fused[0][1] == pytest.approx(1.0)
-    assert [s for _, s in fused] == sorted((s for _, s in fused), reverse=True)
-    # TARGET's raw RRF score is 0.3/61; the top document's is 0.7/61.
-    assert scores[TARGET] == pytest.approx((0.3 / 61) / (0.7 / 61))
-
+    assert ids[0] == vector_ids[0], "the vector lane's best stays first"
+    assert ids[1] == TARGET, "the keyword lane's best sits second"
+    assert scores == sorted(scores, reverse=True), "page order is score order downstream"
+    assert scores[1] > scores[2] > 0.0
+    cut = ActivationConfig().episode_retrieval_max
+    reserve = fts_lane_reserve(limit, 0.3, 0.7)
+    seated = [item_id for item_id in ids[:cut] if item_id in bm25_ids[:reserve]]
+    assert seated, "at least one keyword document survives the pipeline's own cut"
 
 @pytest.mark.asyncio
 async def test_the_reserve_reports_what_it_did():

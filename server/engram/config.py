@@ -645,6 +645,21 @@ class ActivationConfig(BaseModel):
     episode_retrieval_enabled: bool = Field(default=True)
     episode_retrieval_weight: float = Field(default=0.8, ge=0.0, le=1.0)
     episode_retrieval_max: int = Field(default=5, ge=0, le=20)
+    recall_other_project_multiplier: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Score multiplier for episode candidates whose capture header names a "
+            "DIFFERENT project than the recall's project_path. Measured 2026-09-03 on "
+            "the dogfood brain (Engram = 12 of the 200 most recent captures): for "
+            "'why was Thompson sampling removed' the vector lane's 15 candidates were "
+            "all other projects' text and the two episodes holding the answer sat at "
+            "fused positions 8 and 11. Episodes carry no project field; the hook's "
+            "'[role|project]' header is the marker. 1.0 disables; unknown headers are "
+            "never penalised."
+        ),
+    )
     recall_episode_content_limit: int = Field(
         default=15000,
         ge=0,

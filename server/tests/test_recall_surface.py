@@ -97,6 +97,7 @@ async def test_api_recall_surface_threads_operation_source_into_manager_recall()
     assert result["diagnostics"]["stageTimingsMs"]["recallRetrieve"] == 2.5
     manager.recall.assert_awaited_once_with(
         query="Engram recall",
+        project_path=None,
         group_id="native_brain",
         limit=3,
         interaction_type="surfaced",
@@ -138,6 +139,7 @@ async def test_mcp_recall_surface_attaches_near_misses_and_surprises() -> None:
     assert result["surprise_connections"] == [{"entity": "Surprise"}]
     manager.recall.assert_awaited_once_with(
         query="Engram recall",
+        project_path=None,
         group_id="native_brain",
         limit=3,
         interaction_type="surfaced",

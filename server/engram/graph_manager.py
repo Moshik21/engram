@@ -2134,6 +2134,7 @@ class GraphManager:
         interaction_type: str | None = None,
         interaction_source: str = "recall",
         memory_need=None,
+        project_path: str | None = None,
     ) -> list[dict]:
         """Retrieve relevant entities and their context using activation-aware scoring."""
         started = time.perf_counter()
@@ -2155,6 +2156,7 @@ class GraphManager:
                 priming_buffer=self._priming_buffer,
                 goal_cache=self._goal_priming_cache,
                 memory_need=memory_need,
+                project_path=project_path,
             )
         except asyncio.CancelledError:
             self._last_recall_stage_timings_ms = self._recall_service.last_stage_timings()

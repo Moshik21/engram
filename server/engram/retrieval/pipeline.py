@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 import time
 from datetime import timezone
 from typing import TYPE_CHECKING, Any
@@ -544,6 +545,60 @@ def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | No
     return timeout_ms / 1000.0
 
 
+_PROJECT_HEADER_RE = re.compile(r"^\[(?P<role>[A-Za-z][A-Za-z-]*)\|(?P<project>[^\]|\n]{1,200})")
+
+
+def _project_of_content(content: str | None) -> str | None:
+    """The project named by a capture header like '[assistant|Engram] ...', else None."""
+    m = _PROJECT_HEADER_RE.match((content or "").lstrip())
+    if not m:
+        return None
+    return m.group("project").strip() or None
+
+
+async def _episode_project_multipliers(
+    graph_store,
+    group_id: str,
+    episode_ids: list[str],
+    project_path: str | None,
+    cfg: ActivationConfig,
+    stage_timings_ms: dict[str, float] | None,
+) -> dict[str, float]:
+    """Per-episode score multiplier from the capture header's project name.
+
+    See ``recall_other_project_multiplier``. Reads go through the helix-id
+    cache (0 ms after the warm), and an episode whose header names no project
+    keeps 1.0 -- only a header that names a DIFFERENT project is demoted.
+    """
+    mult = float(getattr(cfg, "recall_other_project_multiplier", 1.0))
+    if not project_path or mult >= 1.0 or not episode_ids:
+        return {}
+    from pathlib import Path
+
+    project = Path(project_path).expanduser().name.strip().lower()
+    if not project:
+        return {}
+    get_episode = getattr(graph_store, "get_episode_by_id", None)
+    if not callable(get_episode):
+        return {}
+    started = time.perf_counter()
+    out: dict[str, float] = {}
+    demoted = 0
+    for ep_id in episode_ids:
+        try:
+            episode = await get_episode(ep_id, group_id)
+        except Exception:
+            continue
+        named = _project_of_content(getattr(episode, "content", None))
+        if named and named.lower() != project:
+            out[ep_id] = mult
+            demoted += 1
+    if stage_timings_ms is not None:
+        _add_stage_timing(stage_timings_ms, "recall_project_scope", started)
+        _set_stage_metric(stage_timings_ms, "recall_project_scope_demoted", demoted)
+    return out
+
+
 _STATS_MEMO_SECONDS = 300.0
 _STATS_BACKOFF_SECONDS = 60.0
 _STATS_MEMO_ATTR = "_recall_stats_memo"
@@ -641,6 +696,7 @@ async def retrieve(
     budget_profile: str | None = None,
     entity_candidates_out: list[tuple[str, float]] | None = None,
     entity_signal_out: dict[str, EntityGraphSignal] | None = None,
+    project_path: str | None = None,
 ) -> list[ScoredResult]:
     """Full retrieval pipeline:
 
@@ -1127,8 +1183,21 @@ async def retrieve(
                     episode_search_started,
                 )
                 _add_stage_timing(stage_timings_ms, "recall_embed", episode_search_started)
+                project_mult = await _episode_project_multipliers(
+                    graph_store,
+                    group_id,
+                    [ep_id for ep_id, _ in ep_results],
+                    project_path,
+                    cfg,
+                    stage_timings_ms,
+                )
                 for ep_id, sem_sim in ep_results:
-                    ep_score = original_weight_semantic * sem_sim * _ep_score_weight
+                    ep_score = (
+                        original_weight_semantic
+                        * sem_sim
+                        * _ep_score_weight
+                        * project_mult.get(ep_id, 1.0)
+                    )
                     episode_candidates.append(
                         ScoredResult(
                             node_id=ep_id,
