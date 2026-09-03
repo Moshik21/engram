@@ -136,9 +136,12 @@ class TestEngramConfig:
 
     def test_default_env_file_order_includes_repo_root(self):
         repo_root_env = str(Path(__file__).resolve().parents[2] / ".env")
-        assert DEFAULT_ENV_FILES[0].endswith(".engram/.env")
+        # lowest -> highest: cwd scratch, repo-root, INSTALL config. The
+        # install file must be the highest dotenv so a CLI run resolves the
+        # same config the LaunchAgent exports into its environment.
+        assert DEFAULT_ENV_FILES[0] == ".env"
         assert DEFAULT_ENV_FILES[1] == repo_root_env
-        assert DEFAULT_ENV_FILES[2] == ".env"
+        assert DEFAULT_ENV_FILES[2].endswith(".engram/.env")
 
 
 class TestActivationConfig:

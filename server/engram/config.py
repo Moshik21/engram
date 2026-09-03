@@ -12,10 +12,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from engram.models.activation import DEFAULT_USAGE_TIER_WEIGHTS
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# Lowest to highest precedence (pydantic-settings: later files win). The
+# INSTALL config is highest so every launcher reads the same machine: the
+# LaunchAgent exports ~/.engram/.env into the real process environment, which
+# outranks every dotenv, and until 2026-09-03 a CLI run let the repo or cwd
+# .env shadow it instead -- three different effective configs for one brain
+# (config_provenance.py, ticket 24). Real environment variables still outrank
+# all three, so a deliberate per-command override is `VAR=... engram ...`.
 DEFAULT_ENV_FILES = (
-    str(Path.home() / ".engram" / ".env"),  # global config
+    ".env",  # cwd: developer scratch, lowest
     str(_REPO_ROOT / ".env"),  # repo-root local config
-    ".env",  # cwd override
+    str(Path.home() / ".engram" / ".env"),  # install config: highest dotenv
 )
 
 # Default DecisionMaterializer vocabulary (Engram dogfood project). 'predicates'
