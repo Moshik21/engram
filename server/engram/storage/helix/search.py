@@ -224,7 +224,14 @@ _BM25_BREAKER_BUDGET_MS = 1000.0
 # A BM25 call cancelled mid-flight after this long counts as over-budget too:
 # the caller's lane budget blew, and on the native transport the call cannot be
 # cancelled — it keeps running as a zombie on the small native thread pool.
-_BM25_BREAKER_CANCEL_STRIKE_MS = 400.0
+# A caller abandoning a BM25 call is only evidence against the LANE when the
+# call had already outlived the lane's own budget. Measured 2026-09-03: every
+# strike that re-opened the breaker was `cancelled=True` at 402 ms -- the
+# fast-preflight lane launching BM25 and cancelling it at its own 400 ms
+# timeout, then two such strikes = OPEN, six seconds after a 9 ms probe had
+# CLOSED it. Equal to the budget, so a cancellation counts iff BM25 itself
+# was slow.
+_BM25_BREAKER_CANCEL_STRIKE_MS = _BM25_BREAKER_BUDGET_MS
 _BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
 _BM25_BREAKER_RETRY_AFTER_SECONDS = 60.0  # half-open probe interval
 
