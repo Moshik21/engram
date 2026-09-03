@@ -202,7 +202,8 @@ async def test_short_preflight_page_does_not_replace_a_non_empty_pipeline() -> N
 
 
 @pytest.mark.asyncio
-async def test_pipeline_first_hedge_never_consults_the_preflight_when_the_pipeline_is_fast() -> None:
+async def test_pipeline_first_hedge_never_consults_the_preflight_when_the_pipeline_is_fast(
+) -> None:
     """2026-09-03 meter: ts-kill's answer was in the pipeline's top-3 while the
     live call returned the preflight's full page in 15 ms without it. The
     preflight is a latency hedge and runs only when the pipeline has not
@@ -211,14 +212,23 @@ async def test_pipeline_first_hedge_never_consults_the_preflight_when_the_pipeli
     from unittest.mock import Mock
 
     calls = {"preflight": 0}
-    row = {"result_type": "episode", "episode": {"id": "ep_ts", "content": "Thompson noise"}, "score": 0.9}
+    row = {
+        "result_type": "episode",
+        "episode": {"id": "ep_ts", "content": "Thompson noise"},
+        "score": 0.9,
+    }
 
     async def fast_recall(**_k):
         return [row]
 
     async def preflight(**_k):
         calls["preflight"] += 1
-        return [{"result_type": "cue_episode", "cue": {"cue_text": "Thompson (cue)"}, "score": 0.5}] * 3
+        cue = {
+            "result_type": "cue_episode",
+            "cue": {"cue_text": "Thompson sampling removed (cue)"},
+            "score": 0.5,
+        }
+        return [cue] * 3
 
     async def none(*_a, **_k):
         return []
@@ -237,7 +247,7 @@ async def test_pipeline_first_hedge_never_consults_the_preflight_when_the_pipeli
         cfg=manager.get_memory_need_config(), operation_source="api_recall",
     )
     assert results == [row]
-    assert calls["preflight"] == 0, "a fast pipeline must not be pre-empted by the preflight"
+    assert calls["preflight"] == 0, "a fast pipeline must not be pre-empted"
     assert "recall_pipeline_first_hit" in md["stage_timings_ms"]
 
     async def slow_recall(**_k):
