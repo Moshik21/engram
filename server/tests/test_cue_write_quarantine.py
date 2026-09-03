@@ -83,3 +83,34 @@ async def test_indexed_cue_lookup_maps_no_value_found_to_empty() -> None:
     store._query = query_other
     with pytest.raises(RuntimeError):
         await store._find_cue_rows("ep_x", "default")
+
+
+@pytest.mark.asyncio
+async def test_exact_name_lookup_prefers_the_indexed_route_and_maps_absence(tmp_path) -> None:
+    """The durable probe's exact-name lookup is one index read, not a label scan."""
+    from types import MethodType
+
+    from engram.storage.helix.graph import HelixGraphStore
+
+    calls: list[str] = []
+
+    async def query(endpoint, payload):
+        calls.append(endpoint)
+        if endpoint == "find_entity_exact_name_indexed":
+            if payload["name_exact"] == "Ghost":
+                raise RuntimeError("Query failed: Graph error: No value found")
+            return [{"id": 7, "entity_id": "ent_k", "name": "Konner", "group_id": "default"}]
+        raise AssertionError(f"scan route must not run: {endpoint}")
+
+    engine = SimpleNamespace(has_route=lambda n: n == "find_entity_exact_name_indexed")
+    store = SimpleNamespace(
+        _query=query,
+        _helix_client=SimpleNamespace(_native_transport=SimpleNamespace(_engine=engine)),
+        _dict_to_entity=lambda d, g: SimpleNamespace(id=d["entity_id"], name=d["name"]),
+    )
+    for name in ("_native_route_missing", "_is_missing_route_error", "find_entities_exact_name"):
+        setattr(store, name, MethodType(getattr(HelixGraphStore, name), store))
+    hits = await store.find_entities_exact_name("Konner", "default")
+    assert [h.id for h in hits] == ["ent_k"]
+    assert await store.find_entities_exact_name("Ghost", "default") == []
+    assert calls == ["find_entity_exact_name_indexed"] * 2

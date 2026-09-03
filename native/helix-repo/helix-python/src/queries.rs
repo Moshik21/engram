@@ -1206,6 +1206,12 @@ schema: Some(r#"{
         "cues"
       ]
     },
+    {
+      "name": "find_entity_exact_name_indexed",
+      "parameters": {
+        "gid": "String",
+        "name_exact": "String"
+      },
       "returns": []
     },
     {
@@ -5749,6 +5755,95 @@ let response = json!({
 txn.commit().map_err(|e| GraphError::New(format!("Failed to commit transaction: {:?}", e)))?;
 Ok(input.request.out_fmt.create_response(&response))
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct find_entity_exact_name_indexedInput {
+
+pub name_exact: String,
+pub gid: String
+}
+#[derive(Serialize, Default)]
+pub struct Find_entity_exact_name_indexedEntityReturnType<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    pub name: Option<&'a Value>,
+    pub group_id: Option<&'a Value>,
+    pub entity_type: Option<&'a Value>,
+    pub canonical_identifier: Option<&'a Value>,
+    pub entity_id: Option<&'a Value>,
+    pub summary: Option<&'a Value>,
+    pub attributes_json: Option<&'a Value>,
+    pub created_at: Option<&'a Value>,
+    pub updated_at: Option<&'a Value>,
+    pub is_deleted: Option<&'a Value>,
+    pub deleted_at: Option<&'a Value>,
+    pub identity_core: Option<&'a Value>,
+    pub mat_tier: Option<&'a Value>,
+    pub recon_count: Option<&'a Value>,
+    pub lexical_regime: Option<&'a Value>,
+    pub identifier_label: Option<&'a Value>,
+    pub pii_detected: Option<&'a Value>,
+    pub pii_categories_json: Option<&'a Value>,
+    pub access_count: Option<&'a Value>,
+    pub last_accessed: Option<&'a Value>,
+    pub source_episode_ids: Option<&'a Value>,
+    pub evidence_count: Option<&'a Value>,
+    pub evidence_span_start: Option<&'a Value>,
+    pub evidence_span_end: Option<&'a Value>,
+}
+
+#[handler]
+pub fn find_entity_exact_name_indexed (input: HandlerInput) -> Result<Response, GraphError> {
+let db = Arc::clone(&input.graph.storage);
+let data = input.request.in_fmt.deserialize::<find_entity_exact_name_indexedInput>(&input.request.body)?;
+let arena = Bump::new();
+let txn = db.graph_env.read_txn().map_err(|e| GraphError::New(format!("Failed to start read transaction: {:?}", e)))?;
+    let entity = G::new(&db, &txn, &arena)
+.n_from_index("Entity", "name", &data.name_exact)
+
+.filter_ref(|val, txn|{
+                if let Ok(val) = val {
+                    Ok(val
+                    .get_property("group_id")
+                    .map_or(false, |v| *v == data.gid.clone()))
+                } else {
+                    Ok(false)
+                }
+            }).collect_to_obj()?;
+let response = json!({
+    "entity": Find_entity_exact_name_indexedEntityReturnType {
+        id: uuid_str(entity.id(), &arena),
+        label: entity.label(),
+        name: entity.get_property("name"),
+        group_id: entity.get_property("group_id"),
+        entity_type: entity.get_property("entity_type"),
+        canonical_identifier: entity.get_property("canonical_identifier"),
+        entity_id: entity.get_property("entity_id"),
+        summary: entity.get_property("summary"),
+        attributes_json: entity.get_property("attributes_json"),
+        created_at: entity.get_property("created_at"),
+        updated_at: entity.get_property("updated_at"),
+        is_deleted: entity.get_property("is_deleted"),
+        deleted_at: entity.get_property("deleted_at"),
+        identity_core: entity.get_property("identity_core"),
+        mat_tier: entity.get_property("mat_tier"),
+        recon_count: entity.get_property("recon_count"),
+        lexical_regime: entity.get_property("lexical_regime"),
+        identifier_label: entity.get_property("identifier_label"),
+        pii_detected: entity.get_property("pii_detected"),
+        pii_categories_json: entity.get_property("pii_categories_json"),
+        access_count: entity.get_property("access_count"),
+        last_accessed: entity.get_property("last_accessed"),
+        source_episode_ids: entity.get_property("source_episode_ids"),
+        evidence_count: entity.get_property("evidence_count"),
+        evidence_span_start: entity.get_property("evidence_span_start"),
+        evidence_span_end: entity.get_property("evidence_span_end"),
+    }
+});
+txn.commit().map_err(|e| GraphError::New(format!("Failed to commit transaction: {:?}", e)))?;
+Ok(input.request.out_fmt.create_response(&response))
+}
+
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct delete_episode_vectorInput {

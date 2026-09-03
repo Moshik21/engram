@@ -1575,10 +1575,32 @@ class HelixGraphStore:
         stripped = (name or "").strip()
         if not stripped:
             return []
-        rows = await self._query(
-            "find_entities_exact_name",
-            {"name_exact": stripped, "gid": group_id},
-        )
+        # Indexed first match when the engine has it (2026-09-03): the WHERE
+        # form is a full Entity label scan (70-230 ms in-shell) and the
+        # durable-first probe issued up to four per explicit recall, hitting
+        # its 400 ms cap on every cold query. The probe wants any exact hit;
+        # the first match by the INDEX on name is that hit in ~0.4 ms.
+        if not self._native_route_missing("find_entity_exact_name_indexed"):
+            try:
+                rows = await self._query(
+                    "find_entity_exact_name_indexed",
+                    {"name_exact": stripped, "gid": group_id},
+                )
+            except Exception as exc:
+                if "No value found" in str(exc):
+                    rows = []
+                elif self._is_missing_route_error(exc):
+                    rows = await self._query(
+                        "find_entities_exact_name",
+                        {"name_exact": stripped, "gid": group_id},
+                    )
+                else:
+                    raise
+        else:
+            rows = await self._query(
+                "find_entities_exact_name",
+                {"name_exact": stripped, "gid": group_id},
+            )
         results: list[Entity] = []
         seen: set[str] = set()
         for d in rows or []:

@@ -476,6 +476,14 @@ QUERY find_cue_by_episode_indexed(ep_id: String, gid: String) =>
     cues <- N<EpisodeCue>({episode_id: ep_id})::WHERE(_::{group_id}::EQ(gid))
     RETURN cues
 
+// 2026-09-03: first entity with exactly this name in the group, via the
+// secondary INDEX on name (n_from_index). The WHERE form is a full Entity
+// label scan (~70-230 ms in-shell); the durable-first probe issues up to
+// four of them on every explicit recall.
+QUERY find_entity_exact_name_indexed(name_exact: String, gid: String) =>
+    entity <- N<Entity>({name: name_exact})::WHERE(_::{group_id}::EQ(gid))
+    RETURN entity
+
 // NOTE: unbounded (no k/limit param) — materializes every cue row; measured
 // 20s+ on an 8.7k-cue native brain. Stats-path only; budgeted drains must
 // probe per-episode via find_cue_by_episode instead.
