@@ -776,7 +776,7 @@ async def _run_explicit_recall_with_budget_inner(
         pipeline_started_at = time.perf_counter()
         pipeline_task = asyncio.ensure_future(
             manager.recall(
-                query=_recall_query_with_project_context(query, project_path, cfg),
+                query=_recall_query_with_project_context(query, project_path),
                 project_path=project_path,
                 group_id=group_id,
                 limit=limit,
@@ -924,7 +924,7 @@ async def _run_explicit_recall_with_budget_inner(
         else:
             results = await asyncio.wait_for(
                 manager.recall(
-                    query=_recall_query_with_project_context(query, project_path, cfg),
+                    query=_recall_query_with_project_context(query, project_path),
                     project_path=project_path,
                     group_id=group_id,
                     limit=limit,
@@ -1852,25 +1852,10 @@ def _recall_result_search_text(result: Mapping[str, Any]) -> str:
     return " ".join(parts).lower()
 
 
-def _recall_query_with_project_context(
-    query: str, project_path: str | None, cfg: Any | None = None
-) -> str:
+def _recall_query_with_project_context(query: str, project_path: str | None) -> str:
     project_name = _project_name(project_path)
     if not project_name:
         return query
-    # When the pipeline scopes by capture header (recall_other_project_multiplier
-    # < 1), prepending the project NAME to the query double-counts and rewards
-    # documents that merely say it. Measured 2026-09-03 on the pair question
-    # `why was Thompson sampling removed and what is the flip condition…`:
-    # with the prefix, BM25 rank 1 became a bootstrap doc that repeats "Engram",
-    # the vector lane filled with `[…|Engram]` captures, and the row holding
-    # both flip-condition facts fell from fused #2 to #5 -- outside the top 3.
-    multiplier = getattr(cfg, "recall_other_project_multiplier", 1.0) if cfg is not None else 1.0
-    try:
-        if float(multiplier) < 1.0:
-            return query.strip() or query
-    except (TypeError, ValueError):
-        pass
     query_text = query.strip()
     if project_name.lower() in query_text.lower():
         return query_text
