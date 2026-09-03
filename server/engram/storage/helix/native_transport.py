@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import atexit
-import gc
 import json
 import logging
 import time
@@ -90,6 +89,27 @@ def native_query_stats(reset: bool = False) -> dict[str, dict[str, float]]:
 
 _ENGINE_CACHE: dict[str, Any] = {}
 _ENGINE_CACHE_LOCK = Lock()
+# One executor per engine, shared by every transport on it (2026-09-03). Each
+# store (graph, search, atlas, consolidation, conversations) builds its own
+# HelixClient -> NativeTransport -> ThreadPoolExecutor(4), so up to ~24 Python
+# threads fed a 4-worker Rust pool and the overflow queued INSIDE the engine,
+# where it reads as execution time: nativeQueryStats showed find_entities_
+# exact_name / search_*_bm25 at 4.5-4.7 s per call under load, milliseconds
+# standalone. Sharing one executor sized to the pool makes the queue visible
+# and fair (queueMs), and no transport can oversubscribe the engine.
+_EXECUTOR_CACHE: dict[str, ThreadPoolExecutor] = {}
+
+
+def _shared_executor(cache_key: str, num_workers: int) -> ThreadPoolExecutor:
+    with _ENGINE_CACHE_LOCK:
+        executor = _EXECUTOR_CACHE.get(cache_key)
+        if executor is None:
+            executor = ThreadPoolExecutor(
+                max_workers=num_workers,
+                thread_name_prefix="helix-native",
+            )
+            _EXECUTOR_CACHE[cache_key] = executor
+        return executor
 _ATEXIT_REGISTERED = False
 
 # Per-query failure counters (module-level: multiple transports share one
@@ -184,10 +204,7 @@ class NativeTransport:
                 _ATEXIT_REGISTERED = True
         if cached_engine is not None:
             self._engine = cached_engine
-            self._executor = ThreadPoolExecutor(
-                max_workers=num_workers,
-                thread_name_prefix="helix-native",
-            )
+            self._executor = _shared_executor(cache_key, num_workers)
             logger.info(
                 "NativeTransport reused cached engine (workers=%d)",
                 num_workers,
@@ -214,10 +231,7 @@ class NativeTransport:
         engine = await loop.run_in_executor(None, _create_engine)
         with _ENGINE_CACHE_LOCK:
             self._engine = _ENGINE_CACHE.setdefault(cache_key, engine)
-        self._executor = ThreadPoolExecutor(
-            max_workers=num_workers,
-            thread_name_prefix="helix-native",
-        )
+        self._executor = _shared_executor(cache_key, num_workers)
         logger.info(
             "NativeTransport initialized (workers=%d, routes=%d)",
             num_workers,
@@ -225,18 +239,17 @@ class NativeTransport:
         )
 
     async def close(self) -> None:
-        """Release this transport's query pool.
+        """Release this transport's handle on the shared engine.
 
         The PyO3 engine keeps the LMDB environment process-owned. Closing it and
-        then opening the same data dir again in one Python process currently
-        returns ``Env already open``, so engines are cached until process exit.
+        re-opening from a second transport in the same process returns
+        ``Env already open``, so engines are cached until process exit -- and so
+        is the one executor every transport on that engine shares (2026-09-03);
+        shutting it down here would strand the other stores' in-flight calls.
+        Both are torn down at exit by ``_close_cached_engines``.
         """
-        executor = self._executor
-        self._engine = None
         self._executor = None
-        if executor:
-            executor.shutdown(wait=True, cancel_futures=True)
-        gc.collect()
+        self._engine = None
 
     async def compact(self, dest_dir: str) -> int:
         """Write a compacting copy of the LMDB env to ``dest_dir/data.mdb``.
@@ -527,6 +540,14 @@ def _native_cache_key(data_dir: str | None) -> str:
 
 
 def _close_cached_engines() -> None:
+    with _ENGINE_CACHE_LOCK:
+        executors = list(_EXECUTOR_CACHE.values())
+        _EXECUTOR_CACHE.clear()
+    for executor in executors:
+        try:
+            executor.shutdown(wait=False, cancel_futures=True)
+        except Exception:  # process is exiting; nothing to recover
+            pass
     with _ENGINE_CACHE_LOCK:
         engines = list(_ENGINE_CACHE.values())
         _ENGINE_CACHE.clear()

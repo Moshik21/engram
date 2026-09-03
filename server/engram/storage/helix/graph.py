@@ -134,6 +134,7 @@ def get_bm25_conflict_stats() -> dict[str, Any]:
 # scan per 5 min, then 0 ms lookups, is the measured better trade; ids
 # created by the cold brain in between are caught by the per-id fallback.
 _EPISODE_SCAN_TTL_S = 300.0
+_IDENTITY_CORE_MEMO_S = 60.0
 _EPISODE_SCAN_ALL_KEY = "\x00all"
 
 # ---------------------------------------------------------------------------
@@ -521,6 +522,7 @@ class HelixGraphStore:
         self._entity_id_cache: dict[str, Any] = {}
         # (group_id, entity_id) -> Helix internal node ID for tenant-safe lookups
         self._entity_group_id_cache: dict[tuple[str, str], Any] = {}
+        self._identity_core_memo: dict[str, tuple[float, list[Entity]]] = {}
         self._entity_scan_inflight: dict[str, asyncio.Task[None]] = {}
         self._entity_scan_done_at: dict[str, float] = {}
         # Shared BM25 breaker key (native only) — same derivation as
@@ -3800,8 +3802,18 @@ class HelixGraphStore:
         return None
 
     async def get_identity_core_entities(self, group_id: str) -> list[Entity]:
+        # Memoised for _IDENTITY_CORE_MEMO_S: the route is a full Entity label
+        # scan, every session start (get_context) issues it, and under the
+        # shared engine pool it measured 1.8 s per call while recall's keyword
+        # lanes queued behind it (nativeQueryStats, 2026-09-03). Identity-core
+        # facts change rarely; a short lag is cheaper than a scan per session.
+        memo = self._identity_core_memo.get(group_id)
+        if memo is not None and (time.monotonic() - memo[0]) < _IDENTITY_CORE_MEMO_S:
+            return list(memo[1])
         results = await self._query("find_identity_core_entities", {"gid": group_id})
-        return [self._dict_to_entity(d, group_id) for d in results]
+        entities = [self._dict_to_entity(d, group_id) for d in results]
+        self._identity_core_memo[group_id] = (time.monotonic(), entities)
+        return list(entities)
 
     async def path_exists_within_hops(
         self,
