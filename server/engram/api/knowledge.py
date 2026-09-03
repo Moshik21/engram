@@ -594,6 +594,12 @@ async def get_runtime_state(
         live=live,
         timeout_seconds=timeout_seconds,
     )
+    try:
+        from engram.storage.helix.native_transport import native_query_stats
+
+        result["nativeQueryStats"] = native_query_stats()
+    except Exception:  # the counters are a diagnostic, never a failure
+        result["nativeQueryStats"] = {}
     return JSONResponse(content=result)
 
 

@@ -26,6 +26,68 @@ try:
 except ImportError:
     HAS_NATIVE = False
 
+# Per-route native query accounting (2026-09-03). Recall latency collapsed
+# from ~600 ms to >4 s mid-session with nothing in the log to blame; a
+# one-off trace showed queue wait 0 and entity label scans as 80% of
+# execution, but a one-off cannot catch a transient. These counters are
+# always on, cost a dict update per call, and are exposed on
+# GET /api/knowledge/runtime as nativeQueryStats so a collapse can be read
+# while it happens: per endpoint, calls, total/max queue wait, total/max
+# execution, and calls currently in flight.
+_NATIVE_QUERY_STATS: dict[str, dict[str, float]] = {}
+_NATIVE_QUERY_STATS_LOCK = Lock()
+
+
+def _note_native_query(endpoint: str, queue_ms: float, exec_ms: float) -> None:
+    with _NATIVE_QUERY_STATS_LOCK:
+        row = _NATIVE_QUERY_STATS.setdefault(
+            endpoint,
+            {
+                "calls": 0,
+                "queueMs": 0.0,
+                "queueMaxMs": 0.0,
+                "execMs": 0.0,
+                "execMaxMs": 0.0,
+                "inflight": 0,
+            },
+        )
+        row["calls"] += 1
+        row["queueMs"] += queue_ms
+        row["queueMaxMs"] = max(row["queueMaxMs"], queue_ms)
+        row["execMs"] += exec_ms
+        row["execMaxMs"] = max(row["execMaxMs"], exec_ms)
+
+
+def _note_native_inflight(endpoint: str, delta: int) -> None:
+    with _NATIVE_QUERY_STATS_LOCK:
+        row = _NATIVE_QUERY_STATS.setdefault(
+            endpoint,
+            {
+                "calls": 0,
+                "queueMs": 0.0,
+                "queueMaxMs": 0.0,
+                "execMs": 0.0,
+                "execMaxMs": 0.0,
+                "inflight": 0,
+            },
+        )
+        row["inflight"] = max(0, row["inflight"] + delta)
+
+
+def native_query_stats(reset: bool = False) -> dict[str, dict[str, float]]:
+    """Snapshot (and optionally reset) the per-route counters, rounded."""
+    with _NATIVE_QUERY_STATS_LOCK:
+        snap = {
+            ep: {k: (round(v, 1) if isinstance(v, float) else v) for k, v in row.items()}
+            for ep, row in _NATIVE_QUERY_STATS.items()
+        }
+        if reset:
+            for row in _NATIVE_QUERY_STATS.values():
+                for k in ("calls", "queueMs", "queueMaxMs", "execMs", "execMaxMs"):
+                    row[k] = 0
+    return snap
+
+
 _ENGINE_CACHE: dict[str, Any] = {}
 _ENGINE_CACHE_LOCK = Lock()
 _ATEXIT_REGISTERED = False
@@ -252,12 +314,24 @@ class NativeTransport:
         started = time.monotonic()
 
         try:
-            future = loop.run_in_executor(
-                self._executor,
-                self._engine.query,
-                endpoint,
-                body_json,
-            )
+            submitted = time.monotonic()
+            engine_query = self._engine.query
+
+            def _timed_query(_endpoint: str = endpoint, _body: str = body_json) -> Any:
+                started_exec = time.monotonic()
+                _note_native_inflight(_endpoint, +1)
+                try:
+                    return engine_query(_endpoint, _body)
+                finally:
+                    finished = time.monotonic()
+                    _note_native_inflight(_endpoint, -1)
+                    _note_native_query(
+                        _endpoint,
+                        (started_exec - submitted) * 1000.0,
+                        (finished - started_exec) * 1000.0,
+                    )
+
+            future = loop.run_in_executor(self._executor, _timed_query)
             if timeout_seconds > 0:
                 # NOTE: cancellation cannot stop the Rust worker thread — the
                 # scan keeps running; the counter makes that cost observable.
