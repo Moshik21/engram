@@ -361,37 +361,45 @@ async def test_an_engine_without_the_route_falls_back_and_says_so(monkeypatch) -
 
 
 @pytest.mark.asyncio
-async def test_get_episode_by_id_uses_the_targeted_route(monkeypatch) -> None:
-    """Ticket 34: fetching one episode must not scan the group (ticket 22's cost)."""
+async def test_get_episode_by_id_warms_once_then_reads_by_helix_id(monkeypatch) -> None:
+    """2026-09-03: one shared group scan per TTL, then every lookup is one by-id read.
+
+    Ticket 34 had put the per-id native route first; it is a full Episode
+    label scan (~80 ms each, several per recall), which dropped found rows at
+    recall's 300 ms materialise cap. The warm is paid once, not per episode.
+    """
     harness = _RecordingStore(_rows(600))
 
     async def _query(endpoint: str, payload: dict) -> list[dict]:
         harness.calls.append((endpoint, dict(payload)))
-        if endpoint == "find_episode_by_episode_id":
-            rows = [
-                r
-                for r in harness.rows
-                if r["episode_id"] == payload["eid"] and r["group_id"] == payload["gid"]
-            ]
+        if endpoint == "get_episode":
+            rows = [r for r in harness.rows if r["id"] == payload["id"]]
             harness.rows_returned += len(rows)
             return rows
+        if endpoint == "find_episode_by_episode_id":
+            raise AssertionError("per-id scan must not run for an id the warm knows")
         rows = list(harness.rows)
         harness.rows_returned += len(rows)
         return rows
 
     harness.store._query = _query  # type: ignore[method-assign]
 
-    episode = await harness.store.get_episode_by_id("ep_000123", "brain")
+    first = await harness.store.get_episode_by_id("ep_000123", "brain")
+    second = await harness.store.get_episode_by_id("ep_000200", "brain")
+    third = await harness.store.get_episode_by_id("ep_000123", "brain")
 
-    assert episode is not None and episode.id == "ep_000123"
-    assert [endpoint for endpoint, _ in harness.calls] == ["find_episode_by_episode_id"]
-    assert harness.rows_returned == 1
-    assert harness.store._episode_group_id_cache[("brain", "ep_000123")] == 1123
+    assert first is not None and first.id == "ep_000123"
+    assert second is not None and third is not None
+    endpoints = [endpoint for endpoint, _ in harness.calls]
+    assert endpoints.count("find_episodes_by_group") == 1, endpoints
+    assert endpoints.count("get_episode") == 3
+    assert harness.rows_returned == 600 + 3
 
 
 @pytest.mark.asyncio
-async def test_get_episode_by_id_absence_does_not_trigger_a_group_scan() -> None:
-    """A miss through the targeted route is a real absence, not a reason to scan."""
+async def test_get_episode_by_id_unknown_after_warm_uses_the_per_id_route_once() -> None:
+    """An id the warm does not know (created elsewhere since) gets ticket 34's
+    targeted route -- and absence is answered by that route, not by re-scanning."""
     harness = _RecordingStore(_rows(600))
 
     async def _query(endpoint: str, payload: dict) -> list[dict]:
@@ -405,5 +413,8 @@ async def test_get_episode_by_id_absence_does_not_trigger_a_group_scan() -> None
     harness.store._query = _query  # type: ignore[method-assign]
 
     assert await harness.store.get_episode_by_id("ep_999999", "brain") is None
-    assert [endpoint for endpoint, _ in harness.calls] == ["find_episode_by_episode_id"]
-    assert harness.rows_returned == 0
+    assert await harness.store.get_episode_by_id("ep_999998", "brain") is None
+    endpoints = [endpoint for endpoint, _ in harness.calls]
+    assert endpoints.count("find_episodes_by_group") == 1, "one warm per TTL, not per miss"
+    assert endpoints.count("find_episode_by_episode_id") == 2
+    assert harness.rows_returned == 600

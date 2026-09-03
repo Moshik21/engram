@@ -127,7 +127,13 @@ def get_bm25_conflict_stats() -> dict[str, Any]:
 # Left as an explicit measured decision rather than a guess.
 # ---------------------------------------------------------------------------
 
-_EPISODE_SCAN_TTL_S = 5.0
+# 2026-09-03: 5 s made the shared warm nearly useless (a miss every 5 s
+# re-read the whole group) and pushed ticket 34 into putting the per-id
+# native scan first -- which cost recall ~80 ms PER materialised episode and
+# dropped found rows at the 300 ms cap on an idle shell. One shared 150 ms
+# scan per 5 min, then 0 ms lookups, is the measured better trade; ids
+# created by the cold brain in between are caught by the per-id fallback.
+_EPISODE_SCAN_TTL_S = 300.0
 _EPISODE_SCAN_ALL_KEY = "\x00all"
 
 # ---------------------------------------------------------------------------
@@ -2266,12 +2272,23 @@ class HelixGraphStore:
         return episodes[offset : offset + limit]
 
     async def get_episode_by_id(self, episode_id: str, group_id: str) -> Episode | None:
-        # Ticket 34: one targeted native lookup returning at most one row. The
-        # id-resolution fallback below reaches this episode only by scanning the
-        # whole group into Python, which is the ticket-22 memory profile paid to
-        # fetch a single episode.
-        if not self._native_route_missing("find_episode_by_episode_id"):
-            answered = True
+        # Order of lookups (2026-09-03, recall materialise was dropping found
+        # rows at its 300 ms cap on an idle shell):
+        #   1. the helix-id cache -> one n_from_id read (~0 ms);
+        #   2. the once-per-TTL group scan that fills the cache for EVERY
+        #      episode (one ~150 ms call shared by all concurrent misses);
+        #   3. only for an id the warmed cache does not know (created by the
+        #      cold brain since the scan), ticket 34's per-id native route,
+        #      which is itself a full label scan (~80 ms per call).
+        # Ticket 34 had put step 3 FIRST, so every cold materialise paid the
+        # per-id scan and the cache never helped the next one.
+        cached_hid = self._episode_group_id_cache.get((group_id, episode_id))
+        if cached_hid is not None:
+            results = await self._query("get_episode", {"id": cached_hid})
+            for row in results:
+                return self._dict_to_episode(row, group_id)
+        helix_id = await self._resolve_episode_helix_id(episode_id, group_id)
+        if helix_id is None and not self._native_route_missing("find_episode_by_episode_id"):
             try:
                 rows = await self._query(
                     "find_episode_by_episode_id",
@@ -2280,16 +2297,11 @@ class HelixGraphStore:
             except Exception as exc:
                 if not self._is_missing_route_error(exc):
                     raise
-                answered, rows = False, []
-            if answered:
-                # The route applies the same (episode_id, group_id) predicate the
-                # fallback scan would, so an empty answer is a real absence — a
-                # full group scan cannot turn it into a hit, only into 60 MB.
-                for row in rows:
-                    self._cache_episode(self._extract_helix_id(row), episode_id, group_id)
-                    return self._dict_to_episode(row, group_id)
-                return None
-
+                rows = []
+            for row in rows:
+                self._cache_episode(self._extract_helix_id(row), episode_id, group_id)
+                return self._dict_to_episode(row, group_id)
+            return None
         helix_id = await self._resolve_episode_helix_id(episode_id, group_id)
         if helix_id is None:
             return None
