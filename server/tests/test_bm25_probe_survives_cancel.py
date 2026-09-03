@@ -84,3 +84,17 @@ async def test_slow_probe_reopens_instead_of_closing(tmp_path) -> None:
     await asyncio.sleep(0.1)
     assert breaker.is_open, "an over-budget probe must keep the lane off"
     assert search_mod._BM25_BREAKER_RETRY_AFTER_SECONDS <= 60.0
+
+
+async def test_a_cold_probe_under_three_budgets_closes_the_breaker(tmp_path) -> None:
+    """The probe is the lane's first call after a rest and walks cold pages;
+    judged by the warm budget it could never re-enable the lane."""
+    index = _index(tmp_path, delay=0.05)
+    breaker = index._bm25_breaker
+    breaker._budget_ms = 20.0  # 50 ms probe = 2.5 budgets: cold, but alive
+    breaker._opened_at = breaker._clock() - 10_000
+    await index._guarded_bm25_query("search_episodes_bm25", {"query": "x", "k": 5})
+    assert not breaker.is_open, "a completed probe under 3x budget must close the breaker"
+    # the warm budget governs the next call: 50 ms > 20 ms is a strike, not a re-open
+    await index._guarded_bm25_query("search_episodes_bm25", {"query": "x", "k": 5})
+    assert not breaker.is_open and breaker._consecutive_over_budget == 1

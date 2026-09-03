@@ -260,6 +260,7 @@ _BM25_BREAKER_BUDGET_MS = 1000.0
 # CLOSED it. Equal to the budget, so a cancellation counts iff BM25 itself
 # was slow.
 _BM25_BREAKER_CANCEL_STRIKE_MS = _BM25_BREAKER_BUDGET_MS
+_BM25_PROBE_GRACE = 3.0  # a cold half-open probe may take this many budgets and still close
 _BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
 _BM25_BREAKER_RETRY_AFTER_SECONDS = 60.0  # half-open probe interval
 
@@ -461,6 +462,15 @@ class Bm25CircuitBreaker:
         probing = self._half_open_probe
         self._half_open_probe = False
         threshold_ms = self._cancel_strike_ms if cancelled else self._budget_ms
+        if probing and not cancelled:
+            # A half-open probe is the lane's FIRST call after a rest, and on
+            # this machine that means cold pages: measured 2026-09-03, the
+            # probe walked postings from disk (435 MB of page-ins in 20 s) at
+            # 1.3 s while the same query warm answers in 5 ms. Judging it by
+            # the warm budget kept the lane off forever -- it could never warm
+            # because it was off. A completed probe under _PROBE_GRACE x
+            # budget re-enables the lane; the warm budget then governs.
+            threshold_ms = self._budget_ms * _BM25_PROBE_GRACE
         if elapsed_ms > threshold_ms:
             self._stats["overBudgetCalls"] += 1
             self._consecutive_over_budget += 1
