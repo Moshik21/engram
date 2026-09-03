@@ -54,6 +54,9 @@ async def test_multiplier_one_or_no_project_path_reads_nothing() -> None:
     store = _Store({"ep_other": "[assistant|Other] x"})
     off = ActivationConfig(recall_other_project_multiplier=1.0)
     on = ActivationConfig(recall_other_project_multiplier=0.6)
-    assert await _episode_project_multipliers(store, "default", ["ep_other"], "/x/Engram", off, {}) == {}
+    assert (
+        await _episode_project_multipliers(store, "default", ["ep_other"], "/x/Engram", off, {})
+        == {}
+    )
     assert await _episode_project_multipliers(store, "default", ["ep_other"], None, on, {}) == {}
     assert store.reads == 0

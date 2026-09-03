@@ -115,6 +115,8 @@ async def test_probes_that_timed_out_back_off_on_the_next_recall() -> None:
         await asyncio.sleep(60)
 
     async def recall(**_kwargs):
+        # slower than the pipeline-first hedge, so the preflight is consulted
+        await asyncio.sleep(0.6)
         return [{"entity": {"id": "e1", "name": "x", "type": "Fact"}, "score": 1.0}]
 
     manager = _manager(recall)
@@ -127,18 +129,20 @@ async def test_probes_that_timed_out_back_off_on_the_next_recall() -> None:
         manager, group_id="default", query="reranker on the default tier", limit=5,
         cfg=manager.get_memory_need_config(), operation_source="api_recall",
     )
-    started = time.perf_counter()
     _, second = await _run_explicit_recall_with_budget(
         manager, group_id="default", query="reranker on the default tier", limit=5,
         cfg=manager.get_memory_need_config(), operation_source="api_recall",
     )
-    pre_ms = (time.perf_counter() - started) * 1000
     assert "durable_entity_first" in first["stage_timings_ms"]
     assert "recall_fast_preflight" in first["stage_timings_ms"]
     assert "durable_entity_first_backoff" in second["stage_timings_ms"]
     assert "recall_fast_preflight_backoff" in second["stage_timings_ms"]
-    assert calls["exact"] == 1 and calls["preflight"] == 1, calls
-    assert pre_ms < 200, f"second recall still paid {pre_ms:.0f}ms before the pipeline"
+    assert calls["exact"] == 1 and calls["preflight"] == 1, "probes re-asked inside the backoff"
+    probe_ms = sum(
+        v for k, v in second["stage_timings_ms"].items()
+        if k in ("durable_entity_first", "recall_fast_preflight")
+    )
+    assert probe_ms < 50, f"second recall still paid {probe_ms:.0f}ms of probes"
 
 
 @pytest.mark.asyncio
@@ -158,6 +162,7 @@ async def test_short_preflight_page_does_not_replace_a_non_empty_pipeline() -> N
     }
 
     async def recall(**_k):
+        await asyncio.sleep(0.6)  # slower than the pipeline-first hedge
         return [episode_row]
 
     async def preflight(**_k):
@@ -194,3 +199,55 @@ async def test_short_preflight_page_does_not_replace_a_non_empty_pipeline() -> N
         cfg=manager.get_memory_need_config(), operation_source="api_recall",
     )
     assert results == [cue_row] and md["fallback_status"] == "fast_preflight_hit"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_first_hedge_never_consults_the_preflight_when_the_pipeline_is_fast() -> None:
+    """2026-09-03 meter: ts-kill's answer was in the pipeline's top-3 while the
+    live call returned the preflight's full page in 15 ms without it. The
+    preflight is a latency hedge and runs only when the pipeline has not
+    answered inside the preflight's own timeout."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    calls = {"preflight": 0}
+    row = {"result_type": "episode", "episode": {"id": "ep_ts", "content": "Thompson noise"}, "score": 0.9}
+
+    async def fast_recall(**_k):
+        return [row]
+
+    async def preflight(**_k):
+        calls["preflight"] += 1
+        return [{"result_type": "cue_episode", "cue": {"cue_text": "Thompson (cue)"}, "score": 0.5}] * 3
+
+    async def none(*_a, **_k):
+        return []
+
+    manager = SimpleNamespace(
+        _graph=SimpleNamespace(find_entities_exact_name=none, find_entity_candidates=none),
+        recall=fast_recall, fast_recall_fallback=preflight, search_entities=none,
+        record_memory_operation=Mock(),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(enabled=True, max_packets=3),
+        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=2000),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+    )
+    results, md = await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="why was Thompson sampling removed", limit=3,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    assert results == [row]
+    assert calls["preflight"] == 0, "a fast pipeline must not be pre-empted by the preflight"
+    assert "recall_pipeline_first_hit" in md["stage_timings_ms"]
+
+    async def slow_recall(**_k):
+        await asyncio.sleep(0.6)
+        return [row]
+
+    manager.recall = slow_recall
+    results, md = await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="why was Thompson sampling removed", limit=3,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    assert calls["preflight"] == 1 and md["fallback_status"] == "fast_preflight_hit"
+    assert len(results) == 3, "a slow pipeline hands the answer to the preflight's full page"

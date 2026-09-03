@@ -754,7 +754,52 @@ async def _run_explicit_recall_with_budget_inner(
             fallback_result_count=len(durable_first),
         )
 
-    if _fast_recall_preflight_enabled(cfg) and _probe_backing_off(manager, "recall_fast_preflight"):
+    # Pipeline-first hedge (2026-09-03). The preflight lane is a LATENCY hedge:
+    # a bounded episode/cue page for a shell that cannot answer in time. On a
+    # warm shell the deep pipeline answers in ~200 ms, and the meter showed the
+    # preflight's full page arriving first and hiding pipeline wins (ts-kill:
+    # pipeline top-3 carries the answer; the live call returned the preflight
+    # page in 15 ms without it). So the pipeline starts FIRST and gets the
+    # preflight's own timeout to answer; the preflight runs only if it has not.
+    pipeline_task: asyncio.Future[list[dict]] | None = None
+    hedged_results: list[dict] | None = None
+    pipeline_started_at = 0.0
+    if _fast_recall_preflight_enabled(cfg) and not _probe_backing_off(
+        manager, "recall_fast_preflight"
+    ):
+        # Never hedge past what is left of the wall.
+        hedge_seconds = min(
+            _fast_recall_preflight_timeout_seconds(cfg),
+            budget.stage_timeout_seconds(budget.max_search_ms),
+        )
+        pipeline_started_at = time.perf_counter()
+        pipeline_task = asyncio.ensure_future(
+            manager.recall(
+                query=_recall_query_with_project_context(query, project_path),
+                project_path=project_path,
+                group_id=group_id,
+                limit=limit,
+                interaction_type="surfaced",
+                interaction_source=operation_source,
+            )
+        )
+        hedge_started = time.perf_counter()
+        done, _pending = await asyncio.wait({pipeline_task}, timeout=max(0.0, hedge_seconds))
+        if done and not pipeline_task.cancelled() and pipeline_task.exception() is None:
+            candidate = list(pipeline_task.result() or [])
+            if candidate:
+                hedged_results = candidate
+                stage_timings["recall_pipeline_first_hit"] = _elapsed_ms(hedge_started)
+        elif done:
+            pipeline_task.exception()  # retrieved; the await below re-raises
+        if hedged_results is None:
+            stage_timings["recall_pipeline_first_miss"] = _elapsed_ms(hedge_started)
+
+    if hedged_results is not None:
+        pass
+    elif _fast_recall_preflight_enabled(cfg) and _probe_backing_off(
+        manager, "recall_fast_preflight"
+    ):
         stage_timings["recall_fast_preflight_backoff"] = 1.0
     elif _fast_recall_preflight_enabled(cfg):
         fallback_started = time.perf_counter()
@@ -859,20 +904,34 @@ async def _run_explicit_recall_with_budget_inner(
         # max_search_ms was applied here, so a tight explicit wall (e.g. 100ms)
         # could still wait the full 1.5s search budget and never degrade.
         timeout_seconds = budget.stage_timeout_seconds(budget.max_search_ms)
-        recall_started = time.perf_counter()
-        if timeout_seconds <= 0:
+        # The pipeline's wall starts when it was started, hedge included.
+        recall_started = pipeline_started_at if pipeline_task is not None else time.perf_counter()
+        if timeout_seconds <= 0 and hedged_results is None:
+            if pipeline_task is not None:
+                pipeline_task.cancel()
             raise asyncio.TimeoutError()
-        results = await asyncio.wait_for(
-            manager.recall(
-                query=_recall_query_with_project_context(query, project_path),
-                project_path=project_path,
-                group_id=group_id,
-                limit=limit,
-                interaction_type="surfaced",
-                interaction_source=operation_source,
-            ),
-            timeout=timeout_seconds,
-        )
+        if hedged_results is not None:
+            results = hedged_results
+        elif pipeline_task is not None:
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.shield(pipeline_task), timeout=timeout_seconds
+                )
+            except asyncio.TimeoutError:
+                pipeline_task.cancel()
+                raise
+        else:
+            results = await asyncio.wait_for(
+                manager.recall(
+                    query=_recall_query_with_project_context(query, project_path),
+                    project_path=project_path,
+                    group_id=group_id,
+                    limit=limit,
+                    interaction_type="surfaced",
+                    interaction_source=operation_source,
+                ),
+                timeout=timeout_seconds,
+            )
         stage_timings["recall_search"] = _elapsed_ms(recall_started)
         stage_timings.update(_manager_recall_stage_timings(manager))
     except asyncio.TimeoutError:
