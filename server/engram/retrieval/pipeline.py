@@ -545,7 +545,9 @@ def _stage_timeout_seconds(cfg: ActivationConfig, field_name: str) -> float | No
     return timeout_ms / 1000.0
 
 
-_PROJECT_HEADER_RE = re.compile(r"^\[(?P<role>[A-Za-z][A-Za-z-]*)\|(?P<project>[^\]|\n]{1,200})")
+_PROJECT_HEADER_RE = re.compile(
+    r"^\[(?P<role>[A-Za-z][A-Za-z-]*)\|(?P<project>[^\]|\n]{1,200})(?:\|[^\]\n]{0,200})?\][ \t]*"
+)
 
 
 def _project_of_content(content: str | None) -> str | None:
@@ -571,31 +573,47 @@ async def _episode_project_multipliers(
     keeps 1.0 -- only a header that names a DIFFERENT project is demoted.
     """
     mult = float(getattr(cfg, "recall_other_project_multiplier", 1.0))
-    if not project_path or mult >= 1.0 or not episode_ids:
+    floor_chars = int(getattr(cfg, "recall_short_episode_floor_chars", 0) or 0)
+    scope_on = bool(project_path) and mult < 1.0
+    if (not scope_on and floor_chars <= 0) or not episode_ids:
         return {}
     from pathlib import Path
 
-    project = Path(project_path).expanduser().name.strip().lower()
-    if not project:
-        return {}
+    project = Path(project_path).expanduser().name.strip().lower() if project_path else ""
+    if scope_on and not project:
+        scope_on = False
     get_episode = getattr(graph_store, "get_episode_by_id", None)
     if not callable(get_episode):
         return {}
     started = time.perf_counter()
     out: dict[str, float] = {}
     demoted = 0
+    shortened = 0
     for ep_id in episode_ids:
         try:
             episode = await get_episode(ep_id, group_id)
         except Exception:
             continue
-        named = _project_of_content(getattr(episode, "content", None))
-        if named and named.lower() != project:
-            out[ep_id] = mult
-            demoted += 1
+        content = getattr(episode, "content", None) or ""
+        weight = 1.0
+        if scope_on:
+            named = _project_of_content(content)
+            if named and named.lower() != project:
+                weight *= mult
+                demoted += 1
+        if floor_chars > 0:
+            header = _PROJECT_HEADER_RE.match(content.lstrip())
+            body_len = len(content) - (header.end() if header else 0)
+            if body_len < floor_chars:
+                # Graduated: a 20-char prompt is worth ~0.3, a 250-char note ~0.83.
+                weight *= max(0.3, body_len / float(floor_chars))
+                shortened += 1
+        if weight < 1.0:
+            out[ep_id] = weight
     if stage_timings_ms is not None:
         _add_stage_timing(stage_timings_ms, "recall_project_scope", started)
         _set_stage_metric(stage_timings_ms, "recall_project_scope_demoted", demoted)
+        _set_stage_metric(stage_timings_ms, "recall_short_episode_demoted", shortened)
     return out
 
 

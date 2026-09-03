@@ -45,18 +45,38 @@ async def test_other_project_is_demoted_same_and_unknown_are_not() -> None:
     })
     mult = await _episode_project_multipliers(
         store, "default", ["ep_mine", "ep_other", "ep_unknown", "ep_missing"],
-        "/Users/x/Engram", ActivationConfig(recall_other_project_multiplier=0.6), {},
+        "/Users/x/Engram",
+        ActivationConfig(recall_other_project_multiplier=0.6, recall_short_episode_floor_chars=0),
+        {},
     )
     assert mult == {"ep_other": 0.6}
 
 
 async def test_multiplier_one_or_no_project_path_reads_nothing() -> None:
     store = _Store({"ep_other": "[assistant|Other] x"})
-    off = ActivationConfig(recall_other_project_multiplier=1.0)
-    on = ActivationConfig(recall_other_project_multiplier=0.6)
+    off = ActivationConfig(recall_other_project_multiplier=1.0, recall_short_episode_floor_chars=0)
+    on = ActivationConfig(recall_other_project_multiplier=0.6, recall_short_episode_floor_chars=0)
     assert (
         await _episode_project_multipliers(store, "default", ["ep_other"], "/x/Engram", off, {})
         == {}
     )
     assert await _episode_project_multipliers(store, "default", ["ep_other"], None, on, {}) == {}
     assert store.reads == 0
+
+
+async def test_short_episodes_are_demoted_in_proportion_to_length() -> None:
+    """A twenty-character chat prompt cannot answer anything (2026-09-03)."""
+    store = _Store({
+        "ep_tiny": "[user|Engram] is it running again",
+        "ep_mid": "[user|Engram] " + "x" * 150,
+        "ep_long": "[assistant|Engram] " + "y" * 400,
+    })
+    cfg = ActivationConfig(
+        recall_other_project_multiplier=1.0, recall_short_episode_floor_chars=300
+    )
+    mult = await _episode_project_multipliers(
+        store, "default", ["ep_tiny", "ep_mid", "ep_long"], "/x/Engram", cfg, {}
+    )
+    assert mult["ep_tiny"] == pytest.approx(0.3)
+    assert mult["ep_mid"] == pytest.approx(0.5)
+    assert "ep_long" not in mult

@@ -645,6 +645,21 @@ class ActivationConfig(BaseModel):
     episode_retrieval_enabled: bool = Field(default=True)
     episode_retrieval_weight: float = Field(default=0.8, ge=0.0, le=1.0)
     episode_retrieval_max: int = Field(default=5, ge=0, le=20)
+    recall_short_episode_floor_chars: int = Field(
+        default=300,
+        ge=0,
+        le=5000,
+        description=(
+            "Episode candidates shorter than this many characters are demoted in "
+            "proportion to their length (weight = max(0.3, len/floor)). Measured "
+            "2026-09-03 on the dogfood brain: for 'what is the flip condition for usage "
+            "ranking' the vector lane's top 15 were ALL this operator's short chat "
+            "prompts ('is it running again', 'keep going on all.', 'so whats next?'), "
+            "which embed close to any short question and carry no facts; the keyword "
+            "rows holding the answer sat at fused 11 and below. A twenty-character "
+            "prompt cannot answer anything. 0 disables."
+        ),
+    )
     recall_other_project_multiplier: float = Field(
         default=0.6,
         ge=0.0,

@@ -125,6 +125,9 @@ def _cfg(**overrides) -> ActivationConfig:
         "episode_retrieval_max": 5,
         # No substage timeout: this file measures reachability, not latency.
         "retrieval_reranker_timeout_ms": 0,
+        # This file pins one episode read per candidate; the length rule reads
+        # candidates to weigh them and is not what is under test here.
+        "recall_short_episode_floor_chars": 0,
     }
     base.update(overrides)
     return ActivationConfig(**base)
