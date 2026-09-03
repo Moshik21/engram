@@ -277,6 +277,29 @@ def _write_persisted_breaker_states(states: dict[str, Any]) -> None:
         logger.warning("BM25 breaker sidecar write failed (%s)", path, exc_info=True)
 
 
+# BM25 query shaping (2026-09-03). Native BM25 walks a posting list per term,
+# so the function words of a natural question dominate its cost: measured
+# standalone on the 12k-episode brain, "what is the flip condition for usage
+# ranking" 55 ms vs "flip condition usage ranking" 3 ms, "who is the founder
+# of Engram and what are his goals" 91 ms vs 9 ms, per lane -- and three
+# lanes fire per recall on a 4-worker pool, which is what tripped the
+# breaker's budget. Function words carry no ranking signal for BM25 anyway.
+_BM25_STOPWORDS = frozenset(
+    "a an and are as at be been by can could did do does for from had has have "
+    "he her his how i if in into is it its me my of on or our she so than that "
+    "the their them then there these they this those to was we were what when "
+    "where which who whom why will with would you your".split()
+)
+
+
+def bm25_query_text(query: str) -> str:
+    """The query with function words removed; the original when nothing is left."""
+    kept = [
+        t for t in (query or "").split() if t.strip(".,;:!?\"'()").lower() not in _BM25_STOPWORDS
+    ]
+    return " ".join(kept) if kept else (query or "")
+
+
 class Bm25CircuitBreaker:
     """Process-level breaker that stops launch-and-abandon native BM25 calls.
 
@@ -1379,7 +1402,7 @@ class HelixSearchIndex:
         """BM25 text search over Entity nodes. Returns (scored_results, raw_rows)."""
         rows = await self._guarded_bm25_query(
             "search_entities_bm25",
-            {"query": query, "k": limit},
+            {"query": bm25_query_text(query), "k": limit},
         )
         results: list[tuple[str, float]] = []
         for row in rows:
@@ -1396,7 +1419,7 @@ class HelixSearchIndex:
         """BM25 text search over Episode nodes."""
         rows = await self._guarded_bm25_query(
             "search_episodes_bm25",
-            {"query": query, "k": limit},
+            {"query": bm25_query_text(query), "k": limit},
         )
         results: list[tuple[str, float]] = []
         for row in rows:
@@ -1413,7 +1436,7 @@ class HelixSearchIndex:
         """BM25 text search over EpisodeCue nodes."""
         rows = await self._guarded_bm25_query(
             "search_cues_bm25",
-            {"query": query, "k": limit},
+            {"query": bm25_query_text(query), "k": limit},
         )
         results: list[tuple[str, float]] = []
         for row in rows:
@@ -2065,12 +2088,12 @@ class HelixSearchIndex:
             if self._helix_client is not None and not is_native and group_id:
                 results = await self._query(
                     "search_episode_chunks_embed_filtered",
-                    {"query": query, "k": limit * 2, "gid": group_id},
+                    {"query": bm25_query_text(query), "k": limit * 2, "gid": group_id},
                 )
             elif self._helix_client is not None and not is_native:
                 results = await self._query(
                     "search_episode_chunks_embed",
-                    {"query": query, "k": limit * 2},
+                    {"query": bm25_query_text(query), "k": limit * 2},
                 )
 
             if not results:
