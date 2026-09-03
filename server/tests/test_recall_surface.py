@@ -421,7 +421,9 @@ async def test_api_recall_surface_uses_fast_preflight_on_cache_miss() -> None:
     assert result["lifecycle"]["fallbackStatus"] == "fast_preflight_hit"
     assert result["lifecycle"]["fallbackResultCount"] == 1
     assert result["diagnostics"]["stageTimingsMs"]["recallFastPreflight"] >= 0
-    manager.recall.assert_not_awaited()
+    # 2026-09-03: a short preflight page no longer replaces the deep pipeline;
+    # it answers only when the pipeline comes back empty (as it does here).
+    manager.recall.assert_awaited()
     manager.fast_recall_fallback.assert_awaited_once_with(
         query="Engram native PyO3 dogfood performance recall context",
         group_id="native_brain",
@@ -474,7 +476,9 @@ async def test_fast_preflight_uses_its_own_timeout_budget() -> None:
     assert result["status"] == "ok"
     assert result["items"][0]["episode"]["id"] == "ep_fast"
     assert result["lifecycle"]["fallbackStatus"] == "fast_preflight_hit"
-    manager.recall.assert_not_awaited()
+    # 2026-09-03: a short preflight page no longer replaces the deep pipeline;
+    # it answers only when the pipeline comes back empty (as it does here).
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -1908,7 +1912,9 @@ async def test_api_recall_surface_prefers_project_hits_from_fast_preflight(
     assert result["lifecycle"]["fallbackResultCount"] == 1
     assert len(result["items"]) == 1
     assert result["items"][0]["episode"]["id"] == "ep_right"
-    manager.recall.assert_not_awaited()
+    # 2026-09-03: a short preflight page no longer replaces the deep pipeline;
+    # it answers only when the pipeline comes back empty (as it does here).
+    manager.recall.assert_awaited()
 
 
 @pytest.mark.asyncio

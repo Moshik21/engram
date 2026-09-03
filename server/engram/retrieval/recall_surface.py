@@ -775,7 +775,15 @@ async def _run_explicit_recall_with_budget_inner(
         stage_timings["recall_fast_preflight"] = _elapsed_ms(fallback_started)
         if fallback_status == "timeout":
             _probe_note_timeout(manager, "recall_fast_preflight")
-        if fallback_results:
+        # A preflight hit REPLACES the deep pipeline, so it must be a full
+        # page. Measured 2026-09-03 (meter, idle shell): one bare cue row
+        # ("mentions: Engram, ...") short-circuited a query whose answer the
+        # keyword lane finds in 18 ms, and the agent got the cue instead of
+        # the episode. A short page stays as the fallback and the pipeline
+        # runs; a full page is still the fast path.
+        if fallback_results and len(fallback_results) < max(1, int(limit or 1)):
+            stage_timings["recall_fast_preflight_short_page"] = float(len(fallback_results))
+        elif fallback_results:
             duration_ms = round((time.perf_counter() - started) * 1000, 4)
             await record_manager_memory_operation(
                 manager,
@@ -976,6 +984,17 @@ async def _run_explicit_recall_with_budget_inner(
 
     duration_ms = round((time.perf_counter() - started) * 1000, 4)
     results = _prefer_project_context_results(results, project_path=project_path)
+    if not results and fallback_results:
+        # The deep pipeline had nothing; the short preflight page is the answer.
+        return list(fallback_results), _recall_budget_metadata(
+            budget,
+            status="ok",
+            duration_ms=duration_ms,
+            budget_miss=budget.exceeded(duration_ms),
+            stage_timings_ms=stage_timings,
+            fallback_status="fast_preflight_hit",
+            fallback_result_count=len(fallback_results),
+        )
     return list(results), _recall_budget_metadata(
         budget,
         status="ok",

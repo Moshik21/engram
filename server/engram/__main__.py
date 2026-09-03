@@ -346,6 +346,15 @@ def main():
         help="Recall limit per query (default 3 = battery-identical retrieval)",
     )
     meter_parser.add_argument(
+        "--project-path",
+        default=None,
+        help=(
+            "Project path to send with every recall, as the agent's hook and MCP "
+            "calls do (recall scopes and re-ranks on it). Omit to measure the bare "
+            "query path no consumer uses."
+        ),
+    )
+    meter_parser.add_argument(
         "--k",
         type=int,
         default=3,
@@ -786,6 +795,7 @@ def main():
 
             _capture, report = run_meter_against_live(
                 server_url=args.server_url,
+                project_path=getattr(args, "project_path", None),
                 rig_path=_Path(args.rig_path) if args.rig_path else None,
                 runs=args.runs,
                 limit=args.limit,

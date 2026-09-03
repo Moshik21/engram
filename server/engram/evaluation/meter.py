@@ -353,6 +353,7 @@ def capture_runs(
     sleep_s: float = 0.0,
     run_gap_s: float = 0.0,
     on_progress: Callable[[int, int, str], None] | None = None,
+    project_path: str | None = None,
 ) -> dict[str, Any]:
     """Capture ``runs`` passes of the rig against a live server. Read-only GETs.
 
@@ -377,6 +378,11 @@ def capture_runs(
             qid = str(question.get("id"))
             quoted = urllib.parse.quote(str(question["q"]))
             url = f"{base}/api/knowledge/recall?q={quoted}&limit={limit}"
+            if project_path:
+                # The agent's hook and MCP calls always carry the project
+                # path (recall scopes and re-ranks on it); a meter that omits
+                # it measures a path no consumer uses (2026-09-03).
+                url += f"&project_path={urllib.parse.quote(str(project_path))}"
             t0 = time.perf_counter()
             error: str | None = None
             payload: dict[str, Any] = {}
@@ -1067,6 +1073,7 @@ def run_meter_against_live(
     timeout: float = 30.0,
     capture_path: Path | None = None,
     on_progress: Callable[[int, int, str], None] | None = None,
+    project_path: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Capture then score. Returns ``(capture, report)``."""
     capture = capture_runs(
@@ -1078,6 +1085,7 @@ def run_meter_against_live(
         sleep_s=sleep_s,
         run_gap_s=run_gap_s,
         on_progress=on_progress,
+        project_path=project_path,
     )
     if capture_path:
         capture_path.parent.mkdir(parents=True, exist_ok=True)

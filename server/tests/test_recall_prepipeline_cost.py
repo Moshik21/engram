@@ -139,3 +139,58 @@ async def test_probes_that_timed_out_back_off_on_the_next_recall() -> None:
     assert "recall_fast_preflight_backoff" in second["stage_timings_ms"]
     assert calls["exact"] == 1 and calls["preflight"] == 1, calls
     assert pre_ms < 200, f"second recall still paid {pre_ms:.0f}ms before the pipeline"
+
+
+@pytest.mark.asyncio
+async def test_short_preflight_page_does_not_replace_a_non_empty_pipeline() -> None:
+    """2026-09-03: one bare cue row from preflight short-circuited a query whose
+    episode the deep pipeline finds. A short page only answers when the pipeline
+    is empty."""
+    cue_row = {
+        "result_type": "cue_episode",
+        "cue": {"cue_text": "Thompson sampling removed (cue)"},
+        "score": 0.5,
+    }
+    episode_row = {
+        "result_type": "episode",
+        "episode": {"id": "ep_ts", "content": "Thompson sampling removed: noise"},
+        "score": 0.9,
+    }
+
+    async def recall(**_k):
+        return [episode_row]
+
+    async def preflight(**_k):
+        return [cue_row]
+
+    async def none(*_a, **_k):
+        return []
+
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    manager = SimpleNamespace(
+        _graph=SimpleNamespace(find_entities_exact_name=none, find_entity_candidates=none),
+        recall=recall, fast_recall_fallback=preflight, search_entities=none,
+        record_memory_operation=Mock(),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(enabled=True, max_packets=3),
+        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=2000),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+    )
+    results, md = await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="why was Thompson sampling removed", limit=3,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    assert results == [episode_row], "the pipeline's episode must win over a one-row preflight page"
+    assert md["stage_timings_ms"].get("recall_fast_preflight_short_page") == 1.0
+
+    async def empty(**_k):
+        return []
+
+    manager.recall = empty
+    results, md = await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="why was Thompson sampling removed", limit=3,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    assert results == [cue_row] and md["fallback_status"] == "fast_preflight_hit"
