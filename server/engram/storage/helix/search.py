@@ -215,13 +215,18 @@ def _rrf_fusion(
 # A completed native BM25 call slower than this is pathological: healthy native
 # BM25 answers in single-digit ms, the broken mode measured 1.85-2.1s warm and
 # 20s cold on an 8.8k-episode brain.
-_BM25_BREAKER_BUDGET_MS = 500.0
+# 2026-09-03: measured idle on the 12k-episode brain, native BM25 answers in
+# 18-700 ms (rare tokens at the top of that range) and it is the lane that
+# finds the fact for the meter's questions ("Thompson sampling", "BM25
+# circuit breaker", "usage_ranking_enabled") where the vector lane returns
+# other projects' noise. 500 ms tripped on a healthy store.
+_BM25_BREAKER_BUDGET_MS = 1000.0
 # A BM25 call cancelled mid-flight after this long counts as over-budget too:
 # the caller's lane budget blew, and on the native transport the call cannot be
 # cancelled — it keeps running as a zombie on the small native thread pool.
-_BM25_BREAKER_CANCEL_STRIKE_MS = 100.0
+_BM25_BREAKER_CANCEL_STRIKE_MS = 400.0
 _BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
-_BM25_BREAKER_RETRY_AFTER_SECONDS = 300.0  # half-open probe interval
+_BM25_BREAKER_RETRY_AFTER_SECONDS = 60.0  # half-open probe interval
 
 # Persisted breaker state (sidecar JSON in ~/.engram, beside the activation
 # snapshot): without it every fresh shell serves 2-4 min of degraded recall
@@ -364,6 +369,11 @@ class Bm25CircuitBreaker:
     @property
     def is_open(self) -> bool:
         return self._opened_at is not None
+
+    @property
+    def probing(self) -> bool:
+        """True between allow_call() granting the half-open probe and its record_call."""
+        return self._half_open_probe
 
     @property
     def degraded(self) -> bool:
@@ -1322,6 +1332,31 @@ class HelixSearchIndex:
         if not breaker.allow_call():
             return []
         started = time.perf_counter()
+        if breaker.probing:
+            # The half-open probe is the ONLY way the lane comes back, and the
+            # caller's lane timeout used to cancel it before it could report:
+            # measured 2026-09-03, one probe per retry window, every one
+            # cancelled young, breaker persisted OPEN for a day. Shield the
+            # probe so it always records its true wall time; the caller still
+            # gets its timeout.
+            task = asyncio.ensure_future(self._query(endpoint, payload))
+            try:
+                rows = await asyncio.shield(task)
+            except asyncio.CancelledError:
+
+                def _record(done: asyncio.Future) -> None:
+                    elapsed = (time.perf_counter() - started) * 1000.0
+                    if not done.cancelled():
+                        done.exception()  # retrieve; over-budget is what counts
+                    breaker.record_call(elapsed)
+
+                task.add_done_callback(_record)
+                raise
+            except Exception:
+                breaker.record_call((time.perf_counter() - started) * 1000.0)
+                raise
+            breaker.record_call((time.perf_counter() - started) * 1000.0)
+            return rows
         try:
             rows = await self._query(endpoint, payload)
         except asyncio.CancelledError:
