@@ -2412,6 +2412,20 @@ class HelixSearchIndex:
             self._raise_if_missing_route(endpoint, exc)
             raise
 
+    async def purge_episode_vectors(self, episode_id: str, group_id: str) -> int:
+        """Delete every vector row (episode, cue, chunk) that belongs to one episode."""
+        deleted = 0
+        for kind in ("episode", "cue", "chunk"):
+            try:
+                rows = await self.find_vector_rows_by_episode_ids(kind, [episode_id], group_id)
+            except Exception:
+                rows = []
+            for row in rows or []:
+                hid = row.get("id")
+                if hid is not None and await self.delete_vector_row(kind, hid):
+                    deleted += 1
+        return deleted
+
     async def delete_vector_row(self, kind: str, helix_id: Any) -> bool:
         """Tombstone one vector row by Helix internal id (M0.4: DROP V).
 

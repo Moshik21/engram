@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -18,6 +19,8 @@ from engram.models.epistemic import EvidenceClaim
 from engram.retrieval.epistemic import artifact_class_for_path, extract_artifact_claims
 from engram.storage.protocols import ActivationStore, GraphStore
 from engram.utils.dates import utc_now, utc_now_iso
+
+logger = logging.getLogger(__name__)
 
 EventPublisher = Callable[[str, str, dict], None]
 StoreEpisode = Callable[..., Awaitable[str]]
@@ -292,6 +295,22 @@ class ProjectBootstrapService:
                     group_id=group_id,
                 )
             if changed:
+                # Supersede the previous snapshot of this file: mark it MERGED so
+                # recall drops it now; the cold brain's mop purges it (node,
+                # cues, vectors) -- see consolidation/bootstrap_supersede.py.
+                previous_id = (artifact_entity.attributes or {}).get("last_episode_id")
+                if previous_id:
+                    try:
+                        await self._sync_projection_state(
+                            str(previous_id),
+                            EpisodeProjectionState.MERGED,
+                            group_id=group_id,
+                            reason="bootstrap_snapshot_superseded",
+                        )
+                    except Exception:
+                        logger.debug(
+                            "bootstrap: could not supersede %s", previous_id, exc_info=True
+                        )
                 episode_id = await self._store_bootstrap_episode(
                     project_name=project_name,
                     rel_path=rel_path,

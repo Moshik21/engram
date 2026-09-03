@@ -270,6 +270,18 @@ async def execute_hygiene_mop(
             mark_cue_scan_done()
     else:
         mop["cue_hygiene"] = {"skipped": True, "reason": "scan watermark not due"}
+    # Stale project-bootstrap snapshots (edit history that crowds recall).
+    from engram.consolidation.bootstrap_supersede import supersede_bootstrap_snapshots
+
+    mop["bootstrap_supersede"] = (
+        await supersede_bootstrap_snapshots(
+            graph_store,
+            search_index,
+            group_id,
+            budget=cue_budget,
+            dry_run=bool(dry_run),
+        )
+    ).to_dict()
 
     # Metabolize: the only legitimate exit for deferred/pending evidence and
     # open adjudication requests is adjudication (commit-or-reject), and the

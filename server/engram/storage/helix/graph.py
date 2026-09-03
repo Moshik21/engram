@@ -2999,6 +2999,21 @@ class HelixGraphStore:
             return "find_cue_by_episode"
         return "find_cue_by_episode_indexed"
 
+    async def purge_episode(self, episode_id: str, group_id: str) -> bool:
+        """Hard-delete one episode node and its cue nodes (vectors are the
+        search index's rows: see HelixSearchIndex.purge_episode_vectors)."""
+        for cue in await self._find_cue_rows(episode_id, group_id):
+            hid = self._extract_helix_id(cue)
+            if hid is not None:
+                await self._query("hard_delete_cue", {"id": hid})
+        helix_id = await self._resolve_episode_helix_id(episode_id, group_id)
+        if helix_id is None:
+            return False
+        await self._query("hard_delete_episode", {"id": helix_id})
+        self._episode_group_id_cache.pop((group_id, episode_id), None)
+        self._episode_id_cache.pop(episode_id, None)
+        return True
+
     async def _find_cue_rows(self, episode_id: str, group_id: str) -> list[dict]:
         """Rows for one episode's cue: [] when absent, on either route.
 
