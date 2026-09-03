@@ -18,23 +18,23 @@ def _group_rows() -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_resolve_entity_helix_id_uses_targeted_query(monkeypatch) -> None:
+    """An id the warm scan does not know is resolved by the targeted route (2026-09-03)."""
     store = HelixGraphStore(HelixDBConfig())
     calls: list[tuple[str, dict]] = []
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
         calls.append((endpoint, payload))
+        if endpoint == "find_entities_by_group":
+            return []  # the warm knows nothing yet
         assert endpoint == "find_entity_by_entity_id"
         assert payload == {"eid": "ent_b", "gid": "g1"}
         return [{"id": 202, "entity_id": "ent_b", "name": "Beta", "group_id": "g1"}]
 
     monkeypatch.setattr(store, "_query", fake_query)
-
     hid = await store._resolve_entity_helix_id("ent_b", "g1")
-
     assert hid == 202
-    assert calls == [("find_entity_by_entity_id", {"eid": "ent_b", "gid": "g1"})]
+    assert [c[0] for c in calls] == ["find_entities_by_group", "find_entity_by_entity_id"]
     assert store._entity_group_id_cache[("g1", "ent_b")] == 202
-
 
 @pytest.mark.asyncio
 async def test_resolve_entity_helix_id_falls_back_when_route_missing(monkeypatch) -> None:
@@ -54,7 +54,9 @@ async def test_resolve_entity_helix_id_falls_back_when_route_missing(monkeypatch
     hid = await store._resolve_entity_helix_id("ent_b", "g1")
 
     assert hid == 202
-    assert calls == ["find_entity_by_entity_id", "find_entities_by_group"]
+    # 2026-09-03: one shared warm scan answers first; the per-id scan is only
+    # for ids the warm does not know.
+    assert calls == ["find_entities_by_group"]
     # Scan fallback keeps warming the cache for the whole group.
     assert store._entity_group_id_cache[("g1", "ent_a")] == 101
     assert store._entity_group_id_cache[("g1", "ent_b")] == 202
@@ -80,7 +82,9 @@ async def test_resolve_entity_helix_id_falls_back_on_empty_targeted_result(
     hid = await store._resolve_entity_helix_id("ent_a", "g1")
 
     assert hid == 101
-    assert calls == ["find_entity_by_entity_id", "find_entities_by_group"]
+    # 2026-09-03: one shared warm scan answers first; the per-id scan is only
+    # for ids the warm does not know.
+    assert calls == ["find_entities_by_group"]
 
 
 @pytest.mark.asyncio
@@ -109,3 +113,23 @@ async def test_resolve_entity_helix_id_serves_from_cache(monkeypatch) -> None:
     monkeypatch.setattr(store, "_query", fake_query)
 
     assert await store._resolve_entity_helix_id("ent_b", "g1") == 202
+
+
+@pytest.mark.asyncio
+async def test_resolve_entity_helix_id_unknown_after_warm_uses_the_targeted_route(
+    monkeypatch,
+) -> None:
+    store = HelixGraphStore(HelixDBConfig())
+    calls: list[str] = []
+
+    async def fake_query(endpoint: str, payload: dict) -> list[dict]:
+        calls.append(endpoint)
+        if endpoint == "find_entities_by_group":
+            return _group_rows()
+        assert endpoint == "find_entity_by_entity_id"
+        return [{"id": 909, "entity_id": "ent_new", "group_id": "g1"}]
+
+    monkeypatch.setattr(store, "_query", fake_query)
+    assert await store._resolve_entity_helix_id("ent_new", "g1") == 909
+    assert await store._resolve_entity_helix_id("ent_a", "g1") == 101
+    assert calls == ["find_entities_by_group", "find_entity_by_entity_id"], calls

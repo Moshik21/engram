@@ -195,18 +195,46 @@ class NativeTransport:
         loop = asyncio.get_event_loop()
         return int(await loop.run_in_executor(self._executor, compact, dest_dir))
 
-    async def health_check(self) -> None:
-        """Verify the in-process engine is ready without scanning graph data."""
-        if self._engine is None or self._executor is None:
-            raise RuntimeError("NativeTransport not initialized")
-        await asyncio.sleep(0)
-
     def _query_timeout_seconds(self) -> float:
         raw = getattr(self._config, "query_timeout_seconds", 20.0)
         try:
             return float(raw)
         except (TypeError, ValueError):
             return 20.0
+
+    async def health_check(self) -> None:
+        """Prove the store answers, without scanning it.
+
+        HelixClient used to fall back to ``find_entities_by_group`` with a
+        bogus group id: a full Entity label scan (~77 ms on the dogfood
+        brain) on EVERY recall's storage-live probe, to find nothing. One
+        secondary-index read for an id that cannot exist costs ~0 ms and
+        still needs a live LMDB env; the engine reports the miss as an error
+        and that miss IS the healthy answer.
+        """
+        engine = self._engine
+        if engine is None:
+            raise RuntimeError("native engine is not initialized")
+        if not self._native_route_present("find_cue_by_episode_indexed"):
+            await self.query("find_entities_by_group", {"gid": "__health_check__"})
+            return
+        try:
+            await self.query(
+                "find_cue_by_episode_indexed",
+                {"ep_id": "__health_check__", "gid": "__health_check__"},
+            )
+        except NativeQueryError as exc:
+            if "No value found" not in str(exc):
+                raise
+
+    def _native_route_present(self, endpoint: str) -> bool:
+        has_route = getattr(self._engine, "has_route", None)
+        if not callable(has_route):
+            return False
+        try:
+            return bool(has_route(endpoint))
+        except Exception:
+            return False
 
     async def query(self, endpoint: str, payload: dict) -> list[dict]:
         """Execute a single query via in-process engine.

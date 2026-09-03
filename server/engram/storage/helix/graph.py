@@ -521,6 +521,8 @@ class HelixGraphStore:
         self._entity_id_cache: dict[str, Any] = {}
         # (group_id, entity_id) -> Helix internal node ID for tenant-safe lookups
         self._entity_group_id_cache: dict[tuple[str, str], Any] = {}
+        self._entity_scan_inflight: dict[str, asyncio.Task[None]] = {}
+        self._entity_scan_done_at: dict[str, float] = {}
         # Shared BM25 breaker key (native only) — same derivation as
         # HelixSearchIndex; breaker existence/enablement is decided there.
         self._bm25_breaker_key: str | None = None
@@ -664,8 +666,50 @@ class HelixGraphStore:
     # Helix ID resolution: given our UUID, find the Helix internal ID
     # ------------------------------------------------------------------
 
+    async def _ensure_entities_scanned(self, group_id: str) -> None:
+        """One shared entity-listing scan per group per TTL, warming every id.
+
+        Mirrors _ensure_episodes_scanned. Measured 2026-09-03: the per-id
+        native route is a full Entity label scan (~70 ms) and recall issued
+        ~5 of them per call for materialisation; one 77 ms listing caches all
+        1,122 ids instead.
+        """
+        key = group_id
+        task = self._entity_scan_inflight.get(key)
+        if task is None or task.done():
+            done_at = self._entity_scan_done_at.get(key)
+            if done_at is not None and (time.monotonic() - done_at) < _EPISODE_SCAN_TTL_S:
+                return
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(self._run_entity_scan(group_id))
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            self._entity_scan_inflight[key] = task
+        elif task.get_loop() is not asyncio.get_running_loop():
+            await self._run_entity_scan(group_id)
+            return
+        try:
+            await asyncio.shield(task)
+        finally:
+            if self._entity_scan_inflight.get(key) is task and task.done():
+                self._entity_scan_inflight.pop(key, None)
+
+    async def _run_entity_scan(self, group_id: str) -> None:
+        results = await self._query("find_entities_by_group", {"gid": group_id})
+        for item in results:
+            hid = self._extract_helix_id(item)
+            if hid is not None:
+                self._cache_entity(hid, item.get("entity_id", ""), item.get("group_id") or group_id)
+        self._entity_scan_done_at[group_id] = time.monotonic()
+
     async def _resolve_entity_helix_id(self, entity_id: str, group_id: str) -> int | None:
         """Resolve an entity UUID to a Helix internal ID via cache or query."""
+        cached = self._entity_group_id_cache.get((group_id, entity_id))
+        if cached is not None:
+            return cached
+        # One shared warm scan per TTL fills the cache for every entity; only
+        # an id the warm does not know (created elsewhere since) pays the
+        # per-id native scan below.
+        await self._ensure_entities_scanned(group_id)
         cached = self._entity_group_id_cache.get((group_id, entity_id))
         if cached is not None:
             return cached
@@ -686,16 +730,8 @@ class HelixGraphStore:
             if hid is not None:
                 self._cache_entity(hid, entity_id, item.get("group_id") or group_id)
                 return hid
-        # Fallback: scan by group and filter. Also covers engines whose
-        # missing-route failure is swallowed as an empty result.
-        results = await self._query("find_entities_by_group", {"gid": group_id})
-        for item in results:
-            eid = item.get("entity_id", "")
-            hid = self._extract_helix_id(item)
-            if hid is not None:
-                self._cache_entity(hid, eid, item.get("group_id") or group_id)
-            if eid == entity_id:
-                return hid
+        # The warm scan above already covered the group; an empty targeted
+        # answer is a real absence.
         return None
 
     async def _resolve_entity_helix_id_unscoped(self, entity_id: str) -> int | None:
