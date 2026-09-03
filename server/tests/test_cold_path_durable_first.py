@@ -162,3 +162,31 @@ class TestRescueAggregateTimeout:
             elapsed = asyncio.get_event_loop().time() - started
         assert hits == []
         assert elapsed < 2.0
+
+
+@pytest.mark.asyncio
+async def test_durable_first_probe_is_exact_only() -> None:
+    """2026-09-03: after an exact miss the probe used to run the BM25/CONTAINS
+    fan-out and search_entities, hitting its 400 ms cap on every cold query."""
+    graph = SimpleNamespace(
+        find_entities_exact_name=AsyncMock(return_value=[]),
+        find_entity_candidates=AsyncMock(return_value=[]),
+    )
+    manager = SimpleNamespace(
+        _graph=graph,
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        search_entities=AsyncMock(return_value={"entities": []}),
+        record_memory_operation=Mock(),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(enabled=True, max_packets=3),
+        get_memory_need_config=lambda: ActivationConfig(recall_budget_explicit_ms=2000),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(return_value=[]),
+    )
+    await _run_explicit_recall_with_budget(
+        manager, group_id="default", query="what is the flip condition", limit=5,
+        cfg=manager.get_memory_need_config(), operation_source="api_recall",
+    )
+    assert graph.find_entities_exact_name.await_count >= 1
+    graph.find_entity_candidates.assert_not_awaited()
+    manager.search_entities.assert_not_awaited()

@@ -717,6 +717,7 @@ async def _run_explicit_recall_with_budget_inner(
             limit=limit,
             timeout_seconds=durable_first_cap,
             fast_probe_when_degraded=True,
+            exact_only=True,
         )
         stage_timings["durable_entity_first"] = _elapsed_ms(durable_first_started)
         if not durable_first and stage_timings["durable_entity_first"] >= durable_first_cap * 1000:
@@ -1479,6 +1480,7 @@ async def _durable_entity_name_rescue(
     limit: int,
     timeout_seconds: float = 1.0,
     fast_probe_when_degraded: bool = False,
+    exact_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Bounded name lookup for durable entities when preflight times out.
 
@@ -1500,6 +1502,7 @@ async def _durable_entity_name_rescue(
                 limit=limit,
                 timeout_seconds=timeout_seconds,
                 fast_probe_when_degraded=fast_probe_when_degraded,
+                exact_only=exact_only,
             ),
             # Aggregate wall bound. ``timeout_seconds`` is the caller's cap for
             # the WHOLE probe; it used to be doubled here, so "0.75s" cost 1.5s
@@ -1563,6 +1566,7 @@ async def _durable_entity_name_rescue_inner(
     limit: int,
     timeout_seconds: float,
     fast_probe_when_degraded: bool = False,
+    exact_only: bool = False,
 ) -> list[dict[str, Any]]:
     from engram.extraction.promotion import (
         durable_result_boost,
@@ -1584,8 +1588,13 @@ async def _durable_entity_name_rescue_inner(
     # with BM25 skipped. For probes that run BEFORE the deep episode search that
     # fanout eats the wall and times out the primary search. Skip it: exact-name
     # (indexed, ~0.4s cap) stays, and the deep pipeline still covers a miss.
-    _skip_slow_candidates = False
-    if fast_probe_when_degraded and bool(
+    # exact_only (2026-09-03): the pre-pipeline durable-first probe used to
+    # fall through to find_entity_candidates (BM25 + CONTAINS fan-out) and
+    # search_entities on every exact miss, so it hit its 400 ms cap on every
+    # cold query even after exact-name became a 0.4 ms index read. The deep
+    # pipeline already runs that search; the probe is for the exact hit.
+    _skip_slow_candidates = bool(exact_only)
+    if not _skip_slow_candidates and fast_probe_when_degraded and bool(
         getattr(_cfg, "recall_rescue_fast_probe_when_bm25_open", True)
     ):
         _peek_breaker = getattr(graph, "_bm25_breaker", None) if graph is not None else None
@@ -1631,7 +1640,7 @@ async def _durable_entity_name_rescue_inner(
         except Exception:
             pass
         try:
-            if callable(search_entities) and not probes:
+            if callable(search_entities) and not probes and not exact_only:
                 value = search_entities(
                     name=name,
                     limit=max(limit * 3, 10),
