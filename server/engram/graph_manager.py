@@ -2583,7 +2583,9 @@ class GraphManager:
         )
         if result_type == "cue_episode":
             cue = await self._get_episode_cue(episode_id, group_id)
-            if cue is not None:
+            # A demoted cue (blank cue_text) has nothing to show; fall through
+            # to the episode itself rather than return an empty row.
+            if cue is not None and str(getattr(cue, "cue_text", "") or "").strip():
                 return self._recall_result_builder.cue_episode_result(
                     episode,
                     cue,

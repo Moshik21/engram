@@ -208,39 +208,46 @@ class RecallPrimaryResultMaterializer:
                 timeout_key="recall_materialize_cue_timeout",
                 fallback=None,
             )
-            if cue is None:
-                return
-            await _bounded_materialize_call(
-                self.record_cue_hit(
-                    episode,
-                    scored_result.score,
-                    query,
-                    interaction_type=interaction_type,
-                ),
-                timeout_seconds=side_effect_timeout_seconds,
-                stage_timings_ms=stage_timings_ms,
-                stage_key="recall_materialize_cue_feedback",
-                timeout_key="recall_materialize_cue_feedback_timeout",
-                fallback=None,
-            )
-            cue = await _bounded_materialize_call(
-                self._graph.get_episode_cue(episode.id, group_id),
-                timeout_seconds=graph_timeout_seconds,
-                stage_timings_ms=stage_timings_ms,
-                stage_key="recall_materialize_cue_refresh",
-                timeout_key="recall_materialize_cue_refresh_timeout",
-                fallback=cue,
-            )
-            results.append(
-                self._result_builder.cue_episode_result(
-                    episode,
-                    cue,
-                    scored_result,
-                    linked_entities=linked_entities,
-                    hit_increment=1,
+            if cue is None or not str(getattr(cue, "cue_text", "") or "").strip():
+                # A demoted cue (hygiene blanks cue_text; the cue vector stays
+                # searchable) has nothing to show: surface the episode itself
+                # instead of an empty row (2026-09-03: three empty cue rows
+                # made a "full" preflight page for a pair question).
+                if stage_timings_ms is not None:
+                    key = "recall_materialize_cue_blank_to_episode"
+                    stage_timings_ms[key] = float(stage_timings_ms.get(key, 0.0)) + 1.0
+            else:
+                await _bounded_materialize_call(
+                    self.record_cue_hit(
+                        episode,
+                        scored_result.score,
+                        query,
+                        interaction_type=interaction_type,
+                    ),
+                    timeout_seconds=side_effect_timeout_seconds,
+                    stage_timings_ms=stage_timings_ms,
+                    stage_key="recall_materialize_cue_feedback",
+                    timeout_key="recall_materialize_cue_feedback_timeout",
+                    fallback=None,
                 )
-            )
-            return
+                cue = await _bounded_materialize_call(
+                    self._graph.get_episode_cue(episode.id, group_id),
+                    timeout_seconds=graph_timeout_seconds,
+                    stage_timings_ms=stage_timings_ms,
+                    stage_key="recall_materialize_cue_refresh",
+                    timeout_key="recall_materialize_cue_refresh_timeout",
+                    fallback=cue,
+                )
+                results.append(
+                    self._result_builder.cue_episode_result(
+                        episode,
+                        cue,
+                        scored_result,
+                        linked_entities=linked_entities,
+                        hit_increment=1,
+                    )
+                )
+                return
 
         results.append(
             self._result_builder.episode_result(
