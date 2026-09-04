@@ -652,7 +652,12 @@ def _temporal_graph_store():
 @pytest.mark.asyncio
 class TestUndatedEpisodeNoBoost:
     async def test_undated_episode_gets_no_temporal_boost(self):
-        cfg = ActivationConfig(episode_retrieval_enabled=True)
+        cfg = ActivationConfig(
+            episode_retrieval_enabled=True,
+            recall_short_episode_floor_chars=0,
+            recall_machinery_episode_multiplier=1.0,
+            recall_other_project_multiplier=1.0,
+        )
         assert cfg.temporal_retrieval_enabled is True
         results = await retrieve(
             query="what is the latest update on the project",

@@ -258,6 +258,8 @@ resets. Status as of 2026-07-24 evening.
 | — | **the session's most recent observe answers any later query that shares ≥3 common tokens with it, as `cache_satisfied`, without running the pipeline** | 2026-09-04, `recall_surface.py` `_packet_query_match` (`best_score >= 3`). Live: 'second capture on the restarted shell with the project field' was answered 7 min later by the *fifth* capture (overlap: capture, project, field) and the real episode never ran through recall. Open: the rule needs a high-signal-token requirement or a recency-scoped intent, and a measurement of how often a real session trips it. |
 | — | ~~**every non-launchd process embedded nothing: `FASTEMBED_CACHE_PATH` lives in `~/.engram/.env` as a raw variable, exported only by the LaunchAgents**~~ **FIXED `c833c83`** | 2026-09-04. `engram doctor`, `engram brain run` from a terminal and the meters resolved `~/.engram/models/fastembed` (unquantized model only) instead of `…/hf` (the configured `-Q` model); the mop's vector backfill said `provider_unavailable`, doctor said `fail`, the shell embedded fine. The provider now reads the variable from `DEFAULT_ENV_FILES` (last wins); doctor passes from a plain shell. Same family as the July FastEmbed outage: the repair needs a positive probe from *every* launch path, not one. |
 | — | **the cold-brain LaunchAgent has written nothing to its log since 2026-08-15 (`rc=-10` SIGBUS child), `runs = 21`, `last exit code = 1`, machine on AC** | 2026-09-04, open. Whether launchd stopped firing or the command exits before logging is not yet known; the mop windows run today were all manual. Until this is resolved the 2 h hygiene cadence the product depends on is not happening. |
+| — | ~~**an agent-proposed edge whose endpoints it did not also propose was dropped on `quiet` and forked duplicates on `standard`**~~ **FIXED `2b9ddbf`** | 2026-09-04 (resident-agent step 1). Endpoints now resolve against the existing graph before the auto-create rescue or the drop. Verified live on the quiet profile: `remember()` with a relationship only, both endpoints already in the graph, neither proposed → edge `rel_b8a801b8375a` created, no new entities. The MCP `observe` tool now exposes `proposed_entities`/`proposed_relationships`; the prompt states Engram has no external extractor. |
+| — | ~~**every projection on the live brain ran the narrow regex extractor because the ladder tried a dead Ollama host first and fell through silently**~~ **REMOVED (resident-agent step 2)** | 2026-09-04. `extraction_provider` accepts only `narrow`; the anthropic/ollama rungs, the `auto` ladder, `ollama_extractor.py` and the doctor's Ollama probe are gone. A `.env` that still names them is mapped to narrow with a WARNING naming the line to delete (never a crash: `ActivationConfig` forbids unknown keys, and `server/.env` still carries three such lines). Kill-rig producers are `proposals`/`narrow` only; the fresh-agent judge has no external option. Tests no longer read any `.env` (two shutdown tests had flipped on the operator's `ENGRAM_RUNTIME_ROLE=shell`). |
 
 ### T2 — silent-inert (unfinished features)
 | # | item | note |
@@ -604,3 +606,13 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
 - **2026-09-04** — `bc85c64`: Step 5 done. Kill rig, planted control, all pre-flight checks green:
   **KILL** (reach@5 0/51 with and without the graph; the agent's own second query 1/51). Organic
   narrow producer: VOID, zero bridges. Result recorded in GRAPH_THESIS.md §5 with envelopes.
+- **2026-09-04** — `2b9ddbf`: Konner's rule recorded — **never Ollama, never Tailscale; the resident
+  agent is the only extractor.** Step 1 of that plan: agent edges land on every profile (endpoint
+  resolution against the existing graph), observe accepts proposals, prompt says so. Live-verified.
+  Next: collapse the extraction ladder (12 source files, 7 test files reference Ollama).
+- **2026-09-04** — resident-agent step 2: the extraction ladder is collapsed to narrow; Ollama and
+  Anthropic extraction removed from code, config, doctor, rig and fresh-agent; retired `.env`
+  lines warn instead of crash. Full non-Helix suite green after fixing 12 regressions, most of
+  them yesterday's rank-time multipliers and today's project key leaking into pinned fixtures,
+  plus a dotenv-isolation flaw in the test harness. `CLAUDE.md` is git-ignored: its ladder
+  paragraph was updated on disk only.

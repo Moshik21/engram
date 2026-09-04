@@ -35,7 +35,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--producer",
         default="proposals",
-        choices=["proposals", "narrow", "auto", "ollama", "anthropic"],
+        choices=["proposals", "narrow"],
         help="who builds the graph: 'proposals' replays M3.1's planted control, "
         "everything else builds it organically from the same text",
     )

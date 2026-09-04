@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from engram.config import ActivationConfig
 from engram.graph_manager import GraphManager
 
@@ -87,68 +85,3 @@ class TestTemplateBriefing:
         assert "Deployed v2.0" in result or "memory leak" in result
 
 
-class TestOllamaExtractor:
-    """Tests for OllamaExtractor."""
-
-    @pytest.mark.asyncio
-    async def test_empty_text(self):
-        from engram.extraction.ollama_extractor import OllamaExtractor
-
-        extractor = OllamaExtractor()
-        result = await extractor.extract("")
-        from engram.extraction.extractor import ExtractionStatus
-
-        assert result.status == ExtractionStatus.EMPTY
-
-    @pytest.mark.asyncio
-    async def test_health_check_unreachable(self):
-        from engram.extraction.ollama_extractor import OllamaExtractor
-
-        available = await OllamaExtractor.is_available("http://localhost:99999")
-        assert available is False
-
-    def test_strip_markdown_fences(self):
-        from engram.extraction.ollama_extractor import OllamaExtractor
-
-        text = '```json\n{"entities": []}\n```'
-        result = OllamaExtractor._strip_markdown_fences(text)
-        assert result == '{"entities": []}'
-
-    def test_parse_json_lenient(self):
-        from engram.extraction.ollama_extractor import OllamaExtractor
-
-        data = OllamaExtractor._parse_json_lenient('{"entities": []}')
-        assert data == {"entities": []}
-
-    @pytest.mark.asyncio
-    async def test_mock_extraction(self):
-        """Test extraction with mocked httpx response."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from engram.extraction.extractor import ExtractionStatus
-        from engram.extraction.ollama_extractor import OllamaExtractor
-
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.raise_for_status = MagicMock()
-        mock_response.json.return_value = {
-            "response": (
-                '{"entities": [{"name": "Python", "entity_type": "Technology"}],'
-                ' "relationships": []}'
-            ),
-        }
-
-        mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        import httpx as real_httpx
-
-        with patch.object(real_httpx, "AsyncClient", return_value=mock_client):
-            extractor = OllamaExtractor()
-            result = await extractor.extract("I use Python for development")
-
-        assert result.status == ExtractionStatus.OK
-        assert len(result.entities) == 1
-        assert result.entities[0]["name"] == "Python"

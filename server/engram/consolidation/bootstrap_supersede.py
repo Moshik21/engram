@@ -88,7 +88,14 @@ async def supersede_bootstrap_snapshots(
     if not callable(query):
         # Lite / fake stores have no raw query surface: nothing to supersede.
         return result
-    rows = await query("find_episodes_by_group", {"gid": group_id})
+    try:
+        rows = await query("find_episodes_by_group", {"gid": group_id})
+    except Exception:
+        logger.warning("bootstrap supersede: episode listing failed; window skipped", exc_info=True)
+        result.errors += 1
+        return result
+    if not isinstance(rows, list):
+        return result
     result.scanned = len(rows)
     keys = {snapshot_key(r.get("content")) for r in rows}
     keys.discard(None)

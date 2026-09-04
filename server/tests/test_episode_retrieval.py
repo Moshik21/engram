@@ -1337,6 +1337,9 @@ class TestPipelineEpisodeRetrieval:
     async def test_episode_retrieval_weight_discount(self):
         """episode_retrieval_weight discount is applied to episode scores."""
         cfg = ActivationConfig(
+            recall_short_episode_floor_chars=0,
+            recall_machinery_episode_multiplier=1.0,
+            recall_other_project_multiplier=1.0,
             episode_retrieval_enabled=True,
             episode_retrieval_weight=0.5,
             retrieval_strategy="hybrid",

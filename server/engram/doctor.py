@@ -988,51 +988,15 @@ async def _check_live_providers(config: EngramConfig, checks: list[dict[str, Any
     except Exception as exc:
         _add_check(checks, "embedding_provider", "warn", f"embedding probe failed: {exc}")
 
-    # Extraction: report the resolved ladder rung; probe Ollama when relevant.
-    try:
-        raw = getattr(config.activation, "extraction_provider", "narrow")
-        metadata = {"configured": raw}
-        if raw in {"auto", "ollama"}:
-            import urllib.request
-
-            base = getattr(config.activation, "ollama_base_url", "") or "http://127.0.0.1:11434"
-            try:
-                with urllib.request.urlopen(f"{base.rstrip('/')}/api/tags", timeout=3.0) as resp:
-                    reachable = resp.status == 200
-            except Exception:
-                reachable = False
-            metadata["ollama_base_url"] = base
-            metadata["ollama_reachable"] = reachable
-            if raw == "ollama" and not reachable:
-                _add_check(
-                    checks,
-                    "extraction_provider",
-                    "fail",
-                    f"extraction_provider=ollama but {base} is unreachable — "
-                    "extraction silently degrades to the narrow deterministic rung",
-                    metadata,
-                )
-                return
-            if raw == "auto" and not reachable and not os.environ.get("ANTHROPIC_API_KEY"):
-                _add_check(
-                    checks,
-                    "extraction_provider",
-                    "warn",
-                    "extraction_provider=auto resolves to NARROW (no Anthropic "
-                    f"key, Ollama unreachable at {base}) — high-signal structure "
-                    "comes only from harness remember() proposals",
-                    metadata,
-                )
-                return
-        _add_check(
-            checks,
-            "extraction_provider",
-            "pass",
-            f"extraction ladder rung: {raw}",
-            metadata,
-        )
-    except Exception as exc:
-        _add_check(checks, "extraction_provider", "warn", f"extraction probe failed: {exc}")
+    # Extraction: there is no external rung. The resident agent proposes; narrow writes cues.
+    raw = getattr(config.activation, "extraction_provider", "narrow")
+    _add_check(
+        checks,
+        "extraction_provider",
+        "pass",
+        f"internal rung: {raw} (the resident agent is the extractor; no external model)",
+        {"configured": raw},
+    )
 
 
 async def _maybe_close(obj: Any) -> None:

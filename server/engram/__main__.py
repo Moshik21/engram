@@ -299,8 +299,8 @@ def main():
     battery_parser.add_argument(
         "--judge",
         default="containment",
-        choices=["containment", "ollama"],
-        help="Fresh-agent grader (ollama is a future-stub; containment default)",
+        choices=["containment"],
+        help="Fresh-agent grader (deterministic containment; no external judge)",
     )
     battery_parser.add_argument(
         "--project-file",

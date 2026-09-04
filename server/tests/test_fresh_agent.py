@@ -131,7 +131,7 @@ def test_judge_stub_raises():
             recall_fn=lambda q: {"items": []},
             context_fn=lambda: "",
             project_packets=_packets(),
-            judge="ollama",
+            judge="external",
         )
 
 

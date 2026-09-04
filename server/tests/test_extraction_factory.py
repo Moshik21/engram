@@ -1,102 +1,44 @@
-"""Tests for extraction provider factory."""
+"""The internal extraction rung is narrow, always; retired rungs map to it loudly."""
 
 from __future__ import annotations
 
-import os
-from unittest.mock import patch
+import logging
 
-from engram.config import EngramConfig
-from engram.extraction.extractor import EntityExtractor
+import pytest
+
+from engram.config import ActivationConfig, EngramConfig
+from engram.extraction.factory import create_extractor
 from engram.extraction.narrow_adapter import NarrowExtractorAdapter
 
 
-def _make_config(**overrides) -> EngramConfig:
-    config = EngramConfig()
-    for k, v in overrides.items():
-        object.__setattr__(config.activation, k, v)
-    return config
+def test_factory_returns_narrow_for_the_default_config():
+    assert isinstance(create_extractor(EngramConfig()), NarrowExtractorAdapter)
 
 
-class TestAutoFallback:
-    """Auto mode falls back through the chain."""
-
-    def test_auto_no_api_key_no_ollama_uses_narrow(self):
-        """Without API key or Ollama, auto should fall back to narrow."""
-        config = _make_config(extraction_provider="auto")
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False):
-            import httpx as real_httpx
-
-            with patch.object(real_httpx, "get", side_effect=Exception("connection refused")):
-                from engram.extraction.factory import create_extractor
-
-                extractor = create_extractor(config)
-                assert isinstance(extractor, NarrowExtractorAdapter)
-
-    def test_auto_with_api_key_uses_anthropic(self):
-        """With API key, auto should select Anthropic."""
-        config = _make_config(extraction_provider="auto")
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test-123"}, clear=False):
-            from engram.extraction.factory import create_extractor
-
-            extractor = create_extractor(config)
-            assert isinstance(extractor, EntityExtractor)
+def test_only_narrow_is_a_valid_provider():
+    assert ActivationConfig(extraction_provider="narrow").extraction_provider == "narrow"
+    with pytest.raises(Exception):
+        ActivationConfig(extraction_provider="haiku")
 
 
-class TestExplicitProviders:
-    """Explicit provider selection."""
-
-    def test_explicit_narrow(self):
-        """Explicit narrow should always work."""
-        config = _make_config(extraction_provider="narrow")
-        from engram.extraction.factory import create_extractor
-
-        extractor = create_extractor(config)
-        assert isinstance(extractor, NarrowExtractorAdapter)
-
-    def test_explicit_anthropic_without_key_falls_back(self):
-        """Explicit anthropic without key should fall back to narrow with warning."""
-        config = _make_config(extraction_provider="anthropic")
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": ""}, clear=False):
-            from engram.extraction.factory import create_extractor
-
-            extractor = create_extractor(config)
-            assert isinstance(extractor, NarrowExtractorAdapter)
-
-    def test_explicit_anthropic_with_key(self):
-        """Explicit anthropic with key should use EntityExtractor."""
-        config = _make_config(extraction_provider="anthropic")
-        with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test-123"}, clear=False):
-            from engram.extraction.factory import create_extractor
-
-            extractor = create_extractor(config)
-            assert isinstance(extractor, EntityExtractor)
-
-    def test_explicit_ollama_unreachable_falls_back(self):
-        """Explicit ollama when unreachable should fall back to narrow."""
-        config = _make_config(extraction_provider="ollama")
-        import httpx as real_httpx
-
-        with patch.object(real_httpx, "get", side_effect=Exception("connection refused")):
-            from engram.extraction.factory import create_extractor
-
-            extractor = create_extractor(config)
-            assert isinstance(extractor, NarrowExtractorAdapter)
+@pytest.mark.parametrize("retired", ["auto", "anthropic", "ollama"])
+def test_retired_providers_map_to_narrow_with_a_warning(retired, caplog):
+    with caplog.at_level(logging.WARNING, logger="engram.config"):
+        cfg = ActivationConfig(extraction_provider=retired)
+    assert cfg.extraction_provider == "narrow"
+    assert any("retired" in r.getMessage() for r in caplog.records)
 
 
-class TestConfigDefaults:
-    """Config defaults for extraction provider."""
+def test_retired_ollama_keys_are_dropped_with_a_warning(caplog):
+    with caplog.at_level(logging.WARNING, logger="engram.config"):
+        cfg = ActivationConfig(ollama_model="x", ollama_base_url="http://h")
+    assert not hasattr(cfg, "ollama_model")
+    assert any("OLLAMA_MODEL" in r.getMessage() for r in caplog.records)
 
-    def test_default_is_narrow(self, monkeypatch):
-        # Isolate from operator env (ENGRAM_ACTIVATION__EXTRACTION_PROVIDER, etc.).
-        monkeypatch.delenv("ENGRAM_ACTIVATION__EXTRACTION_PROVIDER", raising=False)
-        monkeypatch.delenv("ENGRAM_EXTRACTION_PROVIDER", raising=False)
-        config = EngramConfig(_env_file=None)
-        assert config.activation.extraction_provider in {"narrow", "auto", "ollama", "anthropic"}
 
-    def test_ollama_defaults(self, monkeypatch):
-        monkeypatch.delenv("ENGRAM_ACTIVATION__OLLAMA_MODEL", raising=False)
-        monkeypatch.delenv("ENGRAM_ACTIVATION__OLLAMA_BASE_URL", raising=False)
-        config = EngramConfig(_env_file=None)
-        assert config.activation.ollama_base_url
-        assert isinstance(config.activation.ollama_model, str)
-        assert config.activation.ollama_model
+def test_env_leftovers_do_not_crash_startup(monkeypatch):
+    monkeypatch.setenv("ENGRAM_ACTIVATION__EXTRACTION_PROVIDER", "ollama")
+    monkeypatch.setenv("ENGRAM_ACTIVATION__OLLAMA_BASE_URL", "http://100.64.0.1:11434")
+    monkeypatch.setenv("ENGRAM_ACTIVATION__OLLAMA_MODEL", "gemma")
+    cfg = EngramConfig()
+    assert cfg.activation.extraction_provider == "narrow"

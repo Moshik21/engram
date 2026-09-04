@@ -38,6 +38,8 @@ class _FakeHelix:
             row = self.rows[payload["id"]]
             row.update({k: v for k, v in payload.items() if k != "id"})
             return [row]
+        if endpoint == "find_entities_by_group":
+            return [r for r in self.rows.values() if r.get("group_id") == payload.get("gid")]
         raise AssertionError(f"unexpected endpoint: {endpoint}")
 
 

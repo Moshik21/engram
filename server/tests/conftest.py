@@ -40,6 +40,11 @@ def _isolated_engram_home(tmp_path_factory, monkeypatch):
     "ep1"). Every test now gets a throwaway ENGRAM_HOME by default.
     """
     monkeypatch.setenv("ENGRAM_HOME", str(tmp_path_factory.mktemp("engram-home")))
+    # And no test reads the operator's or the repo's .env: two shutdown tests
+    # flipped on ENGRAM_RUNTIME_ROLE=shell from ~/.engram/.env (2026-09-04).
+    from engram.config import EngramConfig
+
+    monkeypatch.setitem(EngramConfig.model_config, "env_file", None)
 
 
 

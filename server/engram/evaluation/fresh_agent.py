@@ -23,7 +23,7 @@ a group must land wholly inside one file). No tool calls by construction.
 Metrics per question: hit, tool calls, chars surfaced (token-cost proxy).
 Lift = engram hits - project-file hits.
 
-``--judge ollama`` is a stub for future local-LLM grading; containment is
+No external judge exists (2026-09-04: the resident agent is the only model); containment is
 the only implemented grader.
 """
 

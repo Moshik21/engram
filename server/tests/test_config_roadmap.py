@@ -71,7 +71,7 @@ class TestRoadmapConfigDefaults:
         assert cfg.pool_graph_limit == 20
         assert cfg.pool_wm_max_neighbors == 5
         assert cfg.pool_wm_limit == 15
-        assert cfg.pool_total_limit == 80
+        assert cfg.pool_total_limit == 85  # deliberate parity with the pool sum, see config.py
 
 
 class TestRoadmapConfigConstraints:

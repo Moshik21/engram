@@ -308,7 +308,7 @@ class NativeTransport:
             return False
         try:
             return bool(has_route(endpoint))
-        except Exception:
+        except Exception:  # silent-ok: a failing probe means "unknown", callers fall back to the error path
             return False
 
     async def query(self, endpoint: str, payload: dict) -> list[dict]:
@@ -546,7 +546,7 @@ def _close_cached_engines() -> None:
     for executor in executors:
         try:
             executor.shutdown(wait=False, cancel_futures=True)
-        except Exception:  # process is exiting; nothing to recover
+        except Exception:  # silent-ok: process is exiting; nothing to recover
             pass
     with _ENGINE_CACHE_LOCK:
         engines = list(_ENGINE_CACHE.values())

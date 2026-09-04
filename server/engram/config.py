@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from engram.models.activation import DEFAULT_USAGE_TIER_WEIGHTS
@@ -161,10 +162,44 @@ class CORSConfig(BaseModel):
     production_origin: str = ""  # e.g. "https://engram-dashboard.vercel.app"
 
 
+# 2026-09-04: config keys/values of the removed external extractors (Ollama,
+# Anthropic, the 'auto' ladder). Seen in a config or env they are dropped or
+# mapped to narrow with a warning instead of failing startup.
+_RETIRED_EXTRACTOR_KEYS = ("ollama_model", "ollama_base_url")
+_RETIRED_EXTRACTOR_VALUES = ("auto", "anthropic", "ollama")
+
+
 class ActivationConfig(BaseModel):
     """All tunable activation engine parameters."""
 
     model_config = {"extra": "forbid"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _retire_external_extractors(cls, data: Any) -> Any:
+        """Map retired external-extractor config to narrow, loudly (2026-09-04)."""
+        if not isinstance(data, dict):
+            return data
+        for key in _RETIRED_EXTRACTOR_KEYS:
+            if key in data:
+                data = dict(data)
+                data.pop(key)
+                logging.getLogger(__name__).warning(
+                    "ENGRAM_ACTIVATION__%s is retired: Engram no longer uses Ollama or any "
+                    "external extractor -- delete that line from your .env",
+                    key.upper(),
+                )
+        value = data.get("extraction_provider")
+        if isinstance(value, str) and value.strip().lower() in _RETIRED_EXTRACTOR_VALUES:
+            data = dict(data)
+            data["extraction_provider"] = "narrow"
+            logging.getLogger(__name__).warning(
+                "extraction_provider=%r is retired: the resident agent is the only "
+                "extractor; using 'narrow' -- delete ENGRAM_ACTIVATION__EXTRACTION_PROVIDER "
+                "from your .env",
+                value,
+            )
+        return data
 
     decay_exponent: float = Field(default=0.5, ge=0.1, le=1.0)
     min_age_seconds: float = Field(default=1.0, ge=0.01)
@@ -2117,22 +2152,21 @@ class ActivationConfig(BaseModel):
         description="Weight for arousal level matching",
     )
     # --- Extraction provider ---
+    # 2026-09-04 (Konner): Engram never calls an external model. The resident
+    # agent holding the MCP is the only extractor (proposed_entities /
+    # proposed_relationships on remember/observe); the internal rung is the
+    # deterministic narrow adapter, which writes cues and nothing richer. The
+    # anthropic/ollama rungs and the 'auto' ladder are gone; a config or env
+    # that still names them is mapped to narrow with a loud warning so the
+    # shell keeps starting while the operator deletes the line.
     extraction_provider: str = Field(
         default="narrow",
-        pattern="^(auto|anthropic|ollama|narrow)$",
+        pattern="^narrow$",
         description=(
-            "Extraction backend: 'narrow' (default) is zero-cost deterministic. "
-            "'auto' tries anthropic→ollama→narrow. "
-            "'anthropic' uses Claude Haiku for richer extraction (requires API key)."
+            "Internal extraction rung for content the agent did not structure. "
+            "Only 'narrow' (deterministic, zero-dependency) exists; the resident "
+            "agent's proposals are the real extractor."
         ),
-    )
-    ollama_model: str = Field(
-        default="llama3.1:8b",
-        description="Ollama model for extraction",
-    )
-    ollama_base_url: str = Field(
-        default="http://localhost:11434",
-        description="Ollama API base URL",
     )
 
     # --- Briefing format ---

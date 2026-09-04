@@ -594,13 +594,18 @@ async def get_runtime_state(
         live=live,
         timeout_seconds=timeout_seconds,
     )
+    result["nativeQueryStats"] = _native_query_stats_or_empty()
+    return JSONResponse(content=result)
+
+
+def _native_query_stats_or_empty() -> dict:
+    """Per-endpoint native counters; a diagnostic, never a failure."""
     try:
         from engram.storage.helix.native_transport import native_query_stats
 
-        result["nativeQueryStats"] = native_query_stats()
-    except Exception:  # the counters are a diagnostic, never a failure
-        result["nativeQueryStats"] = {}
-    return JSONResponse(content=result)
+        return native_query_stats()
+    except Exception:  # silent-ok: counters are diagnostic only
+        return {}
 
 
 @router.get("/runtime/fast")

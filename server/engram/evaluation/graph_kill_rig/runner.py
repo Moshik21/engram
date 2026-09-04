@@ -188,7 +188,7 @@ def _diagnostics(arm: str, runs: list[QuestionRun]) -> dict[str, Any]:
     }
 
 
-async def _open_brain(opts: RigOptions, overrides: dict[str, Any]) -> tuple[Any, Any, Any]:
+async def _open_brain(opts: RigOptions, overrides: dict[str, Any]) -> tuple[Any, Any, Any, Any]:
     """A fresh manager over the scratch lite brain. Never the dogfood store."""
     from dotenv import load_dotenv
 
@@ -242,7 +242,7 @@ async def _open_brain(opts: RigOptions, overrides: dict[str, Any]) -> tuple[Any,
         cfg=config.activation,
         runtime_mode="graph_kill_rig",
     )
-    return manager, graph, config
+    return manager, graph, config, search
 
 
 async def _drain_capture_indexing(manager: Any) -> None:
@@ -329,7 +329,7 @@ async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str
             stale = opts.scratch_dir / f"brain.db{suffix}"
             if stale.exists():
                 stale.unlink()
-        manager, graph, config = await _open_brain(opts, {})
+        manager, graph, config, search = await _open_brain(opts, {})
         tag_to_id = await _ingest(manager, corpus, opts)
         # Capture-time vector indexing is handed to a serialized background
         # lane and the capture returns before it runs. Measured 2026-09-04:
@@ -345,7 +345,7 @@ async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str
     ingest_ms = round((time.perf_counter() - started) * 1000, 1)
 
     # --- pre-flight 1: producer + bridge + vector-index verification --------
-    manager, graph, config = await _open_brain(opts, {})
+    manager, graph, config, search = await _open_brain(opts, {})
     bridge_report = await preflight.verify_bridges(
         graph,
         group_id=opts.group_id,
@@ -353,7 +353,7 @@ async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str
         tag_to_id=tag_to_id,
     )
     vector_check = await preflight.vector_index_probe(
-        manager._search,
+        search,
         gold_episode_ids=[
             tag_to_id[q.gold_tag] for q in corpus.questions if q.gold_tag in tag_to_id
         ],
@@ -362,7 +362,7 @@ async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str
     embedding_provenance = {
         "model": config.embedding.local_model,
         "cache_path": os.environ.get("FASTEMBED_CACHE_PATH"),
-        "provider": type(getattr(manager._search, "_provider", None)).__name__,
+        "provider": type(getattr(search, "_provider", None)).__name__,
     }
     await _close(manager, graph)
 

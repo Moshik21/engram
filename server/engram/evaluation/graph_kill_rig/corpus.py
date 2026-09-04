@@ -20,7 +20,7 @@ hard-won lessons rather than taste:
 
 * **The graph is not planted by default.** ``--producer`` selects who builds
   the graph. ``proposals`` reproduces M3.1's planted control (harness as
-  extractor); ``narrow``/``auto``/``ollama``/``anthropic`` build it ORGANICALLY
+  extractor); ``narrow`` builds it ORGANICALLY
   from the same text. Whichever runs, ``verify_bridges`` re-checks every bridge
   against the real store before a single question is scored, and questions
   whose bridge did not materialise are dropped from the scored set rather than
