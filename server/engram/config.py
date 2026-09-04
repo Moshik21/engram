@@ -645,6 +645,20 @@ class ActivationConfig(BaseModel):
     episode_retrieval_enabled: bool = Field(default=True)
     episode_retrieval_weight: float = Field(default=0.8, ge=0.0, le=1.0)
     episode_retrieval_max: int = Field(default=5, ge=0, le=20)
+    recall_machinery_episode_multiplier: float = Field(
+        default=0.3,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Score multiplier for episode candidates whose content classifies as "
+            "machinery (task notifications, system reminders, tool-id dumps, harness "
+            "boilerplate; see ingestion/salience.py). Measured 2026-09-03: for 'which "
+            "consolidation phases were deleted' the keyword lane's ranks 1-2 were a "
+            "<user_query> wrapper and a <system-reminder> capture. Machinery is kept "
+            "out of the vector index but still BM25-indexed, so it must be demoted at "
+            "rank time. 1.0 disables."
+        ),
+    )
     recall_short_episode_floor_chars: int = Field(
         default=300,
         ge=0,

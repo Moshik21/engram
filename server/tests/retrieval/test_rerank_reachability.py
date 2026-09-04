@@ -128,6 +128,7 @@ def _cfg(**overrides) -> ActivationConfig:
         # This file pins one episode read per candidate; the length rule reads
         # candidates to weigh them and is not what is under test here.
         "recall_short_episode_floor_chars": 0,
+        "recall_machinery_episode_multiplier": 1.0,
     }
     base.update(overrides)
     return ActivationConfig(**base)

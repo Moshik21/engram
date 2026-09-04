@@ -46,7 +46,11 @@ async def test_other_project_is_demoted_same_and_unknown_are_not() -> None:
     mult = await _episode_project_multipliers(
         store, "default", ["ep_mine", "ep_other", "ep_unknown", "ep_missing"],
         "/Users/x/Engram",
-        ActivationConfig(recall_other_project_multiplier=0.6, recall_short_episode_floor_chars=0),
+        ActivationConfig(
+            recall_other_project_multiplier=0.6,
+            recall_short_episode_floor_chars=0,
+            recall_machinery_episode_multiplier=1.0,
+        ),
         {},
     )
     assert mult == {"ep_other": 0.6}
@@ -54,8 +58,16 @@ async def test_other_project_is_demoted_same_and_unknown_are_not() -> None:
 
 async def test_multiplier_one_or_no_project_path_reads_nothing() -> None:
     store = _Store({"ep_other": "[assistant|Other] x"})
-    off = ActivationConfig(recall_other_project_multiplier=1.0, recall_short_episode_floor_chars=0)
-    on = ActivationConfig(recall_other_project_multiplier=0.6, recall_short_episode_floor_chars=0)
+    off = ActivationConfig(
+        recall_other_project_multiplier=1.0,
+        recall_short_episode_floor_chars=0,
+        recall_machinery_episode_multiplier=1.0,
+    )
+    on = ActivationConfig(
+        recall_other_project_multiplier=0.6,
+        recall_short_episode_floor_chars=0,
+        recall_machinery_episode_multiplier=1.0,
+    )
     assert (
         await _episode_project_multipliers(store, "default", ["ep_other"], "/x/Engram", off, {})
         == {}
@@ -80,3 +92,28 @@ async def test_short_episodes_are_demoted_in_proportion_to_length() -> None:
     assert mult["ep_tiny"] == pytest.approx(0.3)
     assert mult["ep_mid"] == pytest.approx(0.5)
     assert "ep_long" not in mult
+
+
+async def test_machinery_captures_are_demoted() -> None:
+    """<system-reminder>/<task-notification> wrappers are BM25-indexed but say nothing."""
+    store = _Store({
+        "ep_sys": "[user|Engram] <system-reminder> Background task done </system-reminder>",
+        "ep_note": (
+            "[user|Engram] <task-notification>\n<task-id>abc</task-id>\n</task-notification>"
+        ),
+        "ep_real": (
+            "[assistant|Engram] "
+            + "The consolidation phases mature and semanticize were deleted. " * 6
+        ),
+    })
+    cfg = ActivationConfig(
+        recall_other_project_multiplier=1.0,
+        recall_short_episode_floor_chars=0,
+        recall_machinery_episode_multiplier=0.3,
+    )
+    mult = await _episode_project_multipliers(
+        store, "default", ["ep_sys", "ep_note", "ep_real"], "/x/Engram", cfg, {}
+    )
+    assert mult.get("ep_sys") == pytest.approx(0.3)
+    assert mult.get("ep_note") == pytest.approx(0.3)
+    assert "ep_real" not in mult

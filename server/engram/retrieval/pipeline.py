@@ -17,6 +17,7 @@ from engram.activation.spreading import (
     spread_activation,
 )
 from engram.config import ActivationConfig
+from engram.ingestion.salience import is_machinery
 from engram.retrieval.episode_graph_signal import (
     EntityGraphSignal,
     apply_episode_graph_signal,
@@ -574,8 +575,9 @@ async def _episode_project_multipliers(
     """
     mult = float(getattr(cfg, "recall_other_project_multiplier", 1.0))
     floor_chars = int(getattr(cfg, "recall_short_episode_floor_chars", 0) or 0)
+    machinery_mult = float(getattr(cfg, "recall_machinery_episode_multiplier", 1.0))
     scope_on = bool(project_path) and mult < 1.0
-    if (not scope_on and floor_chars <= 0) or not episode_ids:
+    if (not scope_on and floor_chars <= 0 and machinery_mult >= 1.0) or not episode_ids:
         return {}
     from pathlib import Path
 
@@ -589,6 +591,7 @@ async def _episode_project_multipliers(
     out: dict[str, float] = {}
     demoted = 0
     shortened = 0
+    machinery = 0
     for ep_id in episode_ids:
         try:
             episode = await get_episode(ep_id, group_id)
@@ -596,6 +599,9 @@ async def _episode_project_multipliers(
             continue
         content = getattr(episode, "content", None) or ""
         weight = 1.0
+        if machinery_mult < 1.0 and is_machinery(content, getattr(episode, "source", None)):
+            weight *= machinery_mult
+            machinery += 1
         if scope_on:
             named = _project_of_content(content)
             if named and named.lower() != project:
@@ -614,6 +620,7 @@ async def _episode_project_multipliers(
         _add_stage_timing(stage_timings_ms, "recall_project_scope", started)
         _set_stage_metric(stage_timings_ms, "recall_project_scope_demoted", demoted)
         _set_stage_metric(stage_timings_ms, "recall_short_episode_demoted", shortened)
+        _set_stage_metric(stage_timings_ms, "recall_machinery_episode_demoted", machinery)
     return out
 
 
