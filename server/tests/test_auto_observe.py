@@ -725,3 +725,35 @@ def test_observe_response_message():
     assert "Stored for background processing" in surface_src
     assert "Use trigger_consolidation" not in observe_src
     assert "Use trigger_consolidation" not in surface_src
+
+
+@pytest.mark.asyncio
+async def test_auto_observe_drops_harness_machinery_at_capture():
+    """2026-09-04: task notifications / system reminders / tool-id dumps are not
+    stored on the hook path (1,021 such rows on the dogfood brain, all junk)."""
+    manager = SimpleNamespace(store_episode=AsyncMock(return_value="ep_auto_1"))
+    machinery = (
+        "[user|Engram] <task-notification>\n<task-id>we96gei8t</task-id>\n"
+        "<tool-use-id>toolu_01QhvKTkqdLRmv</tool-use-id>\n</task-notification>"
+    )
+    payload = await build_api_auto_observe_surface(
+        manager,
+        content=machinery,
+        group_id="tenant_brain",
+        source="auto:prompt",
+        auto_observe_enabled=True,
+        dedup_check=lambda _content: False,
+    )
+    assert payload["status"] == "skipped" and payload.get("reason") == "machinery"
+    manager.store_episode.assert_not_awaited()
+
+    payload = await build_api_auto_observe_surface(
+        manager,
+        content="[user|Engram] why was Thompson sampling removed from the ranker last month",
+        group_id="tenant_brain",
+        source="auto:prompt",
+        auto_observe_enabled=True,
+        dedup_check=lambda _content: False,
+    )
+    assert payload["status"] != "skipped"
+    manager.store_episode.assert_awaited_once()

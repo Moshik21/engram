@@ -29,6 +29,7 @@ from engram.ingestion.presenter import (
     present_api_observe_skip,
     present_mcp_memory_write,
 )
+from engram.ingestion.salience import is_machinery
 from engram.models.episode import Attachment, EpisodeProjectionState
 from engram.models.episode_cue import EpisodeCue
 from engram.retrieval.memory_operations import (
@@ -811,6 +812,22 @@ async def build_api_auto_observe_surface(
             result_count=0,
         )
         return present_api_observe_skip("skipped", reason="too_short")
+
+    # 2026-09-04: harness machinery (task notifications, system reminders,
+    # tool-id dumps) is not stored at all on the hook path. Measured on the
+    # dogfood brain: 1,021 such rows, every sampled one junk; storing them
+    # only fed the BM25 index and the rank-time 0.3 multiplier. The agent's
+    # own observe/remember calls do not pass through here.
+    if is_machinery(content, source):
+        await _record_write_operation(
+            manager,
+            group_id,
+            finish_operation,
+            status="skipped",
+            skip_reason="machinery",
+            result_count=0,
+        )
+        return present_api_observe_skip("skipped", reason="machinery")
 
     if dedup_check is not None and dedup_check(content):
         await _record_write_operation(
