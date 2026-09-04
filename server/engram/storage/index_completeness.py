@@ -385,8 +385,18 @@ async def _ids_with_vectors(
     probe_attr: str,
     census_attr: str,
     probe_chunk: int = DEFAULT_EMBEDDING_PROBE_CHUNK,
+    row_kind: str | None = None,
 ) -> tuple[set[str] | None, bool]:
     """Return (ids that already hold vectors, presence_is_exact).
+
+    ``row_kind`` selects the exact ROW-presence probe first
+    (``find_vector_rows_by_episode_ids``): a vector row counts as present
+    whether or not its float payload is projected. Measured 2026-09-04 on the
+    live brain: 7 017 of 8 654 episodes have a vector row the ANN serves, but
+    the by-id embedding probe returns ``data: []`` for every row written before
+    the data-field projection, so the embedding probe called 81 % of the
+    corpus missing and the drain re-embedded 50 already-indexed episodes per
+    window. Row presence is what "missing" means for a backfill.
 
     Prefers a by-id embedding probe (``probe_attr``, exact), falls back to a
     single ANN census sweep (``census_attr``, one embed call — INEXACT: on
@@ -394,6 +404,33 @@ async def _ids_with_vectors(
     subset regardless of k, measured 39 visible of 3000 written). Returns
     ``(None, False)`` when the index exposes neither.
     """
+    find_rows = getattr(search_index, "find_vector_rows_by_episode_ids", None)
+    if row_kind and callable(find_rows):
+        present_rows: set[str] = set()
+        chunk = max(1, int(probe_chunk))
+        rows_unavailable = False
+        for i in range(0, len(ids), chunk):
+            batch = ids[i : i + chunk]
+            try:
+                rows = await find_rows(row_kind, batch, group_id)
+            except ByIdVectorProbeUnavailableError:
+                rows_unavailable = True
+                break
+            except Exception:
+                logger.warning(
+                    "find_vector_rows_by_episode_ids(%s) failed for chunk starting at %d",
+                    row_kind,
+                    i,
+                    exc_info=True,
+                )
+                rows_unavailable = True
+                break
+            for row in rows or []:
+                eid = str(row.get("episode_id") or "")
+                if eid:
+                    present_rows.add(eid)
+        if not rows_unavailable:
+            return present_rows, True
     probe = getattr(search_index, probe_attr, None)
     if callable(probe):
         present: set[str] = set()
@@ -489,6 +526,7 @@ async def backfill_missing_episode_vectors(
         probe_attr="get_episode_embeddings",
         census_attr="_vector_search_episodes",
         probe_chunk=probe_chunk,
+        row_kind="episode",
     )
     if present is None:
         # No presence probe at all: treat everything as missing so the drain
@@ -614,6 +652,7 @@ async def backfill_missing_cue_vectors(
         group_id,
         probe_attr="get_cue_embeddings",
         census_attr="_vector_search_cues",
+        row_kind="cue",
         probe_chunk=probe_chunk,
     )
     present = present or set()

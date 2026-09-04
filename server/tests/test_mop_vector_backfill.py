@@ -622,3 +622,24 @@ class TestBackfillFunctionEdgeCases:
 
         assert result.indexed_ids == ["ep1"]
         assert result.cursor_next is None
+
+
+@pytest.mark.asyncio
+async def test_a_vector_row_without_projected_floats_is_not_missing():
+    """Live 2026-09-04: rows written before the data-field projection answer
+    the by-id embedding probe with data=[] while the ANN serves them. The
+    backfill must judge presence by ROW, not by float payload."""
+    from engram.storage.index_completeness import backfill_missing_episode_vectors
+
+    class RowsButNoFloats(FakeSearchIndex):
+        async def find_vector_rows_by_episode_ids(self, kind, episode_ids, group_id):
+            return [{"id": 1, "episode_id": eid, "data": []} for eid in episode_ids]
+
+        async def get_episode_embeddings(self, ids, group_id=None):
+            return {}
+
+    graph = FakeGraphStore(episodes=[_episode("old1"), _episode("old2")])
+    search = RowsButNoFloats()
+    result = await backfill_missing_episode_vectors(graph, search, "g")
+    assert result.missing_before == 0
+    assert search.indexed_episode_ids == []
