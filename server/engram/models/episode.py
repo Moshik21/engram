@@ -68,6 +68,10 @@ class Episode(BaseModel):
     # class (M1.1). Persisted inside the encoding_context JSON blob; see
     # engram.ingestion.salience.encode_salience_class/decode_salience_class.
     salience_class: str = ""
+    # Project name the capture belongs to (the hook's cwd basename). Persisted
+    # inside the encoding_context JSON blob under "project"; older rows carry
+    # it only in the "[role|project]" content header.
+    project: str | None = None
     memory_tier: str = "episodic"  # "episodic" | "transitional" | "semantic"
     consolidation_cycles: int = 0
     entity_coverage: float = 0.0

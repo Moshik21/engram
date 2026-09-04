@@ -603,7 +603,7 @@ async def _episode_project_multipliers(
             weight *= machinery_mult
             machinery += 1
         if scope_on:
-            named = _project_of_content(content)
+            named = getattr(episode, "project", None) or _project_of_content(content)
             if named and named.lower() != project:
                 weight *= mult
                 demoted += 1

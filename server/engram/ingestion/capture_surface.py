@@ -528,6 +528,7 @@ async def store_observation(
     pass_conversation_date: bool = False,
     pass_attachments: bool = False,
     capture_store_timeout_ms: int | None = None,
+    project: str | None = None,
 ) -> str:
     """Store a raw Capture-stage observation through the manager facade."""
     kwargs: dict[str, Any] = {
@@ -543,6 +544,8 @@ async def store_observation(
         kwargs["attachments"] = attachments
     if capture_store_timeout_ms is not None:
         kwargs["capture_store_timeout_ms"] = capture_store_timeout_ms
+    if project:
+        kwargs["project"] = project
     episode_id = await manager.store_episode(**kwargs)
     await _record_observed_usage_events(manager, group_id=group_id, content=content)
     return episode_id
@@ -737,6 +740,7 @@ async def build_api_auto_observe_surface(
     conversation_date: str | None = None,
     auto_observe_enabled: bool = True,
     dedup_check: Callable[[str], bool] | None = None,
+    project: str | None = None,
 ) -> dict[str, Any]:
     """Run the REST auto-observe Capture policy behind an ingestion boundary."""
     _started, finish_operation = measured_memory_operation(
@@ -788,6 +792,7 @@ async def build_api_auto_observe_surface(
         conversation_date=parse_conversation_date(conversation_date),
         pass_conversation_date=True,
         capture_store_timeout_ms=_AGENT_WRITE_CAPTURE_STORE_TIMEOUT_MS,
+        project=project,
     )
     _cache_recent_observation_packet(
         manager,
@@ -855,6 +860,7 @@ async def build_api_auto_observe_request_surface(
         conversation_date=body["conversation_date"],
         auto_observe_enabled=auto_observe_enabled,
         dedup_check=dedup_check,
+        project=body["project"],
     )
 
 

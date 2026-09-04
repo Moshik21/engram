@@ -89,24 +89,24 @@ class TestEveryLimitReadsItsConfigField:
         )
 
     def test_cap_is_not_the_sum_of_the_pools_it_caps(self):
-        """A cap equal to the union bound of its own inputs cannot bind.
+        """The cap is read from its own field, not derived from its inputs.
 
-        With the shadow expression this held at every corpus size, which is why
-        the cap was inert rather than merely mis-valued.
+        With the shadow expression the cap moved whenever a pool moved, which
+        is why it was inert rather than merely mis-valued. Parity of the
+        default VALUES is deliberate (config.py: 85 keeps the pre-ticket-28
+        lane width); parity of the EXPRESSION is the defect.
         """
-        cfg = ActivationConfig()
+        base = ActivationConfig()
+        widened = ActivationConfig(pool_search_limit=base.pool_search_limit * 2)
         for total_entities in (1000, 5000, 9399, 50000):
-            limits = compute_dynamic_limits(total_entities, cfg)
-            union_bound = (
-                limits["pool_search_limit"]
-                + limits["pool_activation_limit"]
-                + limits["pool_graph_limit"]
-                + limits["pool_wm_limit"]
-            )
-            assert limits["pool_total_limit"] != union_bound, (
-                f"at {total_entities} entities the cap ({limits['pool_total_limit']}) "
-                f"equals the sum of the pools it caps ({union_bound}), so it can "
-                "only ever trim entity-query-unique candidates"
+            lo = compute_dynamic_limits(total_entities, base)
+            hi = compute_dynamic_limits(total_entities, widened)
+            if lo["pool_search_limit"] < 200:  # below the clamp the pool itself must move
+                assert hi["pool_search_limit"] > lo["pool_search_limit"]
+            assert hi["pool_total_limit"] == lo["pool_total_limit"], (
+                f"at {total_entities} entities widening pool_search_limit moved the cap "
+                f"({lo['pool_total_limit']} -> {hi['pool_total_limit']}); it is being "
+                "derived from the pools again"
             )
 
     def test_cap_still_scales_with_corpus_size(self):

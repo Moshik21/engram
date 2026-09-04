@@ -197,3 +197,32 @@ def test_lite_sqlite_has_no_breaker_and_never_touches_sidecar(engram_home: Path)
 
     assert not hasattr(HybridSearchIndex, "_bm25_breaker")
     assert not _bm25_breaker_state_path().exists()
+
+
+def test_breaker_releases_a_probe_that_never_reported():
+    """A granted probe whose caller vanished must not hold the lane off forever."""
+    from engram.storage.helix.search import (
+        _BM25_PROBE_STALE_SECONDS,
+        Bm25CircuitBreaker,
+    )
+
+    clock = [0.0]
+    breaker = Bm25CircuitBreaker("k", retry_after_seconds=60.0, clock=lambda: clock[0])
+    breaker.record_call(5000.0)
+    breaker.record_call(5000.0)
+    assert breaker.is_open
+    clock[0] = 61.0
+    assert breaker.allow_call() is True  # the probe is granted ...
+    clock[0] = 62.0
+    assert breaker.allow_call() is False  # ... and nobody else may run meanwhile
+    snap = breaker.snapshot()
+    assert snap["halfOpenProbe"] is True and snap["probeGrantedForS"] == 1.0
+    # The probe never records (cancelled caller). Before the stale window it stays skipped.
+    clock[0] = 61.0 + _BM25_PROBE_STALE_SECONDS - 1.0
+    assert breaker.allow_call() is False
+    # After it, the slot is released and a fresh probe is granted at once.
+    clock[0] = 61.0 + _BM25_PROBE_STALE_SECONDS
+    assert breaker.allow_call() is True
+    assert breaker.snapshot()["staleProbes"] == 1
+    breaker.record_call(5.0)
+    assert not breaker.is_open

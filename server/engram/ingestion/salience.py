@@ -160,6 +160,41 @@ def decode_salience_class(encoding_context: str | None) -> str:
     return value if isinstance(value, str) else ""
 
 
+def decode_context_field(encoding_context: str | None, key: str) -> str | None:
+    """Read one string field out of the encoding_context JSON blob."""
+    if not encoding_context:
+        return None
+    try:
+        data = json.loads(encoding_context)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def encode_context_field(encoding_context: str | None, key: str, value: str | None) -> str | None:
+    """Embed one string field into the encoding_context JSON blob.
+
+    Same contract as :func:`encode_salience_class`: an empty value or a
+    non-object blob returns the input unchanged.
+    """
+    if not value:
+        return encoding_context
+    if encoding_context:
+        try:
+            data = json.loads(encoding_context)
+        except (TypeError, ValueError):
+            return encoding_context
+        if not isinstance(data, dict):
+            return encoding_context
+    else:
+        data = {}
+    data[key] = value
+    return json.dumps(data)
+
+
 def encode_salience_class(encoding_context: str | None, salience_class: str) -> str | None:
     """Embed a salience class into the encoding_context JSON blob for storage.
 

@@ -68,6 +68,7 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
             "source": ep.get("source"),
             "created_at": ep.get("created_at"),
             "conversation_date": ep.get("conversation_date"),
+            "project": ep.get("project"),
             "linked_entities": _linked_entity_names(result),
         }
 
@@ -96,6 +97,7 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
             "source": episode.get("source"),
             "created_at": episode.get("created_at"),
             "conversation_date": episode.get("conversation_date"),
+            "project": episode.get("project"),
         }
 
     entity_raw = result.get("entity", {})
@@ -125,6 +127,7 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
                 "content": item["content"],
                 "source": item["source"],
                 "createdAt": item["created_at"],
+                "project": item.get("project"),
             },
             "score": item["score"],
             "scoreBreakdown": _api_score_breakdown(result),
@@ -158,6 +161,7 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
                 "id": item["episode_id"],
                 "source": item["source"],
                 "createdAt": item["created_at"],
+                "project": item.get("project"),
             },
             "score": item["score"],
             "scoreBreakdown": _api_score_breakdown(result),

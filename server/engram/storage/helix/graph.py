@@ -18,7 +18,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 from engram.config import HelixDBConfig
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
-from engram.ingestion.salience import decode_salience_class, encode_salience_class
+from engram.ingestion.salience import (
+    decode_context_field,
+    decode_salience_class,
+    encode_context_field,
+    encode_salience_class,
+)
 from engram.models.entity import Entity
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
@@ -962,6 +967,7 @@ class HelixGraphStore:
             processing_duration_ms=d.get("processing_duration_ms"),
             encoding_context=d.get("encoding_context_json"),
             salience_class=decode_salience_class(d.get("encoding_context_json")),
+            project=decode_context_field(d.get("encoding_context_json"), "project"),
             memory_tier=d.get("memory_tier", "episodic") or "episodic",
             consolidation_cycles=d.get("consolidation_cycles", 0) or 0,
             entity_coverage=d.get("entity_coverage", 0.0) or 0.0,
@@ -1700,7 +1706,9 @@ class HelixGraphStore:
                         "search_entities_bm25",
                         {"query": stripped_name, "k": bm25_limit},
                     )
-            except Exception:
+            except BaseException:
+                # BaseException: a CancelledError here used to skip the record,
+                # and when this was the half-open probe the slot never freed.
                 if breaker is not None:
                     breaker.record_call((time.monotonic() - bm25_started) * 1000.0, cancelled=True)
                 raise
@@ -2220,7 +2228,12 @@ class HelixGraphStore:
             "skipped_meta": False,
             "skipped_triage": False,
             "encoding_context_json": (
-                encode_salience_class(episode.encoding_context, episode.salience_class) or "{}"
+                encode_context_field(
+                    encode_salience_class(episode.encoding_context, episode.salience_class),
+                    "project",
+                    episode.project,
+                )
+                or "{}"
             ),
             "memory_tier": episode.memory_tier or "episodic",
             "consolidation_cycles": episode.consolidation_cycles,

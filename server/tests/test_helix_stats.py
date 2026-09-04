@@ -141,7 +141,7 @@ async def test_helix_stats_without_group_uses_all_group_queries(monkeypatch) -> 
             ]
         if endpoint == "get_outgoing_edges":
             return []
-        if endpoint == "find_cue_by_episode":
+        if endpoint in ("find_cue_by_episode", "find_cue_by_episode_indexed"):
             is_ep_a = payload["ep_id"] == "ep_a"
             return [
                 {
@@ -484,7 +484,7 @@ async def test_helix_episode_cue_round_trips_feedback_fields(monkeypatch) -> Non
     stored_payload: dict = {}
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
-        if endpoint == "find_cue_by_episode":
+        if endpoint in ("find_cue_by_episode", "find_cue_by_episode_indexed"):
             if stored_payload:
                 return [{"id": 101, **stored_payload}]
             return []
@@ -564,7 +564,7 @@ async def test_helix_update_episode_cue_falls_back_to_episode_key_without_id(
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
         calls.append((endpoint, payload))
-        if endpoint == "find_cue_by_episode":
+        if endpoint in ("find_cue_by_episode", "find_cue_by_episode_indexed"):
             return [
                 {
                     "episode_id": "ep_feedback",
@@ -596,7 +596,7 @@ async def test_helix_update_episode_cue_falls_back_to_episode_key_without_id(
     )
 
     assert calls[0] == (
-        "find_cue_by_episode",
+        store._find_cue_by_episode_route(),
         {"ep_id": "ep_feedback", "gid": "native_brain"},
     )
     endpoint, payload = calls[1]
@@ -619,7 +619,7 @@ async def test_helix_upsert_episode_cue_falls_back_to_episode_key_without_id(
 
     async def fake_query(endpoint: str, payload: dict) -> list[dict]:
         calls.append((endpoint, payload))
-        if endpoint == "find_cue_by_episode":
+        if endpoint in ("find_cue_by_episode", "find_cue_by_episode_indexed"):
             return [
                 {
                     "episode_id": "ep_feedback",
@@ -647,7 +647,7 @@ async def test_helix_upsert_episode_cue_falls_back_to_episode_key_without_id(
     )
 
     assert calls[0] == (
-        "find_cue_by_episode",
+        store._find_cue_by_episode_route(),
         {"ep_id": "ep_feedback", "gid": "native_brain"},
     )
     endpoint, payload = calls[1]
@@ -937,7 +937,7 @@ async def test_helix_stats_counts_episodes_cues_and_projection_yield(monkeypatch
             ]
         if endpoint == "get_outgoing_edges":
             return [{"rel_id": "rel_1"}] if payload["id"] == "h_ent_1" else []
-        if endpoint == "find_cue_by_episode":
+        if endpoint in ("find_cue_by_episode", "find_cue_by_episode_indexed"):
             if payload["ep_id"] == "ep_projected":
                 return [
                     {

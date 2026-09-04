@@ -263,6 +263,11 @@ _BM25_BREAKER_CANCEL_STRIKE_MS = _BM25_BREAKER_BUDGET_MS
 _BM25_PROBE_GRACE = 3.0  # a cold half-open probe may take this many budgets and still close
 _BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
 _BM25_BREAKER_RETRY_AFTER_SECONDS = 60.0  # half-open probe interval
+# A granted half-open probe that never reports back (a caller path that was
+# cancelled without recording -- the native hard timeout is 20 s) would hold
+# the probe slot forever and the lane would stay off with no log line.
+# Measured 2026-09-04: 439 skipped calls, no HALF-OPEN for 15 min.
+_BM25_PROBE_STALE_SECONDS = 30.0
 
 # Persisted breaker state (sidecar JSON in ~/.engram, beside the activation
 # snapshot): without it every fresh shell serves 2-4 min of degraded recall
@@ -369,12 +374,14 @@ class Bm25CircuitBreaker:
         self._consecutive_over_budget = 0
         self._opened_at: float | None = None
         self._half_open_probe = False
+        self._probe_granted_at: float | None = None
         self._pre_armed = False
         self._stats = {
             "overBudgetCalls": 0,
             "skippedCalls": 0,
             "opens": 0,
             "closes": 0,
+            "staleProbes": 0,
         }
         if persist:
             self._pre_arm_from_persisted_state()
@@ -443,10 +450,23 @@ class Bm25CircuitBreaker:
         """Return True when a BM25 call may launch; count skips otherwise."""
         if self._opened_at is None:
             return True
-        if not self._half_open_probe and (
-            self._clock() - self._opened_at >= self._retry_after_seconds
+        now = self._clock()
+        if (
+            self._half_open_probe
+            and self._probe_granted_at is not None
+            and now - self._probe_granted_at >= _BM25_PROBE_STALE_SECONDS
         ):
+            self._half_open_probe = False
+            self._stats["staleProbes"] += 1
+            logger.warning(
+                "BM25 circuit breaker probe never reported after %.0fs (key=%s): "
+                "releasing the probe slot",
+                now - self._probe_granted_at,
+                self.key,
+            )
+        if not self._half_open_probe and now - self._opened_at >= self._retry_after_seconds:
             self._half_open_probe = True
+            self._probe_granted_at = now
             logger.warning(
                 "BM25 circuit breaker HALF-OPEN (key=%s): allowing one probe call",
                 self.key,
@@ -520,10 +540,19 @@ class Bm25CircuitBreaker:
 
     def snapshot(self) -> dict[str, Any]:
         """JSON-serializable counters for the storage diagnostics dict."""
+        now = self._clock()
         return {
             "open": self.is_open,
             "preArmed": self._pre_armed,
             "consecutiveOverBudget": self._consecutive_over_budget,
+            "halfOpenProbe": self._half_open_probe,
+            "openForS": round(now - self._opened_at, 1) if self._opened_at is not None else None,
+            "probeGrantedForS": (
+                round(now - self._probe_granted_at, 1)
+                if self._half_open_probe and self._probe_granted_at is not None
+                else None
+            ),
+            "retryAfterS": self._retry_after_seconds,
             **self._stats,
         }
 

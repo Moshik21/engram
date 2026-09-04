@@ -1584,6 +1584,7 @@ class GraphManager:
         conversation_date: datetime | None = None,
         attachments: list[Attachment] | None = None,
         capture_store_timeout_ms: int | None = None,
+        project: str | None = None,
     ) -> str:
         """Store a raw episode without extraction. Fast path for bulk capture.
 
@@ -1598,6 +1599,7 @@ class GraphManager:
             conversation_date=conversation_date,
             attachments=attachments,
             capture_store_timeout_ms=capture_store_timeout_ms,
+            project=project,
         )
         self.invalidate_memory_packet_cache(
             group_id,

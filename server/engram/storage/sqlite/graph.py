@@ -11,7 +11,12 @@ from typing import Any, cast
 import aiosqlite
 
 from engram.entity_dedup_policy import NameRegime, analyze_name, entity_identifier_facets
-from engram.ingestion.salience import decode_salience_class, encode_salience_class
+from engram.ingestion.salience import (
+    decode_context_field,
+    decode_salience_class,
+    encode_context_field,
+    encode_salience_class,
+)
 from engram.models.entity import Entity
 from engram.models.episode import Attachment, Episode, EpisodeProjectionState, EpisodeStatus
 from engram.models.episode_cue import EpisodeCue
@@ -940,7 +945,11 @@ class SQLiteGraphStore:
                 episode.error,
                 episode.retry_count,
                 episode.processing_duration_ms,
-                encode_salience_class(episode.encoding_context, episode.salience_class),
+                encode_context_field(
+                    encode_salience_class(episode.encoding_context, episode.salience_class),
+                    "project",
+                    episode.project,
+                ),
                 episode.memory_tier,
                 episode.consolidation_cycles,
                 episode.entity_coverage,
@@ -2699,6 +2708,9 @@ class SQLiteGraphStore:
             encoding_context=(row["encoding_context"] if "encoding_context" in keys else None),
             salience_class=decode_salience_class(
                 row["encoding_context"] if "encoding_context" in keys else None
+            ),
+            project=decode_context_field(
+                row["encoding_context"] if "encoding_context" in keys else None, "project"
             ),
             memory_tier=(
                 row["memory_tier"] if "memory_tier" in keys and row["memory_tier"] else "episodic"

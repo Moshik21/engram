@@ -113,6 +113,7 @@ class EpisodeCaptureService:
         conversation_date: datetime | None = None,
         attachments: list[Attachment] | None = None,
         capture_store_timeout_ms: int | None = None,
+        project: str | None = None,
     ) -> str:
         """Store a raw episode and optional deterministic cue metadata."""
         stage_timings: dict[str, float] = {}
@@ -129,6 +130,7 @@ class EpisodeCaptureService:
             conversation_date=conversation_date,
             created_at=utc_now(),
             attachments=attachments or [],
+            project=project or None,
         )
         if getattr(self._cfg, "salience_gated_embedding_enabled", False):
             episode.salience_class = classify_salience(content, source)

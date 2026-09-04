@@ -191,3 +191,27 @@ def test_explicit_recall_responses_share_lifecycle_contract():
     assert api["lifecycle"]["resultCount"] == mcp["lifecycle"]["result_count"] == 1
     assert api["lifecycle"]["packetCount"] == mcp["lifecycle"]["packet_count"] == 1
     assert len(api["items"]) == mcp["total_candidates"] == 1
+
+
+def test_episode_items_carry_the_project_field():
+    """The capture-time project (2026-09-04) is visible to the consumer, and
+    an older row without one presents None rather than being dropped."""
+    from engram.retrieval.presenter import present_api_recall_item
+
+    raw = {
+        "result_type": "episode",
+        "episode": {"id": "ep_p", "content": "x", "source": "auto:hook", "project": "server"},
+        "score": 0.5,
+        "score_breakdown": {},
+    }
+    assert present_api_recall_item(raw)["episode"]["project"] == "server"
+    raw["episode"].pop("project")
+    assert present_api_recall_item(raw)["episode"]["project"] is None
+    cue = {
+        "result_type": "cue_episode",
+        "cue": {"episode_id": "ep_p", "cue_text": "c"},
+        "episode": {"id": "ep_p", "project": "server"},
+        "score": 0.5,
+        "score_breakdown": {},
+    }
+    assert present_api_recall_item(cue)["episode"]["project"] == "server"
