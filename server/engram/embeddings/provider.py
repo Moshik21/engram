@@ -13,6 +13,35 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _dotenv_fastembed_cache_path() -> str:
+    """``FASTEMBED_CACHE_PATH`` from Engram's own dotenv chain, last file wins.
+
+    2026-09-04: the operator's ``~/.engram/.env`` pins the cache to a
+    subdirectory, and the launchd shell/brain export that file as real env
+    vars — but ``engram doctor``, ``engram brain run`` from a terminal, and
+    every other non-launchd process resolved the parent directory, where the
+    configured quantized model does not exist, and embedded nothing. The
+    variable is not an ``ENGRAM_*`` setting, so pydantic never read it; this
+    reads it from the same files, in the same precedence.
+    """
+    try:
+        from dotenv import dotenv_values
+
+        from engram.config import DEFAULT_ENV_FILES
+    except Exception:  # silent-ok: no dotenv support means env/default only
+        return ""
+    found = ""
+    for env_file in DEFAULT_ENV_FILES:
+        try:
+            values = dotenv_values(Path(env_file).expanduser())
+        except Exception:
+            continue
+        value = (values.get("FASTEMBED_CACHE_PATH") or "").strip()
+        if value:
+            found = value
+    return found
+
+
 def default_fastembed_cache_dir() -> str:
     """Stable on-disk cache for local ONNX models (never system temp).
 
@@ -20,7 +49,7 @@ def default_fastembed_cache_dir() -> str:
     which broke dogfood when a half-downloaded ``model.onnx`` was left incomplete.
     Prefer an explicit ``FASTEMBED_CACHE_PATH``, else ``~/.engram/models/fastembed``.
     """
-    explicit = os.environ.get("FASTEMBED_CACHE_PATH", "").strip()
+    explicit = os.environ.get("FASTEMBED_CACHE_PATH", "").strip() or _dotenv_fastembed_cache_path()
     if explicit:
         path = Path(explicit).expanduser()
     else:

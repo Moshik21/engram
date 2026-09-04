@@ -31,6 +31,18 @@ from engram.storage.helix.availability import (
 from engram.storage.memory.activation import MemoryActivationStore
 
 
+@pytest.fixture(autouse=True)
+def _isolated_engram_home(tmp_path_factory, monkeypatch):
+    """No test may read or write the operator's real ~/.engram.
+
+    2026-09-04: a mop wiring test without the module's engram_home fixture
+    wrote its cursor into the live hygiene-state.json (group "g", episode
+    "ep1"). Every test now gets a throwaway ENGRAM_HOME by default.
+    """
+    monkeypatch.setenv("ENGRAM_HOME", str(tmp_path_factory.mktemp("engram-home")))
+
+
+
 def _helix_available() -> bool:
     """True when native PyO3 (preferred) or HTTP Helix is usable.
 
