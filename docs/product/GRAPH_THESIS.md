@@ -452,7 +452,7 @@ It scores a retrieval list. The north star says the real consumer is the harness
 clean win here is a win on a proxy that has never been validated against the actual consumer.
 **Do not let it flip a default without an agent-task arm.** Say so in the results doc.
 
-### The rig (built 2026-07-24, NOT yet run as the experiment)
+### The rig (built 2026-07-24; first run as the experiment 2026-09-04 — see the result below)
 
 `server/engram/evaluation/graph_kill_rig/` — arms A/B/C, the VOID pre-flight, and the
 thresholds above **encoded as a pure function** (`thresholds.evaluate`) whose truth table is
@@ -498,6 +498,39 @@ Three findings from building it, all pre-experiment:
 The rig scores with lane 1's recall meter (`evaluation/meter.py`) as a second reading —
 `--scorer multi_source_cover`, `max_sources=2`, every question carrying a token group that
 spans the link and gold episodes — beside the id-based default. Never `engram battery`.
+
+### Run 2026-09-04 — RESULT: **KILL** (planted control); organic run VOID on the producer
+
+First run as the experiment, after one rig defect was fixed (`bc85c64`: the rig closed the
+ingest brain before the capture service's background index lane had run, so 36/60 gold episodes
+had no vector and the run VOIDed on its own race). Envelopes:
+`docs/product/artifacts/graph_kill_rig_2026-09-04_{proposals,narrow}.json`.
+
+**`--producer proposals` (M3.1's planted control) — every pre-flight check passed** (51/60 bridges
+verified, 60/60 gold vectored, 78 360 edge-derived chars reached the answerer on 51/51 questions,
+spread completion 102/102, residual 3.9 %), so the numbers are licensed:
+
+| arm | reach@5 | reach@10 | mean rows | mean chars | p50 ms |
+|---|---|---|---|---|---|
+| A — no graph | 0/51 | 0/51 | 6.0 | 1 813 | 87 |
+| B — graph consumer | 0/51 | 0/51 | 13.7 | 3 349 | 90 |
+| C — agent's own second query | 1/51 | 1/51 | 8.2 | 2 377 | 215 |
+
+Verdict against the pre-registered thresholds: **K1** (C = 1 ≥ B = 0), **K2** (B − A = 0, inside
+the ±3 jitter), **K4** (residual 3.9 % < 10 %). S1 `B − A ≥ +6` false; S2 `B − C ≥ +3` false.
+The graph arm walked an edge on every recall and paid +7.7 rows / +1.5 k chars per query for it,
+and reached the gold episode exactly as often as no graph at all: **zero**. The edge is surfaced;
+the episode on the far side of it is not — the "1-hop neighbours never surfaced" finding of the
+2026-06-04 answerability A/B, reproduced under the pre-registered instrument.
+
+**`--producer narrow` (organic) — VOID**: zero committed semantic relationships; narrow proposed
+edges whose endpoints never committed (`missing_entities`), 60/60 gold vectored. The organic
+producer cannot build a single bridge from real repository text, so the organic arm measures the
+extractor, exactly as §5 says it would. That is the extraction lever (2026-06-04), unchanged.
+
+What this does not settle (unchanged from the section above): a rebuilt consumer (§4 D/E) could
+still turn the surfaced edge into the surfaced episode; this run kills the graph *as shipped*, not
+the design space. Caveat on C: one question in 51 is not a round-trip capability either.
 
 ### Not a valid instrument
 `engram battery`. Its scoring rule requires all tokens of one group inside **one** top-3

@@ -1,0 +1,146 @@
+{
+ "arms": null,
+ "arms_diagnostics_only": {},
+ "bridges": {
+  "missing": {
+   "q000": "entity A ('Merrick Quintero') absent",
+   "q001": "entity A ('Zephyr Ravensworth') absent",
+   "q002": "entity A ('Kwame Osei') absent",
+   "q003": "entity A ('Ilse Okonkwo') absent",
+   "q004": "entity A ('Tobias Ravensworth') absent",
+   "q005": "entity A ('Merrick Farkas') absent",
+   "q006": "entity A ('Yuki Ravensworth') absent",
+   "q007": "entity A ('Lorcan Osei') absent",
+   "q008": "entity A ('Bastien Okonkwo') absent",
+   "q009": "entity A ('Isandro Vandermolen') absent",
+   "q010": "entity A ('Marisol Ravensworth') absent",
+   "q011": "entity A ('Sanne Lindqvist') absent",
+   "q012": "entity A ('Tobias Bergqvist') absent",
+   "q013": "entity A ('Marisol Vandermolen') absent",
+   "q014": "entity A ('Freya Marchetti') absent",
+   "q015": "entity A ('Petra Brandsma') absent",
+   "q016": "entity A ('Tobias Lindqvist') absent",
+   "q017": "entity A ('Merrick Brandsma') absent",
+   "q018": "entity A ('Bastien Vandermolen') absent",
+   "q019": "entity A ('Kwame Lindqvist') absent",
+   "q020": "entity A ('Isandro Ravensworth') absent",
+   "q021": "entity A ('Rune Delacroix') absent",
+   "q022": "entity A ('Anouk Delacroix') absent",
+   "q023": "entity A ('Zephyr Marchetti') absent",
+   "q024": "entity A ('Yuki Achterberg') absent",
+   "q025": "entity A ('Yuki Bergqvist') absent",
+   "q026": "entity A ('Bastien Nakamura') absent",
+   "q027": "entity A ('Hana Kowalczyk') absent",
+   "q028": "entity A ('Hana Lindqvist') absent",
+   "q029": "entity A ('Sanne Brandsma') absent",
+   "q030": "entity A ('Kwame Vandermolen') absent",
+   "q031": "entity A ('Lorcan Nakamura') absent",
+   "q032": "entity A ('Marisol Delacroix') absent",
+   "q033": "entity A ('Yuki Farkas') absent",
+   "q034": "entity A ('Anouk Bergqvist') absent",
+   "q035": "entity A ('Merrick Achterberg') absent",
+   "q036": "entity A ('Anouk Quintero') absent",
+   "q037": "entity A ('Petra Bergqvist') absent",
+   "q038": "entity A ('Emeka Lindqvist') absent",
+   "q039": "entity A ('Bastien Lindqvist') absent",
+   "q040": "entity A ('Petra Lindqvist') absent",
+   "q041": "entity A ('Bastien Osei') absent",
+   "q042": "entity A ('Lorcan Achterberg') absent",
+   "q043": "entity A ('Kwame Halvorsen') absent",
+   "q044": "entity A ('Oskar Ravensworth') absent",
+   "q045": "entity A ('Emeka Vandermolen') absent",
+   "q046": "entity A ('Marisol Osei') absent",
+   "q047": "entity A ('Kwame Marchetti') absent",
+   "q048": "entity A ('Merrick Lindqvist') absent",
+   "q049": "entity A ('Hana Vandermolen') absent",
+   "q050": "entity A ('Isandro Nakamura') absent",
+   "q051": "entity A ('Tobias Delacroix') absent",
+   "q052": "entity A ('Nadia Brandsma') absent",
+   "q053": "entity A ('Isandro Lindqvist') absent",
+   "q054": "entity A ('Anouk Okonkwo') absent",
+   "q055": "entity A ('Anouk Ravensworth') absent",
+   "q056": "entity A ('Zephyr Nakamura') absent",
+   "q057": "entity A ('Oskar Marchetti') absent",
+   "q058": "entity A ('Petra Marchetti') absent",
+   "q059": "entity A ('Lorcan Okonkwo') absent"
+  },
+  "predicate_counts": {},
+  "present": 0
+ },
+ "corpus": {
+  "distractors_per_person": 1,
+  "episodes": 210,
+  "filler": 30,
+  "generator": "engram.evaluation.graph_kill_rig.corpus",
+  "n_bridges": 60,
+  "repo_head": "d7a94810904743df00a4a04a6ea3f9e9306cf6f4",
+  "seed": 17,
+  "topic_source": "git log --name-only over server/engram/**/*.py",
+  "topics_harvested": 201
+ },
+ "embedding": {
+  "cache_path": "/Users/konnermoshier/.engram/models/fastembed/hf",
+  "model": "nomic-ai/nomic-embed-text-v1.5-Q",
+  "provider": "FastEmbedProvider"
+ },
+ "ingest_ms": 6358.5,
+ "options": {
+  "fault": "none",
+  "group_id": "graph_kill_rig",
+  "limit": 10,
+  "n_requested": 60,
+  "producer": "narrow",
+  "seed": 17
+ },
+ "pre_registration_source": "docs/product/GRAPH_THESIS.md \u00a75 @ d7c764e",
+ "preflight": {
+  "checks": [
+   {
+    "detail": "zero committed semantic relationships in the corpus group \u2014 the producer did not run, or every predicate it proposed was dropped. Measuring retrieval on this graph would measure the extractor.",
+    "measured": {
+     "bridges_present": 0,
+     "bridges_requested": 60,
+     "predicate_counts": {},
+     "semantic_relationship_count": 0,
+     "structural_relationship_count": 0
+    },
+    "name": "producer_positive_probe",
+    "passed": false
+   },
+   {
+    "detail": "all 60 gold episodes hold a vector (exact probe: True)",
+    "measured": {
+     "gold_episodes": 60,
+     "gold_with_vectors": 60,
+     "probe_is_exact": true
+    },
+    "name": "vector_index_probe",
+    "passed": true
+   },
+   {
+    "detail": "only 0 bridges verified in the store, below the pre-registered floor of 36; absolute thresholds are not comparable at a smaller N",
+    "measured": {
+     "bridges_present": 0,
+     "floor": 36
+    },
+    "name": "scored_set_floor",
+    "passed": false
+   }
+  ],
+  "failures": [
+   "producer_positive_probe: zero committed semantic relationships in the corpus group \u2014 the producer did not run, or every predicate it proposed was dropped. Measuring retrieval on this graph would measure the extractor.",
+   "scored_set_floor: only 0 bridges verified in the store, below the pre-registered floor of 36; absolute thresholds are not comparable at a smaller N"
+  ],
+  "passed": false,
+  "residual_rate": null
+ },
+ "refusal_reasons": [
+  "producer_positive_probe: zero committed semantic relationships in the corpus group \u2014 the producer did not run, or every predicate it proposed was dropped. Measuring retrieval on this graph would measure the extractor.",
+  "scored_set_floor: only 0 bridges verified in the store, below the pre-registered floor of 36; absolute thresholds are not comparable at a smaller N"
+ ],
+ "rig": "graph_kill_rig",
+ "scorer": "gold_episode_reachability",
+ "status": "VOID",
+ "suppressed": "Reachability@5/@10 and the SUCCESS/KILL verdict are withheld. A pre-flight check failed, so any arm delta measured here is a measurement of the broken precondition, not of the graph. GRAPH_THESIS.md \u00a75: 'the run is VOID if any of these fails'.",
+ "verdict": null
+}
