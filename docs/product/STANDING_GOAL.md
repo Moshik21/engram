@@ -260,6 +260,7 @@ resets. Status as of 2026-07-24 evening.
 | — | **the cold-brain LaunchAgent has written nothing to its log since 2026-08-15 (`rc=-10` SIGBUS child), `runs = 21`, `last exit code = 1`, machine on AC** | 2026-09-04, open. Whether launchd stopped firing or the command exits before logging is not yet known; the mop windows run today were all manual. Until this is resolved the 2 h hygiene cadence the product depends on is not happening. |
 | — | ~~**an agent-proposed edge whose endpoints it did not also propose was dropped on `quiet` and forked duplicates on `standard`**~~ **FIXED `2b9ddbf`** | 2026-09-04 (resident-agent step 1). Endpoints now resolve against the existing graph before the auto-create rescue or the drop. Verified live on the quiet profile: `remember()` with a relationship only, both endpoints already in the graph, neither proposed → edge `rel_b8a801b8375a` created, no new entities. The MCP `observe` tool now exposes `proposed_entities`/`proposed_relationships`; the prompt states Engram has no external extractor. |
 | — | ~~**every projection on the live brain ran the narrow regex extractor because the ladder tried a dead Ollama host first and fell through silently**~~ **REMOVED (resident-agent step 2)** | 2026-09-04. `extraction_provider` accepts only `narrow`; the anthropic/ollama rungs, the `auto` ladder, `ollama_extractor.py` and the doctor's Ollama probe are gone. A `.env` that still names them is mapped to narrow with a WARNING naming the line to delete (never a crash: `ActivationConfig` forbids unknown keys, and `server/.env` still carries three such lines). Kill-rig producers are `proposals`/`narrow` only; the fresh-agent judge has no external option. Tests no longer read any `.env` (two shutdown tests had flipped on the operator's `ENGRAM_RUNTIME_ROLE=shell`). |
+| — | **dashboard-chat interaction emitters (`selected`/`dismissed`/`used`/`surfaced` from `dashboard_chat`) exist in the tree but sit behind the chat route's 501; the emitter declaration counts call sites, not reachability, so `selectedCountEmitters` names a surface that cannot move** | 2026-09-04, `interaction_surfaces.py` INTERACTION_EMITTERS (comment records it). Two honest exits: delete the chat tool loop and feedback emitters with their seam tests, or give the declaration a reachability state. Neither done today; the tree-scan test pins the current shape. |
 
 ### T2 — silent-inert (unfinished features)
 | # | item | note |
@@ -632,3 +633,12 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   exists), a 12-step plan with probes, and 11 recorded disagreements including three judges picking
   three different winners. The ENOSPC blocker row is falsified today (fresh native store created
   2/2); eleven closed-in-code rows are still unstruck — reconciliation owed.
+- **2026-09-04** — `c413c55`: resident-agent step 10 merged (three reviewed worktree lanes): `engram
+  setup` asks for no key; the chat route answers 501 and `engram serve` no longer imports the SDK;
+  hyde, the triage/infer/merge LLM passes, the server-side edge adjudicator and the EntityExtractor
+  body are deleted with 23 knobs retired through the warning mapper; docs rewritten (SKILL.md
+  changed → clawhub republish owed). Suite 5,521 green. Also landed since the export: `engram
+  backup export`/`import` (e42a3ff, ca81741), the capture-time machinery gate (0657615), the
+  session-start bootstrap gated off, the ledger reconciliation (c044ae5). Open: the embedding
+  default flip (in flight), the fresh-brain switch (blocked on Konner's `!` block), the export's
+  re-seed and re-measure.
