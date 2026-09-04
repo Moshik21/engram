@@ -622,3 +622,7 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   and 5 of the resident-agent plan are landed; step 3 is a handoff (env lines), step 4 is answered
   by the planted kill-rig run (perfect proposals still reached nothing: the consumer, not the
   producer, is the open problem).
+- **2026-09-04** — resident-agent step 3 (with Konner's go-ahead): the Ollama block and every
+  external API key line removed from `server/.env`, `~/.engram/.env` and the repo `.env`; shell
+  restarts with no retirement warning; `engram doctor` from a plain terminal: extraction narrow,
+  embeddings local, no external model. Keys that were on disk are to be rotated.
