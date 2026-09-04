@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from engram.retrieval.presenter import (
     present_api_recall_response,
     present_mcp_recall_response,
     results_from_packets,
 )
+
+pytestmark = pytest.mark.asyncio
 
 
 def test_results_from_packets_mirrors_entity_and_episode():
@@ -89,3 +93,30 @@ def test_present_does_not_double_mirror_when_results_exist():
     payload = present_mcp_recall_response(query="Alpha", results=results, packets=packets)
     assert len(payload["results"]) == 1
     assert "results_source" not in payload
+
+
+
+async def test_mirrored_episode_carries_the_project_from_packet_provenance():
+    import pytest
+
+    from engram.retrieval.packets import assemble_memory_packets
+    from engram.retrieval.presenter import present_api_recall_response
+
+    pytest.importorskip("pytest_asyncio")
+    packets = await assemble_memory_packets(
+        [
+            {
+                "result_type": "episode",
+                "episode": {"id": "ep_1", "content": "c", "created_at": "t", "project": "server"},
+                "score": 0.5,
+                "score_breakdown": {},
+            }
+        ],
+        "q",
+    )
+    assert any("project:server" in (pk.provenance or []) for pk in packets)
+    api = present_api_recall_response(
+        query="q", results=[], packets=[pk.to_dict() for pk in packets]
+    )
+    eps = [it["episode"] for it in api["items"] if it["resultType"] == "episode"]
+    assert eps and eps[0]["project"] == "server"

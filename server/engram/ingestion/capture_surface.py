@@ -301,6 +301,7 @@ def _cache_recent_observation_packet(
     content: str,
     source: str,
     packet_source: str,
+    project: str | None = None,
 ) -> None:
     cache_packets = getattr(manager, "cache_memory_packets", None)
     if not callable(cache_packets) or not content.strip():
@@ -317,7 +318,8 @@ def _cache_recent_observation_packet(
         "relationship_ids": [],
         "episode_ids": [episode_id],
         "evidence_lines": [summary],
-        "provenance": [f"episode:{episode_id}", f"source:{source or 'mcp'}"],
+        "provenance": [f"episode:{episode_id}", f"source:{source or 'mcp'}"]
+        + ([f"project:{project}"] if project else []),
         "supporting_intents": ["session_recent_observation"],
         "trust": {
             "freshness": "fresh",
@@ -801,6 +803,7 @@ async def build_api_auto_observe_surface(
         content=content,
         source=source,
         packet_source="api_auto_observe",
+        project=project,
     )
     await _record_write_operation(manager, group_id, finish_operation)
     return attach_api_capture_diagnostics(

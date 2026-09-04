@@ -184,6 +184,7 @@ class RecallResultBuilder:
             "source": episode.source,
             "created_at": _isoformat(episode.created_at),
             "conversation_date": _isoformat(getattr(episode, "conversation_date", None)),
+            "project": getattr(episode, "project", None),
         }
         if include_content:
             metadata["content"] = self.truncate_episode_content(episode)

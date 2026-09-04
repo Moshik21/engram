@@ -271,6 +271,10 @@ def results_from_packets(
             )
 
         episode_ids = list(packet.get("episode_ids") or packet.get("episodeIds") or [])
+        project = next(
+            (str(p)[8:] for p in packet.get("provenance") or [] if str(p).startswith("project:")),
+            None,
+        )
         for prov in packet.get("provenance") or []:
             text = str(prov)
             if text.startswith("episode:") and text[8:] not in episode_ids:
@@ -290,6 +294,7 @@ def results_from_packets(
                         "content": summary or title or epid_s,
                         "source": source_label,
                         "created_at": packet.get("created_at") or packet.get("createdAt"),
+                        "project": project,
                     },
                     "score": score_f,
                     "score_breakdown": {"packet_cache": score_f},

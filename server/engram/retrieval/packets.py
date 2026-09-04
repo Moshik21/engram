@@ -151,6 +151,8 @@ def _build_episode_packet(
     confidence = _confidence(score, 0.0, relevance)
     why_now = _why_now(query, memory_need, "episode_packet")
     provenance = [f"episode:{episode['id']}", f"score:{round(score, 4)}"]
+    if episode.get("project"):
+        provenance.append(f"project:{episode['project']}")
     evidence_lines = [content[:180]]
     return MemoryPacket(
         packet_type="episode_packet",
@@ -196,6 +198,8 @@ def _build_cue_packet(
         f"projection_state:{projection_state}",
         f"score:{round(score, 4)}",
     ]
+    if episode.get("project"):
+        provenance.append(f"project:{episode['project']}")
     return MemoryPacket(
         packet_type="cue_packet",
         title=f"Latent Memory: {episode_id}",
