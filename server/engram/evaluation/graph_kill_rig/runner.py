@@ -245,6 +245,16 @@ async def _open_brain(opts: RigOptions, overrides: dict[str, Any]) -> tuple[Any,
     return manager, graph, config
 
 
+async def _drain_capture_indexing(manager: Any) -> None:
+    """Wait for the capture service's background episode/cue index tasks."""
+    drain = getattr(manager, "drain_cue_indexing", None)
+    if not callable(drain):
+        service = getattr(manager, "_capture_service", None)
+        drain = getattr(service, "drain_cue_indexing", None)
+    if callable(drain):
+        await drain()
+
+
 async def _ingest(manager: Any, corpus: Corpus, opts: RigOptions) -> dict[str, str]:
     tag_to_id: dict[str, str] = {}
     use_proposals = opts.producer == "proposals"
@@ -321,6 +331,12 @@ async def run_rig(opts: RigOptions, scorer: RigScorer | None = None) -> dict[str
                 stale.unlink()
         manager, graph, config = await _open_brain(opts, {})
         tag_to_id = await _ingest(manager, corpus, opts)
+        # Capture-time vector indexing is handed to a serialized background
+        # lane and the capture returns before it runs. Measured 2026-09-04:
+        # closing here without draining left 36/60 gold episodes without a
+        # vector and five index tasks on a closed SQLiteVectorStore, and the
+        # rig VOIDed itself on its own race rather than on the graph.
+        await _drain_capture_indexing(manager)
         tag_path.write_text(json.dumps(tag_to_id, indent=1, sort_keys=True))
         await _close(manager, graph)
     else:
