@@ -152,3 +152,41 @@ async def test_committed_id_map_aligns_after_meta_skip():
     # ev_a must map to A's relationship, not B's (which was skipped).
     assert committed["ev_a"] == a_rel_id
     assert "ev_b" not in committed
+
+
+@pytest.mark.asyncio
+async def test_edge_endpoints_resolve_against_the_existing_graph_on_every_profile():
+    """2026-09-04: an agent-proposed edge between two entities that already exist
+    in the graph must land even when this episode proposed neither as an entity,
+    and it must not mint duplicates -- on the quiet profile (auto-create OFF)."""
+    graph = _make_graph()
+    acme = Entity(id="ent_acme", name="Acme", entity_type="Organization")
+    graph.find_entity_candidates = AsyncMock(
+        side_effect=lambda name, gid: [acme] if name.lower().startswith("acme") else []
+    )
+    entity_map = {"User": "ent_user"}
+
+    result = await apply_relationship_fact(
+        graph_store=graph,
+        canonicalizer=PredicateCanonicalizer(),
+        cfg=ActivationConfig(graph_auto_create_endpoints=False),
+        rel_data={"subject": "User", "predicate": "WORKS_AT", "object": "Acme"},
+        entity_map=entity_map,
+        group_id="default",
+        source_episode="ep_d1",
+    )
+
+    assert result.action != "missing_entities"
+    assert entity_map["Acme"] == "ent_acme"
+    assert result.metadata.get("resolved_endpoints") == ["Acme"]
+    graph.create_entity.assert_not_called()
+    graph.create_relationship.assert_called_once()
+
+
+def test_mcp_observe_exposes_agent_proposals():
+    import inspect
+
+    from engram.mcp.server import observe
+
+    params = inspect.signature(observe).parameters
+    assert "proposed_entities" in params and "proposed_relationships" in params

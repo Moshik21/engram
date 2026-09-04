@@ -976,8 +976,13 @@ async def observe(
     source: str = "mcp",
     conversation_date: str | None = None,
     events: list[dict] | None = None,
+    proposed_entities: list[dict] | None = None,
+    proposed_relationships: list[dict] | None = None,
 ) -> str:
     """Store raw text without extraction. Fast path for bulk capture.
+
+    You are Engram's only extractor: nothing external ever reads this text.
+    Structure you do not hand over here stays a raw cue.
 
     Args:
         content: The text to store (conversation excerpt, fact, note, etc.)
@@ -986,6 +991,10 @@ async def observe(
         events: Optional dated event annotations
             [{"name": ..., "date": ..., "source_span": ...}]. Persisted cheaply as
             deferred evidence (no extraction) for later consolidation promotion.
+        proposed_entities: Optional [{"name", "entity_type", "source_span", "summary"?}]
+            you extracted yourself; persisted as deferred evidence like `events`.
+        proposed_relationships: Optional [{"subject", "predicate", "object",
+            "source_span"}] between those entities (or entities already in the graph).
 
     Returns:
         JSON with status, episode_id, and message.
@@ -999,6 +1008,8 @@ async def observe(
         source=source,
         conversation_date=conversation_date,
         events=events,
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
         ingest_live_turn=_ingest_live_turn,
         recall_middleware=_recall_middleware,
     )

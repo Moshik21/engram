@@ -201,6 +201,50 @@ def resolve_relationship_temporals(
     return valid_from, valid_to, confidence
 
 
+async def _resolve_existing_endpoint(
+    graph_store,
+    name: str,
+    entity_map: dict[str, str],
+    group_id: str,
+    *,
+    entity_type: str = "Concept",
+) -> str | None:
+    """Resolve an edge endpoint against the EXISTING graph, not just this episode.
+
+    2026-09-04: an agent-proposed edge whose endpoints it did not also propose
+    as entities was dropped (`missing_entities`) on the live `quiet` profile
+    even when both entities already existed, because endpoint resolution only
+    consulted this episode's ``entity_map``; the only rescue minted a fresh
+    duplicate (`standard` only). Resolving here first lands the edge on every
+    profile and never forks an endpoint that is already in the graph.
+    """
+    stripped = (name or "").strip()
+    if len(stripped) < 2:
+        return None
+    find_candidates = getattr(graph_store, "find_entity_candidates", None)
+    if not callable(find_candidates):
+        return None
+
+    async def _get_candidates(query: str, gid: str) -> list[Entity]:
+        try:
+            found = await find_candidates(query, gid)
+        except Exception:
+            return []
+        if not isinstance(found, list):
+            return []
+        return [c for c in found if isinstance(c, Entity)]
+
+    try:
+        match = await resolve_entity_fast(stripped, entity_type, _get_candidates, group_id)
+    except Exception:
+        logger.debug("endpoint resolution failed for %r", stripped, exc_info=True)
+        return None
+    if match is None or not getattr(match, "id", None):
+        return None
+    entity_map[stripped] = match.id
+    return match.id
+
+
 async def _auto_create_endpoint(
     graph_store,
     name: str,
@@ -296,6 +340,15 @@ async def apply_relationship_fact(
             or "high_signal_type" in (rel_data.get("signals") or [])
         )
     ) or bool(rel_data.get("client_proposal"))
+    resolved_endpoints: list[str] = []
+    if not source_id:
+        source_id = await _resolve_existing_endpoint(graph_store, source_name, entity_map, group_id)
+        if source_id:
+            resolved_endpoints.append(source_name)
+    if not target_id:
+        target_id = await _resolve_existing_endpoint(graph_store, target_name, entity_map, group_id)
+        if target_id:
+            resolved_endpoints.append(target_name)
     if (not source_id or not target_id) and cfg.graph_auto_create_endpoints:
         if not source_id:
             source_id = await _auto_create_endpoint(
@@ -557,6 +610,8 @@ async def apply_relationship_fact(
     metadata: dict = {"relationship_id": rel.id, **supersession_meta}
     if auto_created_endpoints:
         metadata["auto_created_endpoints"] = auto_created_endpoints
+    if resolved_endpoints:
+        metadata["resolved_endpoints"] = resolved_endpoints
     return RelationshipApplyResult(
         source_id=source_id,
         target_id=target_id,

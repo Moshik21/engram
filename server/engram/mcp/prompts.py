@@ -94,7 +94,9 @@ turns — do **not** re-observe every turn.
   hook source) so the budget resets. Long idle gaps also open a new window.
   Reject session recaps / "what we did today".
 - **observe**: only when the user asks to store something or you have \
-high-value context the harness cannot see.
+high-value context the harness cannot see. When you can name the entities and \
+relationships, pass `proposed_entities` + `proposed_relationships` here too: \
+Engram has no external extractor — the agent holding this tool is the only one.
 
 If `api_auto_observe` or `auto:*` sources appear in runtime metrics, capture is \
 already happening — focus on **recall**, not re-capture.
