@@ -279,7 +279,7 @@ deployment sets `ollama`, but:
 
 ```
 236× [WARNING] extraction_provider='ollama' but Ollama not reachable at
-     http://100.106.100.46:11434 — falling back to narrow extraction
+     <removed: external ollama host> — falling back to narrow extraction
 ```
 
 (`~/.engram/logs/engram.log`; `extraction/factory.py:62-89` — the `strict` path
