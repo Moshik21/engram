@@ -111,8 +111,6 @@ async def run_projected_consolidated_smoke(
             "triage_enabled": True,
             "triage_extract_ratio": 1.0,
             "triage_min_score": 0.0,
-            "triage_llm_judge_enabled": False,
-            "triage_llm_escalation_enabled": False,
             "worker_enabled": False,
             "consolidation_enabled": False,
             "consolidation_dry_run": False,
@@ -633,8 +631,6 @@ def _apply_smoke_activation_overrides(config: EngramConfig) -> None:
     cfg.triage_enabled = True
     cfg.triage_extract_ratio = 1.0
     cfg.triage_min_score = 0.0
-    cfg.triage_llm_judge_enabled = False
-    cfg.triage_llm_escalation_enabled = False
     cfg.worker_enabled = False
     cfg.consolidation_enabled = False
     cfg.consolidation_dry_run = False

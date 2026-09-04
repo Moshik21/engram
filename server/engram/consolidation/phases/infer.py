@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import time
@@ -20,40 +19,6 @@ from engram.models.consolidation import (
 )
 
 logger = logging.getLogger(__name__)
-
-_LLM_VALIDATION_PROMPT = (
-    "You are a knowledge graph quality validator.\n"
-    "Given one or more proposed relationships, determine if each makes semantic sense.\n"
-    "Respond with a JSON array of verdicts, one per relationship:\n"
-    '[{"rel": 1, "verdict": "approved"|"rejected"|"uncertain", "reason": "brief explanation"}, ...]'
-)
-
-_LLM_VALIDATION_SYSTEM_CACHED = [
-    {
-        "type": "text",
-        "text": _LLM_VALIDATION_PROMPT,
-        "cache_control": {"type": "ephemeral"},
-    }
-]
-
-_INFER_BATCH_SIZE = 5
-
-_LLM_ESCALATION_PROMPT = (
-    "You are a senior knowledge graph quality reviewer.\n"
-    "A lower-tier model was uncertain about the following relationship.\n"
-    "Apply strict judgment. Respond with JSON only:\n"
-    '{"verdict": "approved"|"rejected", "reason": "brief explanation"}\n'
-    "You MUST choose approved or rejected. Do not respond with uncertain."
-)
-
-_LLM_ESCALATION_SYSTEM_CACHED = [
-    {
-        "type": "text",
-        "text": _LLM_ESCALATION_PROMPT,
-        "cache_control": {"type": "ephemeral"},
-    }
-]
-
 
 # ---------------------------------------------------------------------------
 # PMI / tf-idf helpers
@@ -121,9 +86,7 @@ def _get_total_episode_count(stats: dict | None) -> int:
 class EdgeInferencePhase(ConsolidationPhase):
     """Find entity pairs that co-occur across episodes and create edges."""
 
-    def __init__(self, llm_client=None, escalation_client=None, canonicalizer=None):
-        self._llm_client = llm_client
-        self._escalation_client = escalation_client
+    def __init__(self, canonicalizer=None):
         self._canonicalizer = canonicalizer or PredicateCanonicalizer()
 
     @property
@@ -250,29 +213,13 @@ class EdgeInferencePhase(ConsolidationPhase):
             )
             records.extend(trans_records)
 
-        # --- Multi-signal auto-validation (replaces LLM when enabled) ---
+        # --- Multi-signal auto-validation ---
         embedding_note: str | None = None
         if cfg.consolidation_infer_auto_validation_enabled:
             embedding_note = await self._run_auto_validation_pass(
                 records,
                 graph_store,
                 search_index,
-                cfg,
-                group_id,
-                dry_run,
-            )
-        elif cfg.consolidation_infer_llm_enabled:
-            await self._run_llm_validation_pass(
-                records,
-                cfg,
-                group_id,
-                dry_run,
-            )
-
-        # --- Sonnet escalation pass (Tier 4) ---
-        if cfg.consolidation_infer_escalation_enabled:
-            await self._run_escalation_pass(
-                records,
                 cfg,
                 group_id,
                 dry_run,
@@ -382,7 +329,7 @@ class EdgeInferencePhase(ConsolidationPhase):
 
         reset_signal_health()
 
-        # Same candidate selection as LLM path
+        # Candidate selection (the knob names predate the deleted LLM validator)
         threshold = cfg.consolidation_infer_llm_confidence_threshold
         max_validations = cfg.consolidation_infer_llm_max_per_cycle
         candidates = [
@@ -493,171 +440,6 @@ class EdgeInferencePhase(ConsolidationPhase):
         )
         logger.warning("Infer: %s", note)
         return note
-
-    async def _run_llm_validation_pass(
-        self,
-        records: list[InferredEdge],
-        cfg: ActivationConfig,
-        group_id: str,
-        dry_run: bool,
-    ) -> None:
-        """Validate high-confidence inferred edges via LLM (batched)."""
-        threshold = cfg.consolidation_infer_llm_confidence_threshold
-        max_validations = cfg.consolidation_infer_llm_max_per_cycle
-
-        candidates = [
-            r
-            for r in records
-            if r.confidence >= threshold and r.infer_type in ("co_occurrence", "co_occurrence_pmi")
-        ][:max_validations]
-
-        if not candidates:
-            return
-
-        if dry_run:
-            for rec in candidates:
-                rec.llm_verdict = "dry_run_skipped"
-            return
-
-        # Get or create client
-        client = self._llm_client
-        if client is None:
-            try:
-                import anthropic
-
-                client = anthropic.Anthropic()
-            except Exception:
-                logger.warning("Could not create Anthropic client for LLM validation")
-                for rec in candidates:
-                    rec.llm_verdict = "abstain_unavailable"
-                return
-
-        # Process candidates in batches
-        for batch_start in range(0, len(candidates), _INFER_BATCH_SIZE):
-            batch = candidates[batch_start : batch_start + _INFER_BATCH_SIZE]
-            try:
-                # Build numbered user message for the batch
-                parts: list[str] = []
-                for idx, rec in enumerate(batch, 1):
-                    parts.append(
-                        f"Relationship {idx}:\n"
-                        f"Entity A: {rec.source_name} (ID: {rec.source_id})\n"
-                        f"Entity B: {rec.target_name} (ID: {rec.target_id})\n"
-                        f"Proposed relationship: MENTIONED_WITH\n"
-                        f"Co-occurrence count: {rec.co_occurrence_count}\n"
-                        f"Statistical confidence: {rec.confidence}"
-                    )
-                user_msg = "\n\n".join(parts)
-
-                response = client.messages.create(
-                    model=cfg.consolidation_infer_llm_model,
-                    max_tokens=256 * len(batch),
-                    system=_LLM_VALIDATION_SYSTEM_CACHED,
-                    messages=[{"role": "user", "content": user_msg}],
-                )
-                text = response.content[0].text.strip()
-                parsed = json.loads(text)
-
-                # Normalise: accept both a bare list and a dict wrapping one
-                if isinstance(parsed, dict):
-                    # Handle single-item response for batch of 1
-                    parsed = [parsed]
-
-                # Build lookup by rel number (1-indexed)
-                verdict_map: dict[int, dict] = {}
-                for item in parsed:
-                    rel_num = item.get("rel", 0)
-                    verdict_map[rel_num] = item
-
-                # Apply verdicts to corresponding records
-                for idx, rec in enumerate(batch, 1):
-                    item = verdict_map.get(idx)
-                    if item is None:
-                        rec.llm_verdict = "error"
-                        continue
-                    verdict = item.get("verdict", "uncertain")
-                    if verdict == "approved":
-                        rec.infer_type = "llm_validated"
-                        rec.llm_verdict = "approved"
-                    elif verdict == "rejected":
-                        rec.infer_type = "llm_rejected"
-                        rec.llm_verdict = "rejected"
-                    else:
-                        rec.llm_verdict = "uncertain"
-
-            except Exception as exc:
-                batch_ids = [r.id for r in batch]
-                logger.warning("LLM batch validation failed for %s: %s", batch_ids, exc)
-                for rec in batch:
-                    rec.llm_verdict = "error"
-
-    async def _run_escalation_pass(
-        self,
-        records: list[InferredEdge],
-        cfg: ActivationConfig,
-        group_id: str,
-        dry_run: bool,
-    ) -> None:
-        """Re-validate uncertain edges via Sonnet escalation model."""
-        max_escalations = cfg.consolidation_infer_escalation_max_per_cycle
-
-        candidates = [r for r in records if r.llm_verdict == "uncertain"][:max_escalations]
-
-        if not candidates:
-            return
-
-        if dry_run:
-            for rec in candidates:
-                rec.escalation_verdict = "dry_run_skipped"
-            return
-
-        client = self._escalation_client or self._llm_client
-        if client is None:
-            try:
-                import anthropic
-
-                client = anthropic.Anthropic()
-            except Exception:
-                logger.warning("Could not create Anthropic client for escalation")
-                for rec in candidates:
-                    rec.escalation_verdict = "abstain_unavailable"
-                return
-
-        for rec in candidates:
-            try:
-                user_msg = (
-                    f"Entity A: {rec.source_name} (ID: {rec.source_id})\n"
-                    f"Entity B: {rec.target_name} (ID: {rec.target_id})\n"
-                    f"Proposed relationship: MENTIONED_WITH\n"
-                    f"Co-occurrence count: {rec.co_occurrence_count}\n"
-                    f"Statistical confidence: {rec.confidence}\n"
-                    f"Previous verdict: uncertain"
-                )
-                response = client.messages.create(
-                    model=cfg.consolidation_infer_escalation_model,
-                    max_tokens=256,
-                    system=_LLM_ESCALATION_SYSTEM_CACHED,
-                    messages=[{"role": "user", "content": user_msg}],
-                )
-                text = response.content[0].text.strip()
-                parsed = json.loads(text)
-                verdict = parsed.get("verdict", "rejected")
-
-                # Sonnet must not return uncertain
-                if verdict not in ("approved", "rejected"):
-                    verdict = "rejected"
-
-                rec.escalation_verdict = verdict
-
-                if verdict == "approved":
-                    rec.infer_type = "escalation_approved"
-                    rec.llm_verdict = "escalation_approved"
-                elif verdict == "rejected":
-                    rec.infer_type = "escalation_rejected"
-                    rec.llm_verdict = "escalation_rejected"
-            except Exception as exc:
-                logger.warning("Escalation failed for %s: %s", rec.id, exc)
-                rec.escalation_verdict = "error"
 
     async def _materialize_records(
         self,

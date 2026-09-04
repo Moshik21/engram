@@ -731,10 +731,11 @@ async def dismiss_intention(
 
 @router.post("/chat", response_model=None)
 async def chat(request: Request, body: ChatBody) -> StreamingResponse | JSONResponse:
-    """Stream a chat response using AI SDK v6 UIMessageStream protocol.
+    """Knowledge-chat transport (AI SDK v6 UIMessageStream protocol).
 
-    Uses an agentic tool-use loop so the LLM can query the memory graph
-    autonomously (recall, search_entities, search_facts) before answering.
+    Engram runs no external model, so the surface answers 501 with a pointer to
+    the resident agent over MCP. The route stays registered so the dashboard
+    gets a clear failure instead of a 404.
     """
     tenant = get_tenant(request)
     group_id = tenant.group_id

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from engram.retrieval.chat_runtime import (
+    CHAT_UNAVAILABLE_DETAIL,
     ChatResponseTurnResult,
     build_api_chat_stream_response_surface,
     build_chat_sse_event,
@@ -49,6 +50,7 @@ async def test_build_api_chat_stream_response_surface_returns_rate_limit_payload
         session_date=None,
         rate_limiter=rate_limiter,
         event_bus=None,
+        client_factory=Mock(),
     )
 
     assert surface.status_code == 429
@@ -72,11 +74,57 @@ async def test_build_api_chat_stream_response_surface_returns_conversation_not_f
         session_date=None,
         rate_limiter=None,
         event_bus=None,
+        client_factory=Mock(),
     )
 
     assert surface.status_code == 404
     assert surface.payload == {"detail": "Conversation not found"}
     assert surface.stream is None
+
+
+@pytest.mark.asyncio
+async def test_build_api_chat_stream_response_surface_is_501_without_a_model_client() -> None:
+    """The production route passes no client: 501 before the limiter or the store is touched."""
+    rate_limiter = SimpleNamespace(check=AsyncMock(return_value=(False, 0)))
+    conversation_store = SimpleNamespace(
+        get_conversation=AsyncMock(),
+        create_conversation=AsyncMock(return_value="conv_new"),
+    )
+
+    surface = await build_api_chat_stream_response_surface(
+        SimpleNamespace(),
+        group_id="brain_a",
+        message="hello",
+        history=[],
+        conversation_store=conversation_store,
+        conversation_id=None,
+        session_date=None,
+        rate_limiter=rate_limiter,
+        event_bus=None,
+    )
+
+    assert surface.status_code == 501
+    assert surface.payload == {"detail": CHAT_UNAVAILABLE_DETAIL}
+    assert "resident agent through MCP" in CHAT_UNAVAILABLE_DETAIL
+    assert surface.stream is None
+    rate_limiter.check.assert_not_awaited()
+    conversation_store.get_conversation.assert_not_awaited()
+    conversation_store.create_conversation.assert_not_awaited()
+
+
+def test_chat_runtime_ships_no_external_model_client() -> None:
+    """Anti-resurrection: the runtime must not grow a default SDK client back."""
+    import inspect
+
+    import engram.retrieval.chat_runtime as mod
+
+    source = inspect.getsource(mod)
+    assert "import anthropic" not in source
+    assert "AsyncAnthropic" not in source
+    assert not hasattr(mod, "anthropic")
+    # No default: a turn can only run against a client the caller hands in.
+    factory_param = inspect.signature(stream_api_chat_sse_events).parameters["client_factory"]
+    assert factory_param.default is inspect.Parameter.empty
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,6 @@ import importlib.util
 import json
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -1322,65 +1321,28 @@ async def _assert_native_conversation_surfaces(client: httpx.AsyncClient) -> Non
     assert all(message_id for message_id in message_ids)
 
 
-def _parse_sse_events(text: str) -> list[dict]:
-    events: list[dict] = []
-    for line in text.splitlines():
-        if not line.startswith("data: ") or line == "data: [DONE]":
-            continue
-        events.append(json.loads(line.removeprefix("data: ")))
-    return events
-
-
-def _make_chat_response(text: str) -> MagicMock:
-    text_block = MagicMock()
-    text_block.type = "text"
-    text_block.text = text
-
-    response = MagicMock()
-    response.stop_reason = "end_turn"
-    response.content = [text_block]
-    return response
-
-
 async def _assert_native_chat_surface(client: httpx.AsyncClient) -> None:
-    mock_client = MagicMock()
-    mock_client.messages.create = AsyncMock(
-        return_value=_make_chat_response("Native chat turn persisted in Helix.")
+    """The route is registered on the native backend and answers 501: no external model."""
+    before_resp = await client.get("/api/conversations/", params={"limit": 50})
+    assert before_resp.status_code == 200
+    conversations_before = {item["id"] for item in before_resp.json()["conversations"]}
+
+    chat_resp = await client.post(
+        "/api/knowledge/chat",
+        json={
+            "message": "Persist this native chat turn.",
+            "session_date": "2026-05-13",
+            "groupId": "wrong_native_brain",
+            "group_id": "wrong_native_brain",
+        },
     )
 
-    with patch("engram.retrieval.chat_runtime.anthropic.AsyncAnthropic", return_value=mock_client):
-        chat_resp = await client.post(
-            "/api/knowledge/chat",
-            json={
-                "message": "Persist this native chat turn.",
-                "session_date": "2026-05-13",
-                "groupId": "wrong_native_brain",
-                "group_id": "wrong_native_brain",
-            },
-        )
+    assert chat_resp.status_code == 501
+    assert "not available" in chat_resp.json()["detail"]
 
-    assert chat_resp.status_code == 200
-    events = _parse_sse_events(chat_resp.text)
-    finish_events = [event for event in events if event.get("type") == "finish"]
-    assert finish_events
-    assert finish_events[-1]["finishReason"] == "stop"
-    conversation_id = finish_events[-1]["conversationId"]
-
-    text_deltas = [event["delta"] for event in events if event.get("type") == "text-delta"]
-    assert "".join(text_deltas) == "Native chat turn persisted in Helix."
-
-    messages: list[dict] = []
-    for _attempt in range(20):
-        messages_resp = await client.get(f"/api/conversations/{conversation_id}/messages")
-        assert messages_resp.status_code == 200
-        messages = messages_resp.json()["messages"]
-        if len(messages) >= 2:
-            break
-        await asyncio.sleep(0.01)
-
-    assert [message["role"] for message in messages[:2]] == ["user", "assistant"]
-    assert messages[0]["content"] == "Persist this native chat turn."
-    assert messages[1]["content"] == "Native chat turn persisted in Helix."
+    after_resp = await client.get("/api/conversations/", params={"limit": 50})
+    assert after_resp.status_code == 200
+    assert {item["id"] for item in after_resp.json()["conversations"]} == conversations_before
 
 
 async def _assert_native_rest_context_surface(client: httpx.AsyncClient) -> None:

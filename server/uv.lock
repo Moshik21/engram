@@ -746,7 +746,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
-    { name = "anthropic" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "fastembed" },
@@ -764,6 +763,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+benchmark = [
+    { name = "anthropic" },
+    { name = "voyageai" },
+]
 full = [
     { name = "asyncpg" },
     { name = "falkordb" },
@@ -772,7 +775,6 @@ full = [
     { name = "python-jose", extra = ["cryptography"] },
     { name = "redis", extra = ["hiredis"] },
     { name = "torch" },
-    { name = "voyageai" },
 ]
 gemini = [
     { name = "google-genai" },
@@ -793,7 +795,7 @@ local = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "engram", extra = ["full", "gemini", "grpc", "helix", "local"] },
+    { name = "engram", extra = ["benchmark", "full", "gemini", "grpc", "helix", "local"] },
     { name = "grpcio-tools" },
     { name = "httpx" },
     { name = "mypy" },
@@ -806,7 +808,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20.0" },
-    { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "anthropic", marker = "extra == 'benchmark'", specifier = ">=0.40.0" },
     { name = "asyncpg", marker = "extra == 'full'", specifier = ">=0.29.0" },
     { name = "cryptography", specifier = ">=43.0.0" },
     { name = "falkordb", marker = "extra == 'full'", specifier = ">=1.0.0" },
@@ -833,13 +835,13 @@ requires-dist = [
     { name = "torch", marker = "extra == 'full'", specifier = ">=2.0.0" },
     { name = "torch", marker = "extra == 'gnn'", specifier = ">=2.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
-    { name = "voyageai", marker = "extra == 'full'", specifier = ">=0.3.0" },
+    { name = "voyageai", marker = "extra == 'benchmark'", specifier = ">=0.3.0" },
 ]
-provides-extras = ["local", "native", "gnn", "helix", "grpc", "gemini", "full"]
+provides-extras = ["local", "native", "gnn", "helix", "grpc", "gemini", "benchmark", "full"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "engram", extras = ["full", "local", "helix", "grpc", "gemini"] },
+    { name = "engram", extras = ["full", "local", "helix", "grpc", "gemini", "benchmark"] },
     { name = "grpcio-tools", specifier = ">=1.60.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mypy", specifier = ">=1.13.0" },

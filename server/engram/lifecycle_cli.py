@@ -10,7 +10,7 @@ from typing import Any
 
 from engram.config import EngramConfig
 from engram.consolidation.audit_reader import ConsolidationAuditReader
-from engram.extraction.extractor import EntityExtractor
+from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.lifecycle_summary import build_lifecycle_summary
 from engram.storage.bootstrap import (
@@ -123,7 +123,7 @@ async def build_lifecycle_summary_for_config(
             graph_store,
             activation_store,
             search_index,
-            EntityExtractor(),
+            create_extractor(config),
             cfg=config.activation,
             nerve_center_cfg=config.nerve_center,
             runtime_mode=mode.value,

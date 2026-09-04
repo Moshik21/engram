@@ -33,44 +33,10 @@ from engram.models.consolidation import (
 
 logger = logging.getLogger(__name__)
 
-_MERGE_JUDGE_PROMPT = (
-    "You are a knowledge graph entity deduplication judge.\n"
-    "Given one or more entity pairs, determine if each pair refers to the same real-world entity.\n"
-    "Respond with a JSON array of verdicts, one per pair:\n"
-    '[{"pair": 1, "verdict": "merge"|"keep_separate"|"uncertain", '
-    '"reason": "brief explanation"}, ...]'
-)
-
-_MERGE_BATCH_SIZE = 5
-
 # Entity types whose rows are structured records keyed by name (Artifact =
 # file rel_path, Schema = motif fingerprint). Same-named rows from different
 # projects are distinct records — exempt from every merge candidate path.
 _MERGE_EXEMPT_ENTITY_TYPES = frozenset({"Artifact", "Schema"})
-
-_MERGE_JUDGE_SYSTEM_CACHED = [
-    {
-        "type": "text",
-        "text": _MERGE_JUDGE_PROMPT,
-        "cache_control": {"type": "ephemeral"},
-    }
-]
-
-_MERGE_ESCALATION_PROMPT = (
-    "You are a senior knowledge graph entity deduplication reviewer.\n"
-    "A lower-tier model was uncertain about merging these entities.\n"
-    "Apply strict judgment. Respond with JSON only:\n"
-    '{"verdict": "merge"|"keep_separate", "reason": "brief explanation"}\n'
-    "You MUST choose merge or keep_separate. Do not respond with uncertain."
-)
-
-_MERGE_ESCALATION_SYSTEM_CACHED = [
-    {
-        "type": "text",
-        "text": _MERGE_ESCALATION_PROMPT,
-        "cache_control": {"type": "ephemeral"},
-    }
-]
 
 
 def _compare_block(
@@ -351,9 +317,8 @@ def _maybe_queue_identifier_review(
 class EntityMergePhase(ConsolidationPhase):
     """Find near-duplicate entities via fuzzy matching and merge them."""
 
-    def __init__(self, llm_client=None):
-        self._llm_client = llm_client
-        # Cache LLM "keep_separate" verdicts across cycles: frozenset({id_a, id_b})
+    def __init__(self):
+        # Cache "keep_separate" verdicts across cycles: frozenset({id_a, id_b})
         self._keep_separate_cache: set[frozenset[str]] = set()
 
     @property
@@ -460,7 +425,7 @@ class EntityMergePhase(ConsolidationPhase):
 
         # --- Try embedding-based ANN candidate pre-filtering ---
         used_embeddings = False
-        ann_llm_candidates: list[tuple] = []  # Semantic dupes needing LLM review
+        ann_llm_candidates: list[tuple] = []  # Semantic dupes needing multi-signal review
         if cfg.consolidation_merge_use_embeddings:
             ann_pairs = await self._find_candidates_via_embeddings(
                 entities,
@@ -558,7 +523,7 @@ class EntityMergePhase(ConsolidationPhase):
                         )
                     else:
                         # Embedding says similar but names don't match well
-                        # — route to LLM judge for semantic dedup
+                        # — route to the multi-signal scorer for semantic dedup
                         ann_llm_candidates.append((ea, eb, sim))
 
         # --- Fallback: O(N²) type-blocked pairwise comparison ---
@@ -690,51 +655,6 @@ class EntityMergePhase(ConsolidationPhase):
                     )
                 else:
                     self._keep_separate_cache.add(frozenset({ea.id, eb.id}))
-
-        # --- LLM-assisted merge for soft-zone + ANN candidates ---
-        elif cfg.consolidation_merge_llm_enabled and not dry_run:
-            all_llm_candidates: list[tuple] = []
-
-            # ANN candidates that had high embedding similarity but low name match
-            # Cap at consolidation_merge_ann_llm_max to control LLM costs
-            if ann_llm_candidates:
-                ann_cap = cfg.consolidation_merge_ann_llm_max
-                all_llm_candidates.extend(ann_llm_candidates[:ann_cap])
-                if len(ann_llm_candidates) > ann_cap:
-                    logger.info(
-                        "Merge: capped ANN→LLM candidates from %d to %d",
-                        len(ann_llm_candidates),
-                        ann_cap,
-                    )
-
-            # Also collect name-based soft-zone pairs (traditional path)
-            if not used_embeddings:
-                # type_blocks already built in fallback path above
-                soft_zone_pairs = self._collect_soft_zone_pairs(
-                    type_blocks,
-                    block_size_limit,
-                    cfg.consolidation_merge_soft_threshold,
-                    threshold,
-                    require_same_type,
-                )
-                all_llm_candidates.extend(soft_zone_pairs)
-
-            if all_llm_candidates:
-                llm_merges = self._run_llm_merge_pass(
-                    all_llm_candidates,
-                    cfg,
-                    dry_run,
-                )
-                for ea_id, eb_id in llm_merges:
-                    union(ea_id, eb_id)
-                    _remember_merge_decision(
-                        merge_decisions,
-                        ea_id,
-                        eb_id,
-                        confidence=None,
-                        source="llm",
-                        reason="llm_merge",
-                    )
 
         # --- Structural candidate discovery (neighbor-based, no name needed) ---
         if cfg.consolidation_merge_multi_signal_enabled and hasattr(
@@ -1170,133 +1090,6 @@ class EntityMergePhase(ConsolidationPhase):
                         soft_pairs.append((ea, eb, sim))
 
         return soft_pairs
-
-    def _run_llm_merge_pass(
-        self,
-        soft_pairs: list[tuple],
-        cfg: ActivationConfig,
-        dry_run: bool,
-    ) -> list[tuple[str, str]]:
-        """Judge soft-zone pairs via LLM in batches, return pairs to merge."""
-        client = self._llm_client
-        if client is None:
-            try:
-                import anthropic
-
-                client = anthropic.Anthropic()
-            except Exception:
-                logger.warning("Could not create Anthropic client for merge LLM")
-                return []
-
-        approved_merges: list[tuple[str, str]] = []
-
-        # Filter out pairs previously judged "keep_separate"
-        uncached_pairs = [
-            (ea, eb, sim)
-            for ea, eb, sim in soft_pairs
-            if frozenset({ea.id, eb.id}) not in self._keep_separate_cache
-        ]
-        if len(uncached_pairs) < len(soft_pairs):
-            logger.info(
-                "Merge: skipped %d cached keep_separate pairs",
-                len(soft_pairs) - len(uncached_pairs),
-            )
-
-        # Process pairs in batches of _MERGE_BATCH_SIZE
-        for batch_start in range(0, len(uncached_pairs), _MERGE_BATCH_SIZE):
-            batch = uncached_pairs[batch_start : batch_start + _MERGE_BATCH_SIZE]
-
-            try:
-                # Build numbered user message for the batch
-                parts: list[str] = []
-                for idx, (ea, eb, sim) in enumerate(batch, start=1):
-                    parts.append(
-                        f"Pair {idx}:\n"
-                        f"Entity A: {ea.name} (type: {ea.entity_type})\n"
-                        f"Entity B: {eb.name} (type: {eb.entity_type})\n"
-                        f"String similarity: {sim:.4f}"
-                    )
-                user_msg = "\n\n".join(parts)
-
-                response = client.messages.create(
-                    model=cfg.consolidation_merge_llm_model,
-                    max_tokens=256 * len(batch),
-                    system=_MERGE_JUDGE_SYSTEM_CACHED,
-                    messages=[{"role": "user", "content": user_msg}],
-                )
-                text = response.content[0].text.strip()
-                verdicts = json.loads(text)
-
-                # Normalise: if the model returns a single dict, wrap it
-                if isinstance(verdicts, dict):
-                    verdicts = [verdicts]
-
-                # Build a lookup from pair number to verdict
-                verdict_map: dict[int, str] = {}
-                for v in verdicts:
-                    pair_num = v.get("pair", 0)
-                    verdict_map[pair_num] = v.get("verdict", "keep_separate")
-
-                # Process each pair's verdict
-                for idx, (ea, eb, sim) in enumerate(batch, start=1):
-                    verdict = verdict_map.get(idx, "keep_separate")
-                    if verdict == "merge":
-                        approved_merges.append((ea.id, eb.id))
-                    elif verdict == "uncertain" and cfg.consolidation_merge_escalation_enabled:
-                        # Escalate to Sonnet (one at a time)
-                        esc_verdict = self._escalate_merge(
-                            ea,
-                            eb,
-                            sim,
-                            cfg,
-                            client,
-                        )
-                        if esc_verdict == "merge":
-                            approved_merges.append((ea.id, eb.id))
-                        else:
-                            self._keep_separate_cache.add(frozenset({ea.id, eb.id}))
-                    elif verdict == "keep_separate":
-                        self._keep_separate_cache.add(frozenset({ea.id, eb.id}))
-
-            except Exception as exc:
-                # Log batch failure with all pair names
-                pair_names = ", ".join(f"{ea.name}/{eb.name}" for ea, eb, _sim in batch)
-                logger.warning("Merge LLM judge failed for batch [%s]: %s", pair_names, exc)
-
-        return approved_merges
-
-    def _escalate_merge(
-        self,
-        ea,
-        eb,
-        sim: float,
-        cfg: ActivationConfig,
-        client,
-    ) -> str:
-        """Escalate uncertain merge verdict to Sonnet."""
-        try:
-            user_msg = (
-                f"Entity A: {ea.name} (type: {ea.entity_type})\n"
-                f"Entity B: {eb.name} (type: {eb.entity_type})\n"
-                f"String similarity: {sim:.4f}\n"
-                f"Previous verdict: uncertain"
-            )
-            response = client.messages.create(
-                model=cfg.consolidation_merge_escalation_model,
-                max_tokens=256,
-                system=_MERGE_ESCALATION_SYSTEM_CACHED,
-                messages=[{"role": "user", "content": user_msg}],
-            )
-            text = response.content[0].text.strip()
-            parsed = json.loads(text)
-            verdict_raw = parsed.get("verdict", "keep_separate")
-            verdict = verdict_raw if isinstance(verdict_raw, str) else "keep_separate"
-            if verdict not in ("merge", "keep_separate"):
-                verdict = "keep_separate"
-            return verdict
-        except Exception as exc:
-            logger.warning("Merge escalation failed for %s/%s: %s", ea.name, eb.name, exc)
-            return "keep_separate"
 
 
 def _elapsed_ms(t0: float) -> float:

@@ -784,8 +784,7 @@ async def retrieve(
 
     # Step 0.1a: Graph-anchored query expansion (LLM-free).
     # Expands the query using real entities, relationships, and summaries from
-    # the knowledge graph. Used as vector search query when HyDE is disabled
-    # (production default).
+    # the knowledge graph. Used as the search query.
     #
     # This stage is ALSO one of the two probes that arm the recall graph gate,
     # so its timeout costs far more than the expansion: entity-query pool,
@@ -879,32 +878,12 @@ async def retrieve(
 
         reformulated_query = reformulate_query(query)
 
-    # Step 0.1c: HyDE — generate hypothetical answer for better vector matching.
-    # Uses LLM to produce a passage that looks like the stored content,
-    # bridging the question-answer embedding asymmetry.  The expanded text
-    # is used for the search call (both BM25 and vector benefit from
-    # answer-like phrasing); the original *query* is preserved for entity
-    # extraction, episode/cue search, spreading activation seeds, etc.
-    # When HyDE is enabled (benchmark mode), it takes priority over graph
-    # expansion.  When HyDE is disabled (production), graph expansion
-    # provides the query improvement.
-    hyde_query = query  # default: unchanged
-    if cfg.hyde_enabled:
-        try:
-            from engram.retrieval.hyde import generate_hypothetical_document
-
-            hypothesis = await generate_hypothetical_document(
-                query,
-                model=cfg.hyde_model,
-            )
-            if hypothesis:
-                hyde_query = hypothesis
-                logger.debug("HyDE expanded query: %s", hypothesis[:100])
-        except Exception:
-            pass  # Fall back to original query
-    else:
-        # Production path: graph expansion replaces HyDE
-        hyde_query = graph_expanded_query
+    # Step 0.1c: the graph-expanded text is used for the search call (both
+    # BM25 and vector benefit from answer-like phrasing); the original *query*
+    # is preserved for entity extraction, episode/cue search, spreading
+    # activation seeds, etc. (HyDE, the LLM alternative, was deleted
+    # 2026-09-04.)
+    search_query = graph_expanded_query
 
     # Step 0.2: Query decomposition for complex temporal/multi-hop queries
     # (deterministic — no LLM call, pure regex/template matching)
@@ -939,7 +918,7 @@ async def retrieve(
         pre_query_type = await classify_query(query)
 
         candidates = await generate_candidates(
-            query=hyde_query,
+            query=search_query,
             group_id=group_id,
             search_index=search_index,
             activation_store=activation_store,
@@ -968,7 +947,7 @@ async def retrieve(
         search_started = time.perf_counter()
         try:
             search_call = search_index.search(
-                query=hyde_query,
+                query=search_query,
                 group_id=group_id,
                 limit=top_k,
             )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -167,6 +166,36 @@ class CORSConfig(BaseModel):
 # mapped to narrow with a warning instead of failing startup.
 _RETIRED_EXTRACTOR_KEYS = ("ollama_model", "ollama_base_url")
 _RETIRED_EXTRACTOR_VALUES = ("auto", "anthropic", "ollama")
+# 2026-09-04: knobs of the deleted Anthropic branches (HyDE, the triage LLM
+# judge/escalation, infer Tier-3 validation/escalation, the merge LLM pass,
+# the edge-adjudication server adjudicator). Each was held off only by a
+# default or an API-key read at call time; the code is gone, and a
+# stale .env line is dropped with a warning rather than failing startup.
+_RETIRED_EXTERNAL_MODEL_KEYS = (
+    "hyde_enabled",
+    "hyde_model",
+    "triage_llm_judge_enabled",
+    "triage_llm_judge_model",
+    "triage_llm_escalation_enabled",
+    "triage_llm_escalation_low",
+    "triage_llm_escalation_high",
+    "triage_llm_escalation_max_per_cycle",
+    "consolidation_infer_llm_enabled",
+    "consolidation_infer_llm_model",
+    "consolidation_infer_escalation_enabled",
+    "consolidation_infer_escalation_model",
+    "consolidation_infer_escalation_max_per_cycle",
+    "consolidation_merge_llm_enabled",
+    "consolidation_merge_llm_model",
+    "consolidation_merge_escalation_enabled",
+    "consolidation_merge_escalation_model",
+    "consolidation_merge_ann_llm_max",
+    "edge_adjudication_server_enabled",
+    "edge_adjudication_server_model",
+    "edge_adjudication_server_max_per_cycle",
+    "edge_adjudication_server_daily_budget",
+    "edge_adjudication_server_min_age_minutes",
+)
 
 
 class ActivationConfig(BaseModel):
@@ -180,13 +209,13 @@ class ActivationConfig(BaseModel):
         """Map retired external-extractor config to narrow, loudly (2026-09-04)."""
         if not isinstance(data, dict):
             return data
-        for key in _RETIRED_EXTRACTOR_KEYS:
+        for key in _RETIRED_EXTRACTOR_KEYS + _RETIRED_EXTERNAL_MODEL_KEYS:
             if key in data:
                 data = dict(data)
                 data.pop(key)
                 logging.getLogger(__name__).warning(
-                    "ENGRAM_ACTIVATION__%s is retired: Engram no longer uses Ollama or any "
-                    "external extractor -- delete that line from your .env",
+                    "ENGRAM_ACTIVATION__%s is retired: Engram no longer uses Ollama, "
+                    "Anthropic or any external model -- delete that line from your .env",
                     key.upper(),
                 )
         value = data.get("extraction_provider")
@@ -536,17 +565,10 @@ class ActivationConfig(BaseModel):
         ),
     )
 
-    # --- HyDE (Hypothetical Document Embedding) ---
-    hyde_enabled: bool = Field(
-        default=False,
-        description="Use HyDE for vector search queries (requires LLM, disabled by default)",
-    )
-    hyde_model: str = Field(default="claude-haiku-4-5-20251001")
-
-    # --- Graph query expansion (LLM-free HyDE alternative) ---
+    # --- Graph query expansion (LLM-free) ---
     graph_query_expansion_enabled: bool = Field(
         default=True,
-        description="Expand queries using knowledge graph context (LLM-free HyDE alternative)",
+        description="Expand queries using knowledge graph context (LLM-free)",
     )
     graph_query_expansion_timeout_ms: int = Field(
         default=75,
@@ -1197,20 +1219,10 @@ class ActivationConfig(BaseModel):
         description="Min fraction of entities with embeddings to use ANN approach",
     )
 
-    # --- LLM-assisted merge (borderline candidates) ---
-    consolidation_merge_llm_enabled: bool = Field(default=False)
+    # --- Soft-zone merge candidates (scored by the multi-signal scorer) ---
     consolidation_merge_soft_threshold: float = Field(default=0.80, ge=0.5, le=1.0)
-    consolidation_merge_llm_model: str = Field(default="claude-haiku-4-5-20251001")
-    consolidation_merge_escalation_enabled: bool = Field(default=False)
-    consolidation_merge_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
-    consolidation_merge_ann_llm_max: int = Field(
-        default=20,
-        ge=1,
-        le=100,
-        description="Max ANN semantic candidates to send to LLM merge judge per cycle",
-    )
 
-    # --- Multi-signal merge scorer (replaces LLM judge) ---
+    # --- Multi-signal merge scorer ---
     consolidation_merge_multi_signal_enabled: bool = Field(
         default=True,
         description="Use multi-signal deterministic scorer instead of LLM for merge decisions",
@@ -1259,18 +1271,12 @@ class ActivationConfig(BaseModel):
     consolidation_infer_pmi_min: float = Field(default=1.0, ge=0.0, le=10.0)
     consolidation_infer_tfidf_weight: float = Field(default=0.3, ge=0.0, le=1.0)
 
-    # --- LLM validation (Tier 3) ---
-    consolidation_infer_llm_enabled: bool = Field(default=False)
+    # --- Validation candidate selection (read by the multi-signal pass; the
+    # names predate the deleted LLM validator) ---
     consolidation_infer_llm_confidence_threshold: float = Field(default=0.5, ge=0.1, le=1.0)
     consolidation_infer_llm_max_per_cycle: int = Field(default=20, ge=1, le=100)
-    consolidation_infer_llm_model: str = Field(default="claude-haiku-4-5-20251001")
 
-    # --- LLM escalation (Sonnet re-validation of uncertain verdicts) ---
-    consolidation_infer_escalation_enabled: bool = Field(default=False)
-    consolidation_infer_escalation_model: str = Field(default="claude-sonnet-4-6-20250514")
-    consolidation_infer_escalation_max_per_cycle: int = Field(default=5, ge=1, le=50)
-
-    # --- Multi-signal infer validation (replaces LLM judge) ---
+    # --- Multi-signal infer validation ---
     consolidation_infer_auto_validation_enabled: bool = Field(
         default=True,
         description="Use multi-signal deterministic scorer instead of LLM for edge validation",
@@ -1602,20 +1608,10 @@ class ActivationConfig(BaseModel):
         description="Minimum personal keyword matches to trigger boost",
     )
 
-    # --- Triage LLM judge ---
-    triage_llm_judge_enabled: bool = Field(
-        default=False,
-        description="Use Haiku as triage judge (replaces heuristics)",
-    )
-    triage_llm_judge_model: str = Field(
-        default="claude-haiku-4-5-20251001",
-        description="Model for LLM triage judge",
-    )
-
-    # --- Multi-signal triage scorer (replaces LLM judge) ---
+    # --- Multi-signal triage scorer ---
     triage_multi_signal_enabled: bool = Field(
         default=True,
-        description="Use multi-signal scorer instead of LLM for triage",
+        description="Use multi-signal scorer instead of heuristics for triage",
     )
     triage_scorer_weights: dict[str, float] = Field(
         default_factory=lambda: {
@@ -1630,29 +1626,6 @@ class ActivationConfig(BaseModel):
         },
         description="Signal weights for multi-signal triage scorer (must sum to ~1.0)",
     )
-    triage_llm_escalation_enabled: bool = Field(
-        default=True,
-        description="Escalate borderline scores to LLM judge (only when multi-signal enabled)",
-    )
-    triage_llm_escalation_low: float = Field(
-        default=0.35,
-        ge=0.0,
-        le=1.0,
-        description="Lower bound of borderline band for LLM escalation",
-    )
-    triage_llm_escalation_high: float = Field(
-        default=0.55,
-        ge=0.0,
-        le=1.0,
-        description="Upper bound of borderline band for LLM escalation",
-    )
-    triage_llm_escalation_max_per_cycle: int = Field(
-        default=5,
-        ge=0,
-        le=50,
-        description="Max episodes per triage cycle to escalate to LLM",
-    )
-
     # --- Worker confidence routing ---
     worker_extract_threshold: float = Field(
         default=0.70,
@@ -3152,32 +3125,6 @@ class ActivationConfig(BaseModel):
         default=True,
         description="Expose client-assisted adjudication requests and tools",
     )
-    edge_adjudication_server_enabled: bool = Field(
-        default=False,
-        description="Allow offline server-side LLM adjudication for unresolved requests",
-    )
-    edge_adjudication_server_model: str = Field(
-        default="claude-sonnet-4-6-20250514",
-        description="Anthropic model used for offline server adjudication",
-    )
-    edge_adjudication_server_max_per_cycle: int = Field(
-        default=10,
-        ge=0,
-        le=500,
-        description="Maximum server adjudication requests per consolidation cycle",
-    )
-    edge_adjudication_server_daily_budget: int = Field(
-        default=50,
-        ge=0,
-        le=5000,
-        description="Daily cap on server adjudication requests",
-    )
-    edge_adjudication_server_min_age_minutes: int = Field(
-        default=10,
-        ge=0,
-        le=10080,
-        description="Minimum age before a pending request is eligible for server adjudication",
-    )
     edge_adjudication_request_ttl_hours: int = Field(
         default=24,
         ge=1,
@@ -3266,14 +3213,11 @@ class ActivationConfig(BaseModel):
             _set("triage_enabled", True)
             _set("triage_extract_ratio", 0.25)
             _set("triage_multi_signal_enabled", True)
-            _set("triage_llm_judge_enabled", False)
             _set("worker_enabled", False)
             _set("auto_recall_enabled", True)
             _set("consolidation_cross_encoder_enabled", False)
             _set("consolidation_merge_multi_signal_enabled", True)
             _set("consolidation_infer_auto_validation_enabled", True)
-            _set("consolidation_merge_llm_enabled", False)
-            _set("consolidation_infer_llm_enabled", False)
             _set("graph_embedding_node2vec_enabled", False)
             _set("memory_maturation_enabled", True)
             _set("microglia_enabled", True)
@@ -3321,18 +3265,11 @@ class ActivationConfig(BaseModel):
             _set("inhibitory_spreading_enabled", True)
             _set("goal_priming_enabled", True)
             _set("state_dependent_retrieval_enabled", True)
-            # Multi-signal triage replaces LLM judge (zero API cost)
+            # Multi-signal triage (zero API cost)
             _set("triage_multi_signal_enabled", True)
-            _set("triage_llm_judge_enabled", False)
-            _set("triage_llm_escalation_enabled", False)
-            # Multi-signal scorers replace LLM judges (zero API cost)
+            # Multi-signal scorers (zero API cost)
             _set("consolidation_merge_multi_signal_enabled", True)
             _set("consolidation_infer_auto_validation_enabled", True)
-            # LLM judges disabled when multi-signal is active (kept as opt-in fallback)
-            _set("consolidation_merge_llm_enabled", False)
-            _set("consolidation_merge_escalation_enabled", False)
-            _set("consolidation_infer_llm_enabled", False)
-            _set("consolidation_infer_escalation_enabled", False)
             _set("consolidation_dream_associations_enabled", True)
             _set("graph_embedding_node2vec_enabled", True)
             _set("weight_graph_structural", 0.1)
@@ -3457,14 +3394,6 @@ class ActivationConfig(BaseModel):
             # keeps them out). Respect an explicit caller override.
             if "passage_first_entity_budget" not in self.model_fields_set:
                 _set("passage_first_entity_budget", 3)
-
-        # --- Guard: disable LLM features if no API key (only for profile-set) ---
-        if profile in ("standard",) and not os.environ.get("ANTHROPIC_API_KEY"):
-            _set("triage_llm_judge_enabled", False)
-            _set("consolidation_infer_llm_enabled", False)
-            _set("consolidation_infer_escalation_enabled", False)
-            _set("consolidation_merge_llm_enabled", False)
-            _set("consolidation_merge_escalation_enabled", False)
 
 
 class NerveCenterConfig(BaseModel):

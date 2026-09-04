@@ -15,7 +15,7 @@ graph/vector/BM25 backend without Docker or a network hop.
 ## Prerequisites
 
 - **Python 3.10+** with [uv](https://docs.astral.sh/uv/)
-- Optional **Anthropic API key** for richer entity extraction (`ANTHROPIC_API_KEY`)
+- No model API key: extraction is the resident agent's `remember`/`observe` proposals (deterministic narrow adapter as the internal rung) and embeddings are local FastEmbed
 - Rust/Cargo only if no compatible `helix-native` release wheel exists and the installer must build from Engram's bundled source
 - Docker and Docker Compose only for explicit Docker mode
 
@@ -130,8 +130,12 @@ cd server && ENGRAM_MODE=helix ENGRAM_HELIX__HOST=localhost ENGRAM_HELIX__PORT=6
 ## Environment Variables
 
 ```bash
-# Required
-ANTHROPIC_API_KEY=sk-ant-...           # Claude Haiku for entity extraction
+# No model API key is required: the resident agent is the extractor
+# (remember/observe proposals; deterministic narrow adapter as the internal rung)
+# and embeddings are local FastEmbed on every shipped install (the install env
+# pins provider=local). ENGRAM_ACTIVATION__EXTRACTION_PROVIDER
+# accepts only "narrow"; retired auto/anthropic/ollama values and OLLAMA_* keys
+# are mapped away with a warning.
 
 # Helix connection (defaults shown)
 ENGRAM_MODE=helix                      # Force helix mode (auto-detect also works)
@@ -143,7 +147,7 @@ ENGRAM_HELIX__HOST=localhost           # HelixDB host ("helixdb" inside Docker)
 ENGRAM_HELIX__PORT=6969                # HelixDB port
 
 # Optional
-VOYAGE_API_KEY=pa-...                  # Voyage AI embeddings
+ENGRAM_EMBEDDING__PROVIDER=local        # Local FastEmbed (nomic-embed-text-v1.5, 768d); no embedding API key
 ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard
 ENGRAM_ACTIVATION__INTEGRATION_PROFILE=rework
 ```
@@ -224,8 +228,7 @@ Claude Desktop config (`~/.claude/claude_desktop_config.json`):
       "args": ["run", "--directory", "/path/to/engram/server", "engram", "mcp"],
       "env": {
         "ENGRAM_MODE": "helix",
-        "ENGRAM_HELIX__TRANSPORT": "native",
-        "ANTHROPIC_API_KEY": "sk-ant-..."
+        "ENGRAM_HELIX__TRANSPORT": "native"
       }
     }
   }

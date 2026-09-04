@@ -1,4 +1,9 @@
-"""Knowledge-chat runtime helpers for memory need and live context."""
+"""Knowledge-chat runtime helpers for memory need and live context.
+
+Engram runs no external model. The REST route answers 501 unless a caller hands
+in a ``client_factory`` (tests, or a future resident-agent transport); the turn
+machinery below is only reachable through that seam.
+"""
 
 from __future__ import annotations
 
@@ -7,8 +12,6 @@ import logging
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
-
-import anthropic
 
 from engram.models.recall import MemoryNeed
 from engram.retrieval.chat_events import build_chat_tool_stream_events
@@ -46,6 +49,11 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_HISTORY_MESSAGES = 10
 DEFAULT_MAX_TOOL_TURNS = 3
 
+CHAT_UNAVAILABLE_DETAIL = (
+    "Knowledge chat is not available: Engram does not call an external model. "
+    "Use the resident agent through MCP (recall, get_context) instead."
+)
+
 
 @dataclass(frozen=True)
 class ApiChatRateLimitSurface:
@@ -77,6 +85,14 @@ class ChatResponseTurnResult:
 def build_chat_sse_event(data: Mapping[str, Any]) -> str:
     """Format one AI SDK SSE event for the REST chat transport."""
     return f"data: {json.dumps(dict(data))}\n\n"
+
+
+def build_api_chat_unavailable_surface() -> ApiChatStreamResponseSurface:
+    """Return the 501 surface: there is no model to answer a chat turn with."""
+    return ApiChatStreamResponseSurface(
+        status_code=501,
+        payload={"detail": CHAT_UNAVAILABLE_DETAIL},
+    )
 
 
 def build_api_chat_rate_limit_surface(remaining: int) -> ApiChatRateLimitSurface:
@@ -115,8 +131,17 @@ async def build_api_chat_stream_response_surface(
     rate_limiter: Any | None,
     event_bus: Any | None,
     stream_logger: Any | None = None,
+    client_factory: Any | None = None,
 ) -> ApiChatStreamResponseSurface:
-    """Build the REST chat response surface outside the FastAPI route."""
+    """Build the REST chat response surface outside the FastAPI route.
+
+    Without a ``client_factory`` -- the production route never passes one --
+    chat is unavailable: 501 before the rate limiter is charged or a
+    conversation row is created.
+    """
+    if client_factory is None:
+        return build_api_chat_unavailable_surface()
+
     rate_limit_result = await check_api_chat_rate_limit(
         rate_limiter,
         group_id=group_id,
@@ -151,6 +176,7 @@ async def build_api_chat_stream_response_surface(
             conversation_id=conversation.conversation_id,
             event_bus=event_bus,
             session_entity_names=manager_conversation_top_entity_names(manager),
+            client_factory=client_factory,
             stream_logger=stream_logger,
         ),
     )
@@ -294,19 +320,23 @@ async def stream_api_chat_sse_events(
     conversation_store: Any | None,
     conversation_id: str | None,
     event_bus: Any | None,
+    client_factory: Any,
     session_entity_names: list[str] | None = None,
-    client_factory: Any | None = None,
     max_history_messages: int = DEFAULT_MAX_HISTORY_MESSAGES,
     max_tool_turns: int = DEFAULT_MAX_TOOL_TURNS,
     stream_logger: logging.Logger | None = None,
 ) -> AsyncIterator[str]:
-    """Run the REST knowledge-chat turn and yield AI SDK SSE frames."""
+    """Run the REST knowledge-chat turn and yield AI SDK SSE frames.
+
+    ``client_factory`` builds the duck-typed ``messages.create`` client the turn
+    talks to; there is no default, because Engram ships no model client.
+    """
     log = stream_logger or logger
     try:
         yield build_chat_sse_event({"type": "start"})
         yield build_chat_sse_event({"type": "start-step"})
 
-        client = (client_factory or anthropic.AsyncAnthropic)()
+        client = client_factory()
         turn = await run_chat_response_turn(
             client,
             manager=manager,

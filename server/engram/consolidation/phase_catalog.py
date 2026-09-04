@@ -30,9 +30,9 @@ def build_consolidation_phases(
     """Build the runtime phase list and validate it against the shared registry."""
     phases: list[ConsolidationPhase] = [
         TriagePhase(graph_manager=graph_manager),
-        EntityMergePhase(llm_client=llm_client),
+        EntityMergePhase(),
         CalibratePhase(),
-        EdgeInferencePhase(llm_client=llm_client, escalation_client=llm_client),
+        EdgeInferencePhase(),
         EvidenceAdjudicationPhase(graph_manager=graph_manager),
         EdgeAdjudicationPhase(graph_manager=graph_manager),
         EpisodeReplayPhase(extractor=extractor),

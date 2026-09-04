@@ -260,10 +260,6 @@ class TestPMIAndLLMConfigDefaults:
         cfg = ActivationConfig()
         assert cfg.consolidation_infer_tfidf_weight == 0.3
 
-    def test_llm_disabled_by_default(self):
-        cfg = ActivationConfig()
-        assert cfg.consolidation_infer_llm_enabled is False
-
     def test_llm_confidence_threshold_default(self):
         cfg = ActivationConfig()
         assert cfg.consolidation_infer_llm_confidence_threshold == 0.5
@@ -271,10 +267,6 @@ class TestPMIAndLLMConfigDefaults:
     def test_llm_max_per_cycle_default(self):
         cfg = ActivationConfig()
         assert cfg.consolidation_infer_llm_max_per_cycle == 20
-
-    def test_llm_model_default(self):
-        cfg = ActivationConfig()
-        assert cfg.consolidation_infer_llm_model == "claude-haiku-4-5-20251001"
 
     def test_pmi_min_bounds(self):
         with pytest.raises(ValidationError):

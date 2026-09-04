@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from engram.config import EngramConfig
-from engram.extraction.extractor import EntityExtractor
+from engram.extraction.factory import create_extractor
 from engram.graph_manager import GraphManager
 from engram.retrieval.memory_authority import build_mcp_memory_authority_surface
 from engram.storage.bootstrap import (
@@ -94,7 +94,7 @@ async def build_authority_payload_from_args(args: argparse.Namespace) -> dict[st
             graph_store,
             activation_store,
             search_index,
-            EntityExtractor(),
+            create_extractor(config),
             cfg=config.activation,
             nerve_center_cfg=config.nerve_center,
             runtime_mode=mode.value,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import patch
 
 import pytest
 
@@ -46,7 +45,6 @@ class TestConsolidationProfiles:
         assert cfg.consolidation_replay_enabled is True
         assert cfg.consolidation_dream_enabled is True
 
-    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_standard_profile(self):
         cfg = ActivationConfig(consolidation_profile="standard")
         assert cfg.consolidation_enabled is True
@@ -60,13 +58,6 @@ class TestConsolidationProfiles:
         assert cfg.consolidation_merge_multi_signal_enabled is True
         assert cfg.consolidation_infer_auto_validation_enabled is True
         assert cfg.triage_multi_signal_enabled is True
-        # LLM judges disabled when multi-signal active (opt-in fallback)
-        assert cfg.triage_llm_judge_enabled is False
-        assert cfg.triage_llm_escalation_enabled is False
-        assert cfg.consolidation_infer_llm_enabled is False
-        assert cfg.consolidation_infer_escalation_enabled is False
-        assert cfg.consolidation_merge_llm_enabled is False
-        assert cfg.consolidation_merge_escalation_enabled is False
 
     def test_default_is_off_off(self):
         """Safe defaults: no consolidation/recall profile until configured."""
@@ -97,7 +88,6 @@ class TestConsolidationProfiles:
 
 
 class TestIntegrationProfiles:
-    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_rework_profile_enables_full_loop(self):
         cfg = ActivationConfig(integration_profile="rework")
 
@@ -159,7 +149,6 @@ class TestIntegrationProfiles:
         assert cfg.artifact_bootstrap_enabled is False
         assert cfg.memory_maturation_enabled is False
 
-    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_rework_profile_normalizes_partial_overrides(self):
         cfg = ActivationConfig(
             integration_profile="rework",

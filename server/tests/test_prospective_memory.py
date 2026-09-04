@@ -807,11 +807,11 @@ class TestGraphManagerIntegration:
     async def test_create_intention_generates_id(self, tmp_path):
         from engram.config import ActivationConfig, EmbeddingConfig, HelixDBConfig
         from engram.embeddings.provider import NoopProvider
-        from engram.extraction.extractor import EntityExtractor
         from engram.graph_manager import GraphManager
         from engram.storage.helix.graph import HelixGraphStore
         from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
+        from tests.conftest import MockExtractor
 
         graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
@@ -826,7 +826,7 @@ class TestGraphManagerIntegration:
         )
         await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
-        extractor = EntityExtractor()
+        extractor = MockExtractor()
 
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
         gid = f"test_{uuid4().hex[:8]}"
@@ -847,11 +847,11 @@ class TestGraphManagerIntegration:
     async def test_create_intention_entity_mention(self, tmp_path):
         from engram.config import ActivationConfig, EmbeddingConfig, HelixDBConfig
         from engram.embeddings.provider import NoopProvider
-        from engram.extraction.extractor import EntityExtractor
         from engram.graph_manager import GraphManager
         from engram.storage.helix.graph import HelixGraphStore
         from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
+        from tests.conftest import MockExtractor
 
         graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
@@ -866,7 +866,7 @@ class TestGraphManagerIntegration:
         )
         await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
-        extractor = EntityExtractor()
+        extractor = MockExtractor()
 
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
 
@@ -892,11 +892,11 @@ class TestGraphManagerIntegration:
     async def test_delete_intention(self, tmp_path):
         from engram.config import ActivationConfig, EmbeddingConfig, HelixDBConfig
         from engram.embeddings.provider import NoopProvider
-        from engram.extraction.extractor import EntityExtractor
         from engram.graph_manager import GraphManager
         from engram.storage.helix.graph import HelixGraphStore
         from engram.storage.helix.search import HelixSearchIndex
         from engram.storage.memory.activation import MemoryActivationStore
+        from tests.conftest import MockExtractor
 
         graph = HelixGraphStore(HelixDBConfig(host="localhost", port=6969))
         await graph.initialize()
@@ -911,7 +911,7 @@ class TestGraphManagerIntegration:
         )
         await search.initialize()
         cfg = ActivationConfig(prospective_memory_enabled=True, prospective_graph_embedded=False)
-        extractor = EntityExtractor()
+        extractor = MockExtractor()
 
         gm = GraphManager(graph, activation, search, extractor, cfg=cfg)
         gid = f"test_{uuid4().hex[:8]}"

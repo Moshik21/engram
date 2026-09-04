@@ -87,7 +87,8 @@ class TestConversationOwnership:
         assert await store.get_messages(foreign_id, "group-b") == []
 
     @pytest.mark.asyncio
-    async def test_chat_rejects_other_group_conversation_id(self, conversations_client):
+    async def test_chat_never_reaches_other_group_conversation(self, conversations_client):
+        """Chat answers 501 (no external model) before any conversation lookup."""
         client, store = conversations_client
         foreign_id = await store.create_conversation("group-b", title="Foreign")
 
@@ -99,5 +100,6 @@ class TestConversationOwnership:
             },
         )
 
-        assert resp.status_code == 404
-        assert resp.json()["detail"] == "Conversation not found"
+        assert resp.status_code == 501
+        assert "not available" in resp.json()["detail"]
+        assert await store.get_messages(foreign_id, "group-b") == []

@@ -148,11 +148,10 @@ class _CachingAdapter(EngramLongMemEvalAdapter):
 # --------------------------------------------------------------------------- #
 _ABLATABLE: dict[str, tuple[str, ...]] = {
     # consolidation phases (config _enabled flags)
-    "merge": ("consolidation_merge_multi_signal_enabled", "consolidation_merge_llm_enabled"),
+    "merge": ("consolidation_merge_multi_signal_enabled",),
     "infer": (
         "consolidation_infer_pmi_enabled",
         "consolidation_infer_auto_validation_enabled",
-        "consolidation_infer_llm_enabled",
     ),
     "replay": ("consolidation_replay_enabled",),
     "dream": ("consolidation_dream_enabled", "consolidation_dream_associations_enabled"),
@@ -206,15 +205,12 @@ def _assert_clean_extractor(adapter: _CachingAdapter, allow_narrow: bool) -> str
     EntityExtractor (not a silent narrow fallback). With --extraction narrow the
     deterministic narrow adapter is accepted as the determinism floor.
     """
-    from engram.extraction.extractor import EntityExtractor
     from engram.extraction.narrow_adapter import NarrowExtractorAdapter
 
     cache = adapter.extraction_cache
     assert cache is not None
     inner = cache.inner
     kind = type(inner).__name__
-    if isinstance(inner, EntityExtractor):
-        return kind
     if allow_narrow and isinstance(inner, NarrowExtractorAdapter):
         return kind
     raise SystemExit(

@@ -24,7 +24,7 @@ Mode is auto-detected (Helix → FalkorDB+Redis → SQLite) or set explicitly vi
 | Graph | SQLite (WAL, FTS5) | HelixDB in-process (HelixQL) | HelixDB (HelixQL) | FalkorDB (Cypher) |
 | Activation | In-memory dict | In-memory dict | In-memory dict | Redis hashes (7-day TTL) |
 | Search | FTS5 + numpy cosine | HelixDB native HNSW + BM25 | HelixDB native HNSW + BM25 | Redis Search HNSW (1024d) |
-| Embeddings | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) | Optional (Gemini / Voyage / local) |
+| Embeddings | Local FastEmbed (nomic, 768d) | Local FastEmbed (nomic, 768d) | Local FastEmbed (nomic, 768d) | Local FastEmbed (nomic, 768d) |
 | Infrastructure | Zero | Zero | 1 Docker service | 2 Docker services |
 
 ### Data Persistence
@@ -123,98 +123,64 @@ Details: [`docs/install/helix.md`](docs/install/helix.md)
 
 ### API Keys
 
-Engram uses external APIs for two things: extracting structure from text and (optionally) embedding entities for semantic search.
+Engram never calls an external model in operation. No key is required: structure comes from the resident agent, and embeddings are local FastEmbed on every shipped install (the install env pins `provider=local`).
 
-#### Extraction Provider (auto-detected)
+#### Extraction Provider
 
-Engram auto-detects the best available extraction provider in priority order: **Anthropic** (Claude Haiku) -> **Ollama** (local LLM) -> **Narrow** (deterministic, zero LLM). The narrow pipeline uses staged regex-based extractors (`IdentityEntityExtractor`, `RelationshipPatternExtractor`, `AttributeEvidenceExtractor`, `TemporalEvidenceExtractor`) that require no API key and no LLM at all. Set explicitly via `ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=auto|anthropic|ollama|narrow`.
+The resident agent holding the MCP is the extractor: it passes `proposed_entities` + `proposed_relationships` (with a verbatim `source_span`) through `remember`/`observe`. The only internal rung is **narrow** — a deterministic, zero-dependency pipeline of staged regex-based extractors (`IdentityEntityExtractor`, `RelationshipPatternExtractor`, `AttributeEvidenceExtractor`, `TemporalEvidenceExtractor`) that produces regex-level entities and relationships (marked `extractedBy: narrow` on recall) for content the agent did not structure, which the agent can re-propose with `remember(episode_id=...)`. `ENGRAM_ACTIVATION__EXTRACTION_PROVIDER` accepts only `narrow`; the retired values `auto|anthropic|ollama` and the retired `OLLAMA_MODEL` / `OLLAMA_BASE_URL` keys are mapped away with a startup warning.
 
 ```bash
-# Option A: Anthropic (best quality)
-export ANTHROPIC_API_KEY=sk-ant-...   # Get a key at console.anthropic.com
-
-# Option B: Ollama (local LLM, no API key)
-# Requires ollama running locally with a model pulled
-
-# Option C: Narrow (deterministic, zero LLM, default fallback)
-# No setup needed — works out of the box
+# Nothing to set up — works out of the box, no key
+# ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=narrow   # the only accepted value
 ```
 
-**With Anthropic**: When you `remember` something (or when the background worker promotes an `observe`d episode), Engram sends the text to Claude Haiku (`claude-haiku-4-5-20251001`) to extract entities, relationships, temporal markers, structured attributes, and polarity. The extraction prompt recognizes 17 entity types (including health, emotional, and personal domains), ~73 predicate synonyms that canonicalize to ~25 semantic groups, and handles negation/uncertainty ("stopped using X" invalidates existing edges). This produces the highest-quality knowledge graph.
+**Agent proposals**: When you `remember` something (or when the background worker promotes an `observe`d episode), the agent's proposed entities, relationships, temporal markers, structured attributes, and polarity go through the projector/apply pipeline. The agent already understands the text it is storing, so this is the highest-quality path into the knowledge graph.
 
-**Without Anthropic**: The narrow deterministic pipeline handles extraction using pattern matching and heuristics. It includes multi-layer quality guards: input sanitization (strips protocol markers, XML, code blocks, URLs), sentence-position demotion for single-word candidates, expanded stopword filtering (~85 words), entity name validation (rejects fragments, short names, all-lowercase), and a signal-aware adaptive commit policy that requires cross-episode corroboration for uncertain candidates. Quality is lower than LLM extraction but sufficient for basic operation with zero API cost.
+**Narrow rung**: Content that arrives without proposals goes through the narrow deterministic pipeline (pattern matching and heuristics). It includes multi-layer quality guards: input sanitization (strips protocol markers, XML, code blocks, URLs), sentence-position demotion for single-word candidates, expanded stopword filtering (~85 words), entity name validation (rejects fragments, short names, all-lowercase), and a signal-aware adaptive commit policy that requires cross-episode corroboration for uncertain candidates. It yields regex-level entities and relationships (marked `extractedBy: narrow` on recall); `list_unstructured_episodes` (operator surface) lists what narrow could not structure so the agent can re-propose it with `remember(episode_id=...)`.
 
-**Cost**: Claude Haiku is Anthropic's fastest, cheapest model. A typical extraction uses ~500-1,500 input tokens and ~200-800 output tokens. At Haiku's pricing (~$0.80/1M input, ~$4/1M output), that's roughly **$0.001-0.005 per memory extracted**. Engram is designed to minimize LLM usage:
+**Cost**: Zero model calls from Engram itself. The only tokens spent are the resident agent's own, structuring proposals inside its session:
 
-- **Triage + merge + infer** use deterministic multi-signal scorers (zero API cost) — LLM judges are available as opt-in fallback but disabled by default in the `standard` profile
+- **Triage + merge + infer** use deterministic multi-signal scorers (zero API cost) — there is no external-model judge in operation
 - **Observe + triage flow** means only ~35% of stored content triggers extraction
 - **Background worker** uses three-tier confidence routing (extract/defer/skip) with zero LLM calls
-- **Prompt caching** on all extraction/validation prompts — static system prompts cached at $0.10/M vs $1.00/M, reducing input costs by ~80-90% on repeated calls
-- **Remaining LLM usage**: entity extraction (`remember` + promoted `observe`), consolidation replay (re-extraction), knowledge chat (optional), and briefing synthesis (cached)
+- **Remaining model involvement**: only the resident agent's proposals on `remember` + promoted `observe`; replay, briefing, and every consolidation phase are deterministic
 
-#### Embeddings (optional)
+#### Embeddings
 
-Engram supports three embedding providers for semantic vector search, auto-detected in priority order: Gemini → Voyage → FastEmbed (local) → Noop. If none is configured, it falls back to keyword-only search.
-
-**Option A: Gemini Embedding 2 (cloud, multimodal)**
+Embeddings are local: [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768d, 137M params) via fastembed (ONNX runtime, CPU). fastembed is a default dependency; the model (~130MB) is downloaded on first use and cached locally. Embeddings are local FastEmbed on every shipped install (the install env pins `provider=local`); no key is required.
 
 ```bash
-export GEMINI_API_KEY=...   # Get a key at aistudio.google.com
+export ENGRAM_EMBEDDING__PROVIDER=local   # local FastEmbed — pinned by the install env on every shipped install; noop disables embeddings
 ```
 
-Uses Google's [Gemini Embedding 2](https://ai.google.dev/gemini-api/docs/embeddings) (`gemini-embedding-2-preview`) — the first multimodal embedding model. Embeds text, images, audio, video, and PDFs into a unified 3072-dimensional vector space. Task-aware prefixing (`RETRIEVAL_DOCUMENT` for indexing, `RETRIEVAL_QUERY` for search) improves retrieval quality. Supports Matryoshka (MRL) — prefix-slice vectors to 256d for fast approximate comparisons without retraining. Free tier available.
+**Without embeddings** (`ENGRAM_EMBEDDING__PROVIDER=noop`): Engram still works — retrieval uses FTS5 keyword matching, ACT-R activation, and spreading activation. You lose semantic similarity but keep everything else.
 
-Setting `GEMINI_API_KEY` automatically enables Gemini as the embedding provider. This also unlocks multimodal memory (see [Multimodal Memory](#multimodal-memory) below).
-
-**Option B: Voyage AI (cloud)**
-
-```bash
-export VOYAGE_API_KEY=pa-...   # Get a key at dash.voyageai.com
-```
-
-Embeds each entity into a 1024-dimensional vector (`voyage-4-lite` model). Cost: ~$0.01 per 1M tokens embedded.
-
-**Option C: Local embeddings (offline, private)**
-
-```bash
-pip install engram[local]     # or: uv sync --extra local
-export ENGRAM_EMBEDDING__PROVIDER=local
-```
-
-Uses [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768d, 137M params) via fastembed (ONNX runtime, CPU). The model (~130MB) is downloaded on first use and cached locally. No API key required.
-
-**Auto-fallback**: Provider priority is Gemini → Voyage → FastEmbed (local) → Noop. If your configured provider's API key is missing, Engram falls to the next available provider. If none is available, vector search is disabled (keyword search still works).
-
-**Without embeddings**: Engram still works — retrieval uses FTS5 keyword matching, ACT-R activation, and spreading activation. You lose semantic similarity but keep everything else.
-
-| | Anthropic (recommended) | Gemini (optional) | Voyage AI (optional) | Local (optional) |
-|---|---|---|---|---|
-| **Purpose** | Entity extraction from text | Multimodal vector search | Semantic vector search | Semantic vector search |
-| **Model** | Claude Haiku | gemini-embedding-2-preview (3072d) | voyage-4-lite (1024d) | Nomic Embed v1.5 (768d) |
-| **When called** | `remember`, promoted `observe`, consolidation replay, knowledge chat | Entity creation + reindex + multimodal ingest | Entity creation + reindex | Entity creation + reindex |
-| **Cost per call** | ~$0.001-0.005 | Free tier available | ~$0.00001 | Free (CPU) |
-| **Multimodal** | No | Yes (text, images, audio, video, PDFs) | No | No |
-| **Without it** | Falls back to Ollama or narrow deterministic extraction | Falls back to Voyage/local/keyword | Falls back to local/keyword | Falls back to keyword search |
+| | Extraction | Embeddings |
+|---|---|---|
+| **Source** | The resident agent (`proposed_entities` / `proposed_relationships`); narrow adapter (deterministic, regex-level entities and relationships marked `extractedBy: narrow`) as the internal rung | Nomic Embed v1.5 (768d) via fastembed, on-device |
+| **When called** | `remember`, promoted `observe`, consolidation replay | Entity creation + reindex |
+| **Cost per call** | None from Engram (the agent's own tokens) | Free (CPU) |
+| **Without it** | Narrow's regex-level entities and relationships (`extractedBy: narrow`), until the agent re-proposes | Falls back to keyword search |
 
 #### Where LLM Is Used (and Where It Isn't)
 
-Engram is designed to minimize LLM dependency. The only operation that *requires* an LLM is turning text into knowledge graph structure. Everything else — scoring, routing, merging, inferring, pruning, consolidating — is deterministic.
+Engram calls no LLM itself. The one step that needs one — turning text into knowledge graph structure — is done by the resident agent in its own session (proposals on `remember`/`observe`); the internal narrow rung is deterministic. Everything else — scoring, routing, merging, inferring, pruning, consolidating — is deterministic.
 
 | Operation | Uses LLM? | What Happens |
 |-----------|-----------|--------------|
-| **`observe`** (store episode) | No | Episode stored in ~5ms. If `cue_layer_enabled`, Engram also builds an `EpisodeCue`, indexes cue text, and can route the episode to `cue_only` or `scheduled` before any LLM call. |
-| **`remember`** (extract + store) | Depends | Extraction provider auto-detected: Anthropic (Claude Haiku) -> Ollama -> Narrow (deterministic, zero LLM). Extracts entities, relationships, attributes, temporal markers, and polarity through the projector/apply pipeline. |
+| **`observe`** (store episode) | No | Episode stored in ~5ms. If `cue_layer_enabled`, Engram also builds an `EpisodeCue`, indexes cue text, and can route the episode to `cue_only` or `scheduled` before any projection. |
+| **`remember`** (extract + store) | No | The resident agent's `proposed_entities` / `proposed_relationships` go through the projector/apply pipeline (entities, relationships, attributes, temporal markers, polarity). Content without proposals falls to the deterministic narrow adapter (regex-level entities and relationships, marked `extractedBy: narrow`, that the agent can re-propose with `remember(episode_id=...)`). Engram makes no model call. |
 | **`recall`** (retrieve memories) | No | Pure DB: FTS5/vector search, ACT-R activation, planner support, cue recall, spreading activation, re-ranking, packet assembly. Zero API calls. |
-| **Triage** (episode scoring) | No* | 8-signal multi-signal scorer (~2ms/ep). *Optional LLM escalation remains available as an explicit opt-in fallback. |
+| **Triage** (episode scoring) | No | 8-signal multi-signal scorer (~2ms/ep). No external-model escalation in operation. |
 | **Merge** (entity dedup) | No | 7-signal deterministic scorer + cross-encoder refinement + structural candidate discovery. |
 | **Infer** (edge creation) | No | 6-signal deterministic scorer. Self-corrects via Dream LTD decay. |
 | **Replay** (deferred extraction) | No | Runs deferred extraction on triage-skipped episodes, then links known entity names found in episode text. Skips already-extracted episodes. Zero LLM calls. |
-| **Knowledge chat** | Yes | Agentic Haiku loop with tool calls (`recall` primary; `search_entities`/`search_facts` deprecated compat). Rate-limited. |
-| **Briefing synthesis** | Yes | Haiku summarizes memory context into 2-3 sentences. Cached with prompt caching. |
+| **Knowledge chat** (dashboard REST) | Not in operation | Legacy dashboard surface outside Engram's operating path: it still constructs an external-model client and answers HTTP 501: Engram runs no external model. The route stays registered so the dashboard fails clearly; the supported answer path is the resident agent calling `recall` and `get_context` itself|
+| **Briefing synthesis** | No | Deterministic template renders the tier sections into 2-3 sentences. Cached 5 minutes. |
 | **Dream** (offline consolidation) | No | Spreading activation + embedding similarity. Pure math. |
 | **Graph embeddings** | No | Node2Vec, TransE, GNN — all trained with numpy/torch locally. |
 
-**Cost in practice**: With the `standard` profile, a typical active user generates ~$0.50-2.00/day in Haiku costs, primarily from entity extraction. Consolidation scoring (triage, merge, infer) adds $0 — it's all deterministic. Knowledge chat adds ~$0.10-0.50/day depending on usage (rate-limited to 10 requests/minute).
+**Cost in practice**: $0 in model calls. Engram never calls an external model; extraction is the resident agent's proposals inside its own session, and consolidation scoring (triage, merge, infer) and briefing are deterministic.
 
 ### Data Flow
 
@@ -227,7 +193,7 @@ observe("talked about the Quantum project today")     remember("Alice works at A
   QUEUED episode (~5ms, no LLM)                         QUEUED → immediate extraction
     │                                                      │
     ▼                                                      ▼
-  Background Worker (multi-signal scorer, ~2ms)         Entity Extraction (Claude Haiku)
+  Background Worker (multi-signal scorer, ~2ms)         Entity Extraction (agent proposals)
     │  8 signals: entity candidates, embedding              │  → Alice [Person]
     │  surprise, structural extractability,                  │  → Acme Corp [Organization]
     │  knowledge gaps, emotional salience...                 │  → Alice ──WORKS_AT──▶ Acme Corp
@@ -262,7 +228,7 @@ This creates three usable memory layers instead of the original binary (raw text
 |-------|-----------|------|-------------|
 | **Raw Episode** | Stored text with timestamps | ~5ms | FTS only |
 | **Cue Memory** | Deterministic retrieval cues, embeddings, salience, mention spans | ~10ms | Yes (cue search) |
-| **Graph Memory** | Extracted entities, relationships, consolidated structure | LLM call | Yes (full pipeline) |
+| **Graph Memory** | Extracted entities, relationships, consolidated structure | agent proposal (no Engram model call) | Yes (full pipeline) |
 
 The middle layer is the key architectural addition — it makes `observe()` materially more useful without paying full projection cost. Episodes that matter surface through recall demand, not just ingestion-time scoring.
 
@@ -270,7 +236,7 @@ The middle layer is the key architectural addition — it makes `observe()` mate
 
 > **Status**: The evidence pipeline and commit policy are behind `remember_v2_enabled` and related flags. Design: [`docs/design/remember-and-extractor-v2.md`](docs/design/remember-and-extractor-v2.md).
 
-When `remember()` is called, extraction no longer treats LLM output as immediate graph truth. Instead, it produces **evidence candidates** that pass through a commit policy:
+When `remember()` is called, proposals (the agent's, or narrow's) are not treated as immediate graph truth. Instead, it produces **evidence candidates** that pass through a commit policy:
 
 | Confidence | Signal | Action | Example |
 |-----------|--------|--------|---------|
@@ -285,9 +251,9 @@ Deferred evidence is not lost — it remains attached to the episode and can be 
 - Explicit user restatement
 - Cross-episode corroboration (bare proper names require count ≥ 2)
 - Consolidation replay
-- Optional offline LLM adjudication (batch, never on the hot path)
+- Re-proposal by the resident agent (`remember(episode_id=...)`, fed by `list_unstructured_episodes`)
 
-**Staged narrow extractors** handle specific domains with high precision instead of one monolithic LLM call:
+**Staged narrow extractors** handle specific domains with high precision instead of a single monolithic extractor:
 - `IdentityEntityExtractor` — "my name is X", "I work at Y", "my wife Sarah" (identity captures at 0.90 confidence), proper names (0.55), tech tokens (0.70)
 - `RelationshipPatternExtractor` — "X works at Y", "X likes Y", "X moved to Y"
 - `AttributeEvidenceExtractor` — structured key-value attributes from text
@@ -321,8 +287,7 @@ Engram includes a 7-layer defense against meta-contamination — when debugging 
 |-------|-------|-------------|
 | **Input sanitization** | `IdentityEntityExtractor.extract()`, `_entity_mentions()` | Strips protocol markers (`[user\|web]`), XML/HTML tags, code blocks, inline code, and URLs before any regex matching. |
 | **Discourse classifier** | Worker, Triage, `project_episode()` | Regex-based gate classifies content as `world`, `hybrid`, or `system`. Pure system-discourse episodes are skipped before extraction. |
-| **Extraction prompt** | LLM extraction | Instructions tell Claude to ignore system metrics and return empty results for meta-commentary. |
-| **Epistemic mode tagging** | LLM extraction + entity loop | Entities tagged `"meta"` by the LLM are skipped during graph writes. |
+| **Epistemic mode tagging** | Entity loop | `apply.py` skips candidates carrying `epistemic_mode: "meta"`; nothing in operation sets it today (the retired extraction prompt did). |
 | **Summary merge guard** | `_merge_entity_attributes()` | Meta-contaminated summaries are rejected universally for all entity types, preventing system telemetry from polluting any entity's summary. |
 | **Noisy text detection** | `_get_source_span()`, Microglia `_score_c3_summary` | Rejects source spans and summary segments where >50% of characters are non-alphanumeric (protocol noise, code fragments). Microglia cleans existing contaminated summaries during consolidation. |
 | **MCP prompt warning** | System prompt | Instructs AI agents not to store debugging output, activation scores, or system telemetry as memories. |
@@ -331,29 +296,28 @@ This prevents every debugging session from degrading the knowledge graph. The `o
 
 ### Multimodal Memory
 
-Engram supports multimodal episodes — images, audio, video, and PDF attachments alongside text. When the Gemini Embedding 2 provider is active, all modalities are embedded into a unified 3072-dimensional vector space, enabling cross-modal search (text queries find image episodes and vice versa).
+Engram stores multimodal episodes — images, audio, video, and PDF attachments alongside text. Embeddings are local FastEmbed (text only), so what is searchable is the text description you attach; the attachment itself is kept with the episode but is not embedded.
 
 **MCP tools:**
 
 | Tool | Purpose |
 |------|---------|
-| `observe_image` | Store an image with optional text description; embeds via Gemini for cross-modal recall |
+| `observe_image` | Store an image with optional text description; the description is what gets embedded (local FastEmbed) |
 | `observe_file` | Store a file (PDF, audio, video) with optional text description |
-| `remember` | Supports `image` parameter for image-augmented memory extraction |
+| `remember` | Accepts `image_data`/`image_mime` to attach an image to the memory; the image is stored, not extracted from |
 
 **REST API:**
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/knowledge/observe-image` | Store image episode with multimodal embedding |
-| POST | `/api/knowledge/observe-file` | Store file episode (PDF, audio, video) with multimodal embedding |
+| POST | `/api/knowledge/observe-image` | Store image episode (description embedded locally) |
+| POST | `/api/knowledge/observe-file` | Store file episode (PDF, audio, video; description embedded locally) |
 
 **How it works:**
-- Attachments are embedded alongside text using Gemini Embedding 2's unified vector space
-- Text queries find image/audio/video episodes through shared embedding geometry
-- Image queries find related text episodes (and vice versa)
+- The text description is embedded locally (FastEmbed); the attachment is stored with the episode
+- Text queries find image/audio/video episodes through their text descriptions
 - Standard retrieval pipeline (ACT-R activation, spreading activation, reranking) applies to multimodal results
-- Requires `GEMINI_API_KEY` to be set (Gemini Embedding 2 is the only provider supporting multimodal inputs)
+- No API key is required; Engram does not embed image/audio/video bytes themselves (cross-modal embedding required a cloud provider Engram no longer uses)
 
 ### One Brain Per Person
 
@@ -404,7 +368,7 @@ Seventeen phases execute sequentially:
 
 | Phase | What It Does |
 |-------|-------------|
-| **Triage** | Score QUEUED episodes with 8-signal multi-signal scorer (~2ms/ep, zero LLM). Filter system meta-commentary. Extract top ~35%, skip the rest. Optional LLM escalation remains available only as an explicit fallback. |
+| **Triage** | Score QUEUED episodes with 8-signal multi-signal scorer (~2ms/ep, zero LLM). Filter system meta-commentary. Extract top ~35%, skip the rest. |
 | **Merge** | Fuzzy-match duplicate entities (thefuzz + union-find + embedding ANN + structural candidate discovery). Multi-signal scorer with 7 signals (name analysis + embeddings + neighbor Jaccard + summary Dice + referential exclusivity) — handles acronyms, numeronyms, tech suffixes, canonical aliases, and structural equivalents (entities sharing neighbors but with zero name overlap). Summary dedup via token-set Jaccard prevents bloat during merge. |
 | **Calibrate** | Convert decision traces and outcome labels into rolling local calibration snapshots so triage, merge, infer, and projection policies can be evaluated against observed yield. |
 | **Infer** | Create edges for co-occurring entities (PMI scoring). Multi-signal auto-validation (embedding coherence + type compatibility + ubiquity penalty + structural plausibility) replaces LLM judge — self-correcting via Dream LTD decay |
@@ -437,10 +401,10 @@ Consolidation is opt-in, controlled by profiles:
 
 | Profile | Behavior |
 |---------|----------|
-| `off` | No consolidation, no triage, no background worker. Extraction only (Haiku). |
+| `off` | No consolidation, no triage, no background worker. Extraction only (agent proposals; narrow adapter as the internal rung). |
 | `observe` | Consolidation enabled in dry-run mode. Triage heuristics + worker active. Dream spreading, PMI inference, dream associations active (in dry-run). Good for monitoring. |
 | `conservative` | Live consolidation with stricter thresholds. Dream spreading, replay enabled. Merge threshold 0.92, prune min age 30 days. Triage heuristics, extracts top 25%. |
-| `standard` | Full consolidation with all features. Multi-signal deterministic scorers for triage, merge, and infer — zero LLM cost for all consolidation decisions. PMI inference, transitivity, dream associations. Pressure-triggered. Three-tier scheduling. LLM judges available as opt-in fallback. |
+| `standard` | Full consolidation with all features. Multi-signal deterministic scorers for triage, merge, and infer — zero LLM cost for all consolidation decisions. PMI inference, transitivity, dream associations. Pressure-triggered. Three-tier scheduling. No external-model judge in operation. |
 
 Set via env var: `ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=standard`
 
@@ -475,7 +439,7 @@ The triage scorer evaluates whether an episode is worth extracting. It replaces 
 
 **Self-improving calibration:** After each extraction, the triage scorer records whether entities were actually extracted. An online logistic regression (sufficient statistics accumulator with exponential decay) learns which signal combinations predict successful extraction. Cold start → blending (30 samples) → fully calibrated (200+ samples). Per-group calibration, automatically adapts to each user's content patterns.
 
-**LLM escalation (optional):** Episodes scoring in the borderline band (0.35–0.55) can be escalated to Claude Haiku for a second opinion. Capped at 5 per cycle. This means ~95% of triage decisions are deterministic, with LLM reserved for genuinely ambiguous cases.
+**LLM escalation:** Not part of operation. Engram never calls an external model; every triage decision is deterministic. The legacy `triage_llm_*` flags are unsupported; leave them unset (their code paths were deleted 2026-09-04; a leftover `.env` line is mapped away with a warning).
 
 #### Merge and Infer Scorers
 
@@ -516,9 +480,8 @@ The triage scorer evaluates whether an episode is worth extracting. It replaces 
 | **Tier 0** | Multi-signal rules (triage 8 signals, merge 7 signals, infer 6 signals) | ~85% | <5ms | $0 |
 | **Tier 1** | Cross-encoder refinement (`Xenova/ms-marco-MiniLM-L-6-v2`, already loaded) | ~10% | ~50ms | $0 |
 | **Tier 2** | Self-improving calibration (online logistic regression, triage only) | built-in | <1ms | $0 |
-| **Tier 3** | LLM escalation (opt-in, borderline cases only) | ~5% | ~500ms | API cost |
 
-Uncertain cases from Tier 0 are refined by the cross-encoder (Tier 1), which blends its score with the multi-signal score. The triage scorer additionally feeds extraction outcomes back to an online calibrator (Tier 2) that learns which signal combinations predict successful extraction. Remaining uncertain infer edges self-correct via Dream LTD decay (unused edges weaken) and Hebbian reinforcement (useful edges strengthen). LLM judges remain available as opt-in fallback via `triage_llm_judge_enabled`, `consolidation_merge_llm_enabled`, and `consolidation_infer_llm_enabled`.
+Uncertain cases from Tier 0 are refined by the cross-encoder (Tier 1), which blends its score with the multi-signal score. The triage scorer additionally feeds extraction outcomes back to an online calibrator (Tier 2) that learns which signal combinations predict successful extraction. Remaining uncertain infer edges self-correct via Dream LTD decay (unused edges weaken) and Hebbian reinforcement (useful edges strengthen).
 
 ### Graph Embeddings
 
@@ -1052,9 +1015,9 @@ cat copied-harness-notes.md | engram adoption --authority claim-authority.json -
 | `max_tokens` | 2000 | Total token budget |
 | `topic_hint` | None | Topic to bias entity selection |
 | `project_path` | None | Project directory; name used as topic hint |
-| `format` | "structured" | `"structured"` (markdown) or `"briefing"` (LLM narrative) |
+| `format` | "structured" | `"structured"` (markdown) or `"briefing"` (template narrative) |
 
-The **briefing format** calls Claude Haiku to synthesize a 2-3 sentence narrative summary, cached for 5 minutes. Example:
+The **briefing format** renders the tier sections into a 2-3 sentence narrative through a deterministic template (no model call), cached for 5 minutes. Example:
 
 > You're talking with Alex, who is building Engram — a persistent memory system for AI agents. Recently they've been focused on memory consolidation and dream associations.
 
@@ -1236,7 +1199,7 @@ cd server
 # Run benchmarks
 uv run python scripts/benchmark_ab.py --verbose --seed 42
 
-# With Voyage AI embeddings
+# With Voyage AI embeddings (benchmark-only; never used in operation)
 uv run python scripts/benchmark_ab.py --embeddings --verbose --seed 42
 
 # Scale test
@@ -1569,18 +1532,21 @@ Engram uses Pydantic Settings with env var support. Config is loaded in order (l
 4. Environment variables — always take precedence
 
 For first-time user setup, run `engramctl quickstart`. For source installs,
-use `cd server && uv run engram setup --mode helix`.
+use `cd server && uv run engram setup --mode helix` (the wizard asks for no API key).
 
 Key environment variables (or copy `.env.example` to `.env`):
 
 ```bash
-# Optional — Extraction (auto-detects: Anthropic → Ollama → Narrow deterministic)
-ANTHROPIC_API_KEY=sk-ant-...          # Claude Haiku for entity extraction (best quality; narrow fallback works without it)
+# Extraction — no API key is required. The resident agent is the extractor
+# (proposed_entities/proposed_relationships on remember/observe); the internal rung
+# is the deterministic narrow adapter (regex-level entities and relationships,
+# marked extractedBy: narrow, re-proposable with remember(episode_id=...)).
+# Only "narrow" is accepted; the
+# retired auto/anthropic/ollama values and OLLAMA_* keys are mapped away with a warning.
+ENGRAM_ACTIVATION__EXTRACTION_PROVIDER=narrow
 
-# Optional — Embeddings (priority: Gemini → Voyage → local → noop)
-GEMINI_API_KEY=...                     # Google Gemini API key for multimodal embeddings (aistudio.google.com)
-VOYAGE_API_KEY=pa-...                  # Voyage AI embeddings (optional, get key at dash.voyageai.com)
-ENGRAM_EMBEDDING__PROVIDER=auto        # auto | gemini | voyage | local | noop (auto-detects by API key priority)
+# Embeddings — local FastEmbed, no API key
+ENGRAM_EMBEDDING__PROVIDER=local       # local | noop (noop = keyword-only search)
 ENGRAM_EMBEDDING__LOCAL_MODEL=nomic-ai/nomic-embed-text-v1.5  # fastembed model name
 
 # Optional — General
@@ -1657,12 +1623,10 @@ ENGRAM_ACTIVATION__GRAPH_EMBEDDING_TRANSE_ENABLED=true     # TransE relational g
 ENGRAM_ACTIVATION__GRAPH_EMBEDDING_GNN_ENABLED=true        # GNN/GraphSAGE (requires torch)
 ENGRAM_ACTIVATION__WEIGHT_GRAPH_STRUCTURAL=0.1             # Retrieval weight (0.0 = disabled)
 
-# LLM fallback configuration (all default to OFF; enable explicitly if desired)
-ENGRAM_ACTIVATION__TRIAGE_LLM_JUDGE_ENABLED=true              # Use Haiku as triage judge (replaces heuristics)
-ENGRAM_ACTIVATION__CONSOLIDATION_INFER_LLM_ENABLED=true       # Haiku validates inferred edges
-ENGRAM_ACTIVATION__CONSOLIDATION_INFER_ESCALATION_ENABLED=true # Sonnet 4.6 re-validates uncertain edges
-ENGRAM_ACTIVATION__CONSOLIDATION_MERGE_LLM_ENABLED=true       # Haiku judges borderline entity merges
-ENGRAM_ACTIVATION__CONSOLIDATION_MERGE_ESCALATION_ENABLED=true # Sonnet 4.6 resolves uncertain merges
+# External-model judges: none. Engram never calls an external model in operation;
+# triage, merge, and infer are deterministic multi-signal scorers. The legacy
+# ENGRAM_ACTIVATION__*_LLM_* / *_ESCALATION_* flags are unsupported; leave them
+# unset — no external model is called regardless.
 
 # Auth (disabled by default)
 ENGRAM_AUTH__ENABLED=true
@@ -1675,21 +1639,20 @@ ENGRAM_ENCRYPTION__MASTER_KEY=<64-hex-chars>
 
 All activation engine parameters (150+ fields) are configurable via `ENGRAM_ACTIVATION__*` env vars. See `server/engram/config.py` for the full schema.
 
-### LLM Models
+### Models
 
-Engram uses a 2-model architecture: Haiku for all high-volume work, Sonnet for escalation of uncertain decisions.
+Engram runs no model of its own. The only model in the loop is the resident agent holding the MCP, and the only local model is the embedder.
 
-| Role | Model | Config Field | When Used |
-|------|-------|-------------|-----------|
-| **Extraction** | Auto: Anthropic (Haiku 4.5) -> Ollama -> Narrow (deterministic) | `extraction_provider` | `remember`, promoted `observe`, replay |
-| **Triage Judge** | Claude Haiku 4.5 | `triage_llm_judge_model` | Scoring queued episodes (replaces heuristics) |
-| **Infer Validation** | Multi-signal scorer (default) or Claude Haiku 4.5 (fallback) | `consolidation_infer_auto_validation_enabled` | Validating inferred edges |
-| **Merge Judge** | Multi-signal scorer (default) or Claude Haiku 4.5 (fallback) | `consolidation_merge_multi_signal_enabled` | Judging borderline entity merges |
-| **Infer Escalation** | Claude Sonnet 4.6 | `consolidation_infer_escalation_model` | Re-validating uncertain edge verdicts (LLM fallback only) |
-| **Merge Escalation** | Claude Sonnet 4.6 | `consolidation_merge_escalation_model` | Re-validating uncertain merge verdicts (LLM fallback only) |
-| **Briefing** | Claude Haiku 4.5 | `briefing_model` | Synthesizing `get_context(format="briefing")` narrative |
+| Role | What runs | Config Field | When Used |
+|------|-----------|-------------|-----------|
+| **Extraction** | The resident agent (`proposed_entities` / `proposed_relationships`); narrow adapter (deterministic, regex-level entities and relationships marked `extractedBy: narrow`) as the internal rung | `extraction_provider` (only `narrow`) | `remember`, promoted `observe`, replay |
+| **Triage** | Multi-signal deterministic scorer | `triage_multi_signal_enabled` | Scoring queued episodes |
+| **Infer Validation** | Multi-signal deterministic scorer | `consolidation_infer_auto_validation_enabled` | Validating inferred edges |
+| **Merge Judge** | Multi-signal deterministic scorer | `consolidation_merge_multi_signal_enabled` | Judging borderline entity merges |
+| **Embeddings** | Nomic Embed v1.5 via fastembed (local, 768d) | `embedding.provider` = `local` | Entity creation + reindex |
+| **Briefing** | Deterministic template | `briefing_enabled` | Rendering `get_context(format="briefing")` |
 
-All LLM features beyond basic extraction default to OFF. The `standard` consolidation profile keeps deterministic multi-signal scoring on by default; turn on the `...LLM...` flags above only if you want LLM fallback or escalation. Prompt caching is always active — static system prompts are cached via Anthropic's ephemeral cache, reducing input costs by ~80-90%.
+The legacy `..._LLM_...` / `..._ESCALATION_...` flags and their `*_model` fields are unsupported; leave them unset (their code paths were deleted 2026-09-04; a leftover `.env` line is mapped away with a warning).
 
 ## Security
 
@@ -1697,7 +1660,7 @@ All LLM features beyond basic extraction default to OFF. The `standard` consolid
 - **Authentication**: Optional bearer token auth on all endpoints, with OIDC JWT support (Clerk-compatible, JWKS caching)
 - **Encryption**: AES-256-GCM with per-tenant HKDF-SHA256 key derivation
 - **Rate limiting**: Redis-backed sliding window per-tenant per-route (observe: 100/min, remember: 20/min, recall: 60/min, trigger: 2/hour); graceful fallback to unlimited when Redis unavailable
-- **Usage metering**: Per-tenant API call and LLM token tracking with daily aggregation (90-day retention)
+- **Usage metering**: Per-tenant API call tracking (the legacy LLM-token counter stays at zero) with daily aggregation (90-day retention)
 - **PII detection**: Entity extraction flags PII (names, emails, phones) with `pii_detected` + `pii_categories` fields
 - **WebSocket**: Authenticates before accept (close 4001 on failure)
 - **Column injection prevention**: Frozenset validation on updatable fields
@@ -1780,9 +1743,9 @@ server/engram/
   api/              # REST endpoints + WebSocket
   benchmark/        # Deterministic benchmark framework
   consolidation/    # 17-phase engine, scheduler, pressure accumulator
-  embeddings/       # Embedding providers (Gemini multimodal, Voyage AI cloud, fastembed local, noop)
+  embeddings/       # Embedding provider (fastembed local in operation; noop for keyword-only; legacy cloud classes unused)
   events/           # EventBus + Redis pub/sub bridge
-  extraction/       # Entity extraction (Claude Haiku), predicate canonicalization, discourse classifier
+  extraction/       # Extraction (agent proposals + deterministic narrow adapter), predicate canonicalization, discourse classifier
   ingestion/        # CQRS ingestion paths
   mcp/              # MCP server (27 tools, 3 resources, 2 prompts)
   models/           # Pydantic data models
@@ -1804,7 +1767,7 @@ dashboard/src/
 ## Troubleshooting
 
 **`remember` returns success but no entities are extracted**
-Your `ANTHROPIC_API_KEY` is missing or invalid. The server starts fine without it, but extraction silently returns empty results. Check `docker compose logs server` for `Entity extraction failed` errors.
+The call carried no `proposed_entities` / `proposed_relationships`, so only the narrow adapter ran (regex-level entities and relationships, marked `extractedBy: narrow` on recall). Have the agent pass proposals with a verbatim `source_span`; `list_unstructured_episodes` (operator surface) lists what narrow could not structure so it can be re-proposed with `remember(episode_id=...)`. No API key is involved.
 
 **Dashboard doesn't update when I use MCP tools**
 The Redis event bridge connects the MCP server to the dashboard. Verify:

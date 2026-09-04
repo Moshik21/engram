@@ -125,7 +125,7 @@ ENGRAM_MODE=lite ENGRAM_SERVER__AUTO_OBSERVE_ENABLED=false engram serve
 Both modes get the complete Engram feature set:
 
 - Full 17-phase consolidation (triage, merge, calibrate, infer, evidence_adjudication, edge_adjudication, replay, prune, compact, mature, semanticize, schema, reindex, graph_embed, microglia, immunity, dream)
-- Entity extraction + resolution (Claude Haiku)
+- Entity extraction + resolution (the resident agent proposes through `remember`/`observe`; deterministic narrow adapter as the internal rung)
 - Multi-signal merge/infer scorers (zero LLM cost)
 - Graph embeddings (Node2Vec / TransE / GNN)
 - Schema formation (recurring structural motifs)

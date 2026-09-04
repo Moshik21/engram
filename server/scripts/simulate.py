@@ -38,6 +38,7 @@ load_dotenv(SERVER_ROOT / ".env")
 
 from engram.config import ActivationConfig  # noqa: E402
 from engram.extraction.extractor import EntityExtractor, ExtractionResult  # noqa: E402
+from engram.extraction.narrow_adapter import NarrowExtractorAdapter  # noqa: E402
 from engram.graph_manager import GraphManager  # noqa: E402
 from engram.storage.memory.activation import MemoryActivationStore  # noqa: E402
 from engram.storage.sqlite.graph import SQLiteGraphStore  # noqa: E402
@@ -1207,8 +1208,8 @@ async def run_simulation(
         extractor = MockExtractor()
         print(f"{DIM}Using mock extractor (no API calls){RESET}")
     else:
-        extractor = EntityExtractor()
-        print(f"{DIM}Using live Claude Haiku extractor{RESET}")
+        extractor = NarrowExtractorAdapter(cfg)
+        print(f"{DIM}Using narrow deterministic extractor (no external model){RESET}")
 
     manager = GraphManager(graph_store, activation_store, search_index, extractor, cfg=cfg)
     stats = SimStats()

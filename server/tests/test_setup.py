@@ -1,6 +1,8 @@
 """Tests for the interactive setup wizard and config editor."""
 
 from engram.setup import (
+    _HOOK_SCRIPT_TEMPLATES,
+    _HOOK_SCRIPTS,
     _ask,
     _collect_config,
     _generate_env,
@@ -8,10 +10,18 @@ from engram.setup import (
     _mask_value,
     _print_mcp_config,
     _render_menu,
+    _repo_hook_script,
+    _smoke_test,
     _welcome,
     config_editor,
     install_hooks_interactive,
 )
+
+_EXTERNAL_KEY_TOKENS = ("ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "GEMINI_API_KEY")
+
+
+def _refuse_secret_prompt(_prompt: str) -> str:
+    raise AssertionError("setup must not prompt for a secret / API key")
 
 
 def test_welcome_prints(capsys):
@@ -60,11 +70,9 @@ def test_ask_secret(monkeypatch):
 
 
 def test_generate_env_writes_keys(tmp_path):
-    """_generate_env writes expected keys to file."""
+    """_generate_env writes expected keys to file and no external API key line."""
     env_path = tmp_path / ".env"
     config = {
-        "ANTHROPIC_API_KEY": "sk-test-123",
-        "VOYAGE_API_KEY": None,
         "ENGRAM_MODE": "lite",
         "ENGRAM_FALKORDB__PASSWORD": None,
         "ENGRAM_REDIS__URL": None,
@@ -77,11 +85,14 @@ def test_generate_env_writes_keys(tmp_path):
     }
     _generate_env(config, env_path)
     content = env_path.read_text()
-    assert "ANTHROPIC_API_KEY=sk-test-123" in content
     assert "ENGRAM_MODE=lite" in content
     assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE=off" in content
     # Unconfigured values should be commented
-    assert "# VOYAGE_API_KEY=" in content
+    assert "# ENGRAM_AUTH__ENABLED=" in content
+    # No external-model key line, not even a commented placeholder.
+    assert "API Keys" not in content
+    for token in _EXTERNAL_KEY_TOKENS:
+        assert token not in content
 
 
 def test_generate_env_backs_up_existing(tmp_path):
@@ -90,8 +101,6 @@ def test_generate_env_backs_up_existing(tmp_path):
     env_path.write_text("OLD=content\n")
 
     config = {
-        "ANTHROPIC_API_KEY": "sk-new",
-        "VOYAGE_API_KEY": None,
         "ENGRAM_MODE": "auto",
         "ENGRAM_FALKORDB__PASSWORD": None,
         "ENGRAM_REDIS__URL": None,
@@ -105,7 +114,7 @@ def test_generate_env_backs_up_existing(tmp_path):
     _generate_env(config, env_path)
 
     # New file should have new content
-    assert "sk-new" in env_path.read_text()
+    assert "ENGRAM_MODE=auto" in env_path.read_text()
     # Backup should exist
     backups = list(tmp_path.glob(".env.backup.*"))
     assert len(backups) == 1
@@ -115,8 +124,6 @@ def test_generate_env_backs_up_existing(tmp_path):
 def test_mcp_config_output(capsys):
     """MCP config output contains correct structure."""
     config = {
-        "ANTHROPIC_API_KEY": "sk-test-xyz",
-        "VOYAGE_API_KEY": None,
         "ENGRAM_MODE": "auto",
         "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE": "standard",
         "ENGRAM_ACTIVATION__RECALL_PROFILE": "all",
@@ -126,7 +133,9 @@ def test_mcp_config_output(capsys):
     out = capsys.readouterr().out
     assert "mcpServers" in out
     assert "engram.mcp.server" in out
-    assert "sk-test-xyz" in out
+    # The pasted MCP env block carries no external-model key, not even empty.
+    for token in _EXTERNAL_KEY_TOKENS:
+        assert token not in out
     assert "ENGRAM_MODE" in out
     assert "ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE" in out
     assert "ENGRAM_ACTIVATION__RECALL_PROFILE" in out
@@ -141,7 +150,7 @@ def test_mcp_config_output(capsys):
     assert "engram adoption --authority claim-authority.json" in out
 
 
-def test_collect_config_defaults_are_recall_ready(monkeypatch):
+def test_collect_config_defaults_are_recall_ready(monkeypatch, capsys):
     """Wizard defaults should produce a practical end-to-end MCP setup."""
     responses = iter(
         [
@@ -155,7 +164,8 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
             "n",  # encryption
         ]
     )
-    monkeypatch.setattr("engram.setup.getpass.getpass", lambda _: "secret123")
+    # Any secret prompt (the old Anthropic / Voyage key questions) fails the test.
+    monkeypatch.setattr("engram.setup.getpass.getpass", _refuse_secret_prompt)
     monkeypatch.setattr("builtins.input", lambda _: next(responses))
 
     config = _collect_config()
@@ -165,11 +175,16 @@ def test_collect_config_defaults_are_recall_ready(monkeypatch):
     assert config["ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE"] == "quiet"
     assert config["ENGRAM_ACTIVATION__RECALL_PROFILE"] == "wave2"
     assert config["ENGRAM_ACTIVATION__INTEGRATION_PROFILE"] == "off"
+    # No external-model key is asked for, required, or carried in the config.
+    for token in _EXTERNAL_KEY_TOKENS:
+        assert token not in config
+    out = capsys.readouterr().out
+    assert "API Keys" not in out
+    assert "the resident agent proposes; narrow writes cues" in out
 
 
 def test_collect_config_helix_uses_native_transport(monkeypatch):
     """Wizard helix mode should select the no-Docker native transport."""
-    secret_responses = iter(["sk-test", ""])
     input_responses = iter(
         [
             "helix",  # mode
@@ -180,7 +195,7 @@ def test_collect_config_helix_uses_native_transport(monkeypatch):
             "n",  # encryption
         ]
     )
-    monkeypatch.setattr("engram.setup.getpass.getpass", lambda _: next(secret_responses))
+    monkeypatch.setattr("engram.setup.getpass.getpass", _refuse_secret_prompt)
     monkeypatch.setattr("builtins.input", lambda _: next(input_responses))
 
     config = _collect_config()
@@ -212,9 +227,11 @@ def test_hooks_interactive_prints_live_adoption_verifier_command(capsys, tmp_pat
 def test_load_env_parses_file(tmp_path):
     """_load_env parses key=value lines, skips comments."""
     env = tmp_path / ".env"
-    env.write_text("# comment\nANTHROPIC_API_KEY=sk-123\n# VOYAGE_API_KEY=\nENGRAM_MODE=lite\n\n")
+    env.write_text(
+        "# comment\nENGRAM_AUTH__BEARER_TOKEN=tok-123\n# ENGRAM_REDIS__URL=\nENGRAM_MODE=lite\n\n"
+    )
     result = _load_env(env)
-    assert result == {"ANTHROPIC_API_KEY": "sk-123", "ENGRAM_MODE": "lite"}
+    assert result == {"ENGRAM_AUTH__BEARER_TOKEN": "tok-123", "ENGRAM_MODE": "lite"}
 
 
 def test_load_env_missing_file(tmp_path):
@@ -245,19 +262,20 @@ def test_mask_value_hides_secrets():
 def test_render_menu_shows_all_settings(capsys, tmp_path):
     """_render_menu displays all settings with numbers."""
     env_path = tmp_path / ".env"
-    config = {"ANTHROPIC_API_KEY": "sk-test", "ENGRAM_MODE": "auto"}
+    config = {"ENGRAM_MODE": "auto"}
     keys = _render_menu(config, env_path, dirty=False)
     out = capsys.readouterr().out
-    # Should show section headers
-    assert "API Keys" in out
+    # Should show section headers -- and no external-model key section.
+    assert "API Keys" not in out
     assert "Engine" in out
     assert "Security" in out
     # Should show numbered settings
     assert "1." in out
-    assert "Anthropic API key" in out
+    assert "Anthropic API key" not in out
     # Should return all keys
-    assert len(keys) == 13
-    assert "ANTHROPIC_API_KEY" in keys
+    assert len(keys) == 11
+    for token in _EXTERNAL_KEY_TOKENS:
+        assert token not in keys
     assert "ENGRAM_ACTIVATION__RECALL_PROFILE" in keys
     assert "ENGRAM_ACTIVATION__INTEGRATION_PROFILE" in keys
 
@@ -280,6 +298,70 @@ def test_config_editor_no_file(capsys, tmp_path):
 def test_config_editor_quit(monkeypatch, tmp_path):
     """config_editor exits on 'q'."""
     env_path = tmp_path / ".env"
-    env_path.write_text("ANTHROPIC_API_KEY=sk-test\n")
+    env_path.write_text("ENGRAM_MODE=lite\n")
     monkeypatch.setattr("builtins.input", lambda _: "q")
     config_editor(env_path=env_path)  # should not hang
+
+
+# --- No external model, no external keys (2026-09-04 resident-agent rule) ---
+
+
+def test_setup_never_references_external_model_keys():
+    """Anti-resurrection: the wizard and every hook it installs carry no external key."""
+    import inspect
+
+    import engram.setup as mod
+
+    source = inspect.getsource(mod)
+    assert "import anthropic" not in source
+    for token in _EXTERNAL_KEY_TOKENS:
+        assert token not in source
+
+    # Hook scripts the wizard writes (in-file templates + repo first-party scripts).
+    for name in _HOOK_SCRIPTS:
+        template = _HOOK_SCRIPT_TEMPLATES.get(name)
+        repo_src = _repo_hook_script(name)
+        text = template or (repo_src.read_text() if repo_src else "")
+        assert text, f"hook {name} has neither a template nor a repo script"
+        assert "API_KEY" not in text, f"hook {name} references an external key"
+
+
+class _StubLocalEmbedder:
+    """Stand-in for FastEmbedProvider: no ONNX download in tests."""
+
+    vectors: list[list[float]] = [[0.1, 0.2, 0.3]]
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    async def embed(self, texts):
+        return [list(v) for v in self.vectors for _ in texts]
+
+
+def test_smoke_test_probes_local_embedder(monkeypatch, capsys):
+    """Smoke test embeds one string with the LOCAL embedder; no API key involved."""
+    monkeypatch.setattr("engram.embeddings.provider.FastEmbedProvider", _StubLocalEmbedder)
+
+    _smoke_test({})
+
+    out = capsys.readouterr().out
+    assert "engram package importable" in out
+    assert "Local embedder reachable" in out
+    assert "dim=3" in out
+    assert "anthropic" not in out.lower()
+    assert "API key" not in out
+
+
+def test_smoke_test_warns_when_local_embedder_cannot_embed(monkeypatch, capsys):
+    """A broken model cache surfaces as a warning, not a silent pass."""
+
+    class _Broken(_StubLocalEmbedder):
+        vectors = []
+
+    monkeypatch.setattr("engram.embeddings.provider.FastEmbedProvider", _Broken)
+
+    _smoke_test({})
+
+    out = capsys.readouterr().out
+    assert "cannot embed" in out
+    assert "FASTEMBED_CACHE_PATH" in out

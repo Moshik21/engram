@@ -57,7 +57,7 @@ Triage, projection, 15-phase consolidation, dream associations. Runs as a separa
 | Stage | What happens |
 |-------|----------------|
 | **Capture** | `observe`, harness `auto:*`, or `remember`: fast store, optional cue trace |
-| **Cue** | Deterministic latent memory; recall before full LLM extraction |
+| **Cue** | Deterministic latent memory; recallable before projection (agent proposals or the narrow rung) |
 | **Project** | Entity resolution, embedding, graph write (background or immediate) |
 | **Recall** | Compact memory packets from hybrid search instead of raw chat history |
 | **Consolidate** | Merge, infer, prune, dream (offline) |
@@ -261,7 +261,7 @@ Details: [docs/install/helix.md](docs/install/helix.md) · [Benchmarks](docs/REF
 
 Everything runs and stays local by default.
 
-- No API keys are required to operate. Embeddings are local (fastembed / nomic); extraction falls back through harness `remember` proposals → optional local Ollama → a deterministic narrow pipeline.
+- No API key is required to operate. Embeddings are local FastEmbed (nomic) on every shipped install (the install env pins `provider=local`); extraction is the resident agent proposing entities and relationships through `remember`/`observe`, with a deterministic narrow adapter as the internal rung (regex-level entities and relationships, marked `extractedBy: narrow`, that the agent can re-propose with `remember(episode_id=...)`). Engram never calls an external model.
 - The offline capture queue at `~/.engram/capture-queue.jsonl` holds **verbatim prompts** until they are replayed into the graph on the next session start.
 - The graph store is **plaintext on disk**. An encryption config exists (`ENGRAM_ENCRYPTION__ENABLED`) but is **off by default**.
 - The REST API binds `127.0.0.1` and is **unauthenticated** by default. Only pass `--host 0.0.0.0` if you understand the exposure.
@@ -271,7 +271,7 @@ Everything runs and stays local by default.
 
 ## Dashboard
 
-3D graph view plus Atlas, Timeline, Feed, Activation, Consolidation, Evaluate, and Knowledge chat.
+3D graph view plus Atlas, Timeline, Feed, Activation, Consolidation, Evaluate, and Knowledge chat (the chat route answers 501: Engram runs no external model; use the resident agent through MCP).
 
 ```bash
 cd dashboard && pnpm install && pnpm dev   # http://localhost:5173

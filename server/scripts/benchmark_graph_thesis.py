@@ -61,16 +61,13 @@ async def _build_manager(activation_cfg, graph_on: bool):
 
 
 def _assert_llm_extractor(adapter) -> str:
-    from engram.extraction.extractor import EntityExtractor
 
     ex = adapter._manager._extractor
     kind = type(ex).__name__
-    if not isinstance(ex, EntityExtractor):
-        raise SystemExit(
-            f"ABORT: active extractor is {kind}, not the Anthropic EntityExtractor. "
-            "The ANTHROPIC_API_KEY is likely missing/shadowed and extraction silently "
-            "fell back to narrow. Export the real key before running."
-        )
+    raise SystemExit(
+        f"ABORT: this benchmark required the Anthropic EntityExtractor, which was deleted "
+        f"2026-09-04 (resident agent is the only extractor). Active extractor: {kind}."
+    )
     return kind
 
 

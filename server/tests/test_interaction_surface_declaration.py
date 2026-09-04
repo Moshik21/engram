@@ -161,7 +161,9 @@ async def test_capture_window_measures_used_and_says_which_surface(usage_manager
 
 
 def test_dashboard_window_reports_a_real_zero():
-    """Control: where the verb HAS an emitter, 0 keeps meaning zero."""
+    """Control: where the verb HAS an emitter in the tree, 0 keeps meaning zero.
+    (Since 2026-09-04 the chat route answers 501, so this window cannot occur
+    live; the declaration counts call sites, not reachability.)"""
     controller = RecallNeedController(ActivationConfig())
     controller.record_interaction(_GROUP, "used", source=_DASHBOARD_SOURCE)
 

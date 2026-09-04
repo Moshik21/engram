@@ -2,7 +2,7 @@
 name = "engram"
 version = "0.1.0"
 description = "Persistent memory layer for AI agents — temporal knowledge graphs with ACT-R retrieval and offline consolidation"
-readme = "../README.md"
+readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{name = "Engram Contributors"}]
@@ -28,7 +28,6 @@ dependencies = [
     "structlog>=24.0.0",
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
-    "anthropic>=0.40.0",
     "cryptography>=43.0.0",
     "rapidfuzz>=3.0.0",
     "httpx[http2]>=0.27.0",
@@ -43,10 +42,11 @@ gnn = ["torch>=2.0.0"]
 helix = ["helix-py>=0.2.30"]
 grpc = ["grpcio>=1.60.0", "grpcio-tools>=1.60.0"]
 gemini = ["google-genai>=1.0.0"]
+# External model clients are benchmark-only: Engram never calls one in operation.
+benchmark = ["anthropic>=0.40.0", "voyageai>=0.3.0"]
 full = [
     "redis[hiredis]>=5.0.0",
     "falkordb>=1.0.0",
-    "voyageai>=0.3.0",
     "asyncpg>=0.29.0",
     "python-jose[cryptography]>=3.3.0",
     "prometheus-client>=0.21.0",
@@ -56,7 +56,7 @@ full = [
 
 [dependency-groups]
 dev = [
-    "engram[full,local,helix,grpc,gemini]",
+    "engram[full,local,helix,grpc,gemini,benchmark]",
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",

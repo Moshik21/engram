@@ -1,30 +1,25 @@
 """Triage phase: score QUEUED episodes and selectively extract the top fraction.
 
-Supports three scoring modes (checked in priority order):
+Two scoring modes (checked in priority order):
 1. Multi-signal scorer (triage_multi_signal_enabled) — deterministic utility features
-2. LLM judge (triage_llm_judge_enabled) — Haiku API call per episode
-3. Heuristic fallback — length + keywords + novelty + emotional salience
+2. Heuristic fallback — length + keywords + novelty + emotional salience
 
-When multi-signal is enabled, borderline episodes can optionally be escalated
-to the LLM for a second opinion. Durable corrections, explicit preferences,
-and stable profile facts bypass the ratio gate and are always extracted.
+Durable corrections, explicit preferences, and stable profile facts bypass the
+ratio gate and are always extracted. No external model is called here: the LLM
+judge/escalation lane was deleted 2026-09-04.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from engram.config import ActivationConfig
 from engram.consolidation.phases.base import ConsolidationPhase
 from engram.extraction.discourse import classify_discourse
-from engram.extraction.prompts import TRIAGE_JUDGE_SYSTEM_CACHED
 from engram.ingestion.projection_state import sync_projection_state
 from engram.models.consolidation import (
     CycleContext,
@@ -48,50 +43,6 @@ class _ScoredEpisode:
     decision: TriageDecision
     discourse_class: str
     signals: Any | None = None
-
-
-def _llm_judge_score(content: str, model: str) -> dict:
-    """Call LLM to judge episode content. Returns parsed JSON dict."""
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(
-            api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
-        )
-        response = client.messages.create(
-            model=model,
-            max_tokens=256,
-            system=cast(Any, TRIAGE_JUDGE_SYSTEM_CACHED),
-            messages=cast(Any, [{"role": "user", "content": content}]),
-        )
-        text = _extract_message_text(response.content).strip()
-        if text.startswith("```"):
-            first_nl = text.index("\n")
-            text = text[first_nl + 1 :]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-        parsed = json.loads(text)
-        return {
-            "extract": bool(parsed.get("extract", True)),
-            "score": float(parsed.get("score", 0.5)),
-            "reason": str(parsed.get("reason", "")),
-            "tags": list(parsed.get("tags", [])),
-        }
-    except Exception as exc:
-        logger.warning("LLM triage judge failed: %s", exc)
-        return {"extract": True, "score": 0.5, "reason": "llm_error_fallback", "tags": []}
-
-
-def _extract_message_text(blocks: object) -> str:
-    if not isinstance(blocks, list):
-        return ""
-    parts: list[str] = []
-    for block in blocks:
-        text = getattr(block, "text", None)
-        if isinstance(text, str) and text:
-            parts.append(text)
-    return "".join(parts)
 
 
 class TriagePhase(ConsolidationPhase):
@@ -196,7 +147,6 @@ class TriagePhase(ConsolidationPhase):
             cfg,
         )
 
-        llm_metadata: dict[str, dict] = {}
         scored_episodes: list[_ScoredEpisode] = []
 
         if cfg.triage_multi_signal_enabled:
@@ -227,65 +177,6 @@ class TriagePhase(ConsolidationPhase):
                         decision=decision,
                         discourse_class=discourse_class,
                         signals=signals,
-                    )
-                )
-
-            if cfg.triage_llm_escalation_enabled and os.environ.get("ANTHROPIC_API_KEY"):
-                escalated = 0
-                for scored in scored_episodes:
-                    if escalated >= cfg.triage_llm_escalation_max_per_cycle:
-                        break
-                    if scored.decision.guard_reasons:
-                        continue
-                    if not (
-                        cfg.triage_llm_escalation_low
-                        <= scored.decision.score
-                        <= cfg.triage_llm_escalation_high
-                    ):
-                        continue
-                    ep_content = getattr(scored.episode, "content", "") or ""
-                    judge_result = await asyncio.to_thread(
-                        _llm_judge_score,
-                        ep_content,
-                        cfg.triage_llm_judge_model,
-                    )
-                    llm_metadata[scored.episode.id] = judge_result
-                    decision = apply_episode_utility_policy(
-                        ep_content,
-                        cfg,
-                        judge_result["score"],
-                        discourse_class=scored.discourse_class,
-                        mode="phase",
-                        score_source="llm_escalation",
-                    )
-                    _merge_breakdown(decision.score_breakdown, scored.signals)
-                    decision.score_breakdown["llm_escalated"] = 1.0
-                    scored.decision = decision
-                    escalated += 1
-
-        elif cfg.triage_llm_judge_enabled:
-            for ep in world_episodes:
-                ep_content = getattr(ep, "content", "") or ""
-                discourse_class = classify_discourse(ep_content)
-                judge_result = _llm_judge_score(ep_content, cfg.triage_llm_judge_model)
-                llm_metadata[ep.id] = judge_result
-                score = min(
-                    1.0,
-                    judge_result["score"] + compute_goal_triage_boost(ep_content, goals, cfg),
-                )
-                decision = apply_episode_utility_policy(
-                    ep_content,
-                    cfg,
-                    score,
-                    discourse_class=discourse_class,
-                    mode="phase",
-                    score_source="llm",
-                )
-                scored_episodes.append(
-                    _ScoredEpisode(
-                        episode=ep,
-                        decision=decision,
-                        discourse_class=discourse_class,
                     )
                 )
         else:
@@ -334,7 +225,6 @@ class TriagePhase(ConsolidationPhase):
 
         for item in scored_episodes:
             ep = item.episode
-            judge_meta = llm_metadata.get(ep.id, {})
             decision_label = "extract" if ep.id in selected_ids else "skip"
             decision_source = item.decision.decision_source
             threshold_band = item.decision.threshold_band
@@ -344,9 +234,6 @@ class TriagePhase(ConsolidationPhase):
                 threshold_band = "capacity_skip"
 
             score_breakdown = dict(item.decision.score_breakdown)
-            if judge_meta:
-                score_breakdown["llm_reason"] = judge_meta.get("reason")
-                score_breakdown["llm_tags"] = judge_meta.get("tags", [])
 
             records.append(
                 TriageRecord(
@@ -356,8 +243,6 @@ class TriagePhase(ConsolidationPhase):
                     score=item.decision.score,
                     decision=decision_label,
                     score_breakdown=score_breakdown,
-                    llm_reason=judge_meta.get("reason"),
-                    llm_tags=judge_meta.get("tags", []),
                 )
             )
 

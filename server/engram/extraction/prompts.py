@@ -1,9 +1,5 @@
 """Prompts for entity/relationship extraction from episode text."""
 
-# --- Cached system block for extraction (prompt caching) ---
-# Used by EntityExtractor to reduce input costs via Anthropic ephemeral cache.
-# Defined after EXTRACTION_SYSTEM_PROMPT below.
-
 EXTRACTION_SYSTEM_PROMPT = (
     "You are an entity extraction engine for a personal knowledge graph.\n"
     "Given a text snippet from a conversation, extract:\n"
@@ -149,61 +145,3 @@ EXTRACTION_SYSTEM_PROMPT = (
     "- Entities referencing phone numbers, emails, addresses, "
     "health info, or financial data should be flagged.\n"
 )
-
-# Cached block wrapping the extraction prompt for Anthropic prompt caching.
-EXTRACTION_SYSTEM_CACHED = [
-    {
-        "type": "text",
-        "text": EXTRACTION_SYSTEM_PROMPT,
-        "cache_control": {"type": "ephemeral"},
-    }
-]
-
-
-# ---------------------------------------------------------------------------
-# Triage LLM Judge Prompt
-# ---------------------------------------------------------------------------
-
-TRIAGE_JUDGE_SYSTEM_PROMPT = (
-    "You are a triage judge for a personal knowledge graph memory system.\n"
-    "Given a text snippet, decide whether it contains extractable real-world "
-    "information worth storing in a knowledge graph.\n"
-    "\n"
-    "IMPORTANT: Personal and emotional content should score as high as "
-    "technical content. Memories about family, relationships, health, feelings, "
-    "life events, hobbies, and personal milestones are highly valuable.\n"
-    "\n"
-    "Respond with JSON only:\n"
-    "{\n"
-    '  "extract": true/false,\n'
-    '  "score": 0.0-1.0,\n'
-    '  "reason": "brief explanation",\n'
-    '  "tags": ["personal", "technical", "factual", "emotional", "creative"]\n'
-    "}\n"
-    "\n"
-    "Scoring guidelines:\n"
-    "- 0.8-1.0: Rich factual content — names, relationships, projects, events, "
-    "preferences, personal milestones\n"
-    "- 0.5-0.8: Moderate content — some extractable facts mixed with filler\n"
-    "- 0.2-0.5: Low content — mostly generic, few specific facts\n"
-    "- 0.0-0.2: No content — greetings, system commands, meta-commentary "
-    "about the memory system itself\n"
-    "\n"
-    "Examples:\n"
-    '- "My mom was diagnosed with cancer last month" → '
-    '{"extract": true, "score": 0.9, "reason": "personal health event", '
-    '"tags": ["personal", "emotional"]}\n'
-    '- "I use Python and FastAPI at work" → '
-    '{"extract": true, "score": 0.85, "reason": "technical preferences", '
-    '"tags": ["technical", "factual"]}\n'
-    '- "hi" → '
-    '{"extract": false, "score": 0.05, "reason": "greeting only", "tags": []}\n'
-)
-
-TRIAGE_JUDGE_SYSTEM_CACHED = [
-    {
-        "type": "text",
-        "text": TRIAGE_JUDGE_SYSTEM_PROMPT,
-        "cache_control": {"type": "ephemeral"},
-    }
-]

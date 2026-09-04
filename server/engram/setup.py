@@ -115,22 +115,12 @@ def _collect_config(preset_mode: str | None = None) -> dict:
     """
     cfg: dict[str, str | None] = {}
 
-    # --- API Keys ---
-    _section("API Keys")
-    cfg["ANTHROPIC_API_KEY"] = _ask("Anthropic API key", secret=True)
-    _check("Anthropic API key configured")
-
-    voyage = _ask(
-        "Voyage AI key (enables vector search, blank to skip)",
-        default="",
-        secret=True,
-    )
-    if voyage:
-        cfg["VOYAGE_API_KEY"] = voyage
-        _check("Voyage AI key configured")
-    else:
-        cfg["VOYAGE_API_KEY"] = None
-        _check("Voyage AI skipped — local fastembed vectors remain enabled (default)")
+    # --- Extraction (no external model, no API keys) ---
+    _section("Extraction")
+    print(f"  {_DIM}Engram uses no external model: the resident agent proposes;{_RESET}")
+    print(f"  {_DIM}narrow writes cues. Embeddings run locally (fastembed).{_RESET}")
+    _check("Extraction: the resident agent proposes; narrow writes cues")
+    _check("Embeddings: local fastembed, no API keys")
 
     # --- Mode ---
     if preset_mode is not None:
@@ -263,13 +253,6 @@ def _generate_env(config: dict, env_path: Path) -> None:
     # Define sections for organized output
     sections: list[tuple[str, list[tuple[str, str | None]]]] = [
         (
-            "API Keys",
-            [
-                ("ANTHROPIC_API_KEY", config.get("ANTHROPIC_API_KEY")),
-                ("VOYAGE_API_KEY", config.get("VOYAGE_API_KEY")),
-            ],
-        ),
-        (
             "Engine",
             [
                 ("ENGRAM_MODE", config.get("ENGRAM_MODE")),
@@ -334,10 +317,8 @@ def _print_mcp_config(config: dict) -> None:
     _section("MCP Client Configuration")
 
     server_dir = str(Path(__file__).resolve().parent.parent)
-    api_key = config.get("ANTHROPIC_API_KEY", "")
 
     env_block: dict[str, str] = {
-        "ANTHROPIC_API_KEY": api_key,
         "ENGRAM_MODE": str(config.get("ENGRAM_MODE", "auto")),
         # Agent installs get the golden-loop tool freeze by default.
         "ENGRAM_MCP_SURFACE": str(config.get("ENGRAM_MCP_SURFACE", "public")),
@@ -360,9 +341,6 @@ def _print_mcp_config(config: dict) -> None:
             config.get("ENGRAM_ACTIVATION__INTEGRATION_PROFILE", "off")
         ),
     }
-    voyage_key = config.get("VOYAGE_API_KEY")
-    if voyage_key:
-        env_block["VOYAGE_API_KEY"] = voyage_key
     if config.get("ENGRAM_FALKORDB__PASSWORD"):
         env_block["ENGRAM_FALKORDB__PASSWORD"] = str(config["ENGRAM_FALKORDB__PASSWORD"])
     if config.get("ENGRAM_REDIS__URL"):
@@ -431,7 +409,7 @@ def _print_recall_ready_summary(config: dict) -> None:
 
 
 def _smoke_test(config: dict) -> None:
-    """Quick validation: import check + optional API key ping."""
+    """Quick validation: import check + local embedder probe (no API keys)."""
     _section("Smoke Test")
     try:
         import engram  # noqa: F401
@@ -441,23 +419,30 @@ def _smoke_test(config: dict) -> None:
         _warn(f"Import failed: {e}")
         return
 
-    api_key = config.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        _warn("No API key to test")
-        return
-
     try:
-        import anthropic
+        import asyncio
 
-        client = anthropic.Anthropic(api_key=api_key)
-        client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=16,
-            messages=[{"role": "user", "content": "Say 'ok'"}],
+        from engram.config import EngramConfig
+        from engram.embeddings.provider import FastEmbedProvider
+
+        # Resolve the model the way the shell does (the wizard's env is not the
+        # shell's env; ENGRAM_EMBEDDING__LOCAL_MODEL may differ from the default).
+        embed_cfg = EngramConfig().embedding
+        provider = FastEmbedProvider(
+            model=embed_cfg.local_model,
+            cache_dir=config.get("FASTEMBED_CACHE_PATH") or None,
         )
-        _check("Anthropic API reachable (model: claude-haiku-4-5-20251001)")
+        vecs = asyncio.run(provider.embed(["engram setup smoke test"]))
+        if vecs and vecs[0]:
+            _check(f"Local embedder reachable (fastembed, dim={len(vecs[0])})")
+        else:
+            _warn(
+                "Local embedder loaded but cannot embed — broken/incomplete model cache, "
+                "or the first model download failed (network)? Check FASTEMBED_CACHE_PATH "
+                "and the log."
+            )
     except Exception as e:
-        _warn(f"API check failed: {e}")
+        _warn(f"Local embedder check failed: {e}")
 
 
 def _default_env_path() -> Path:
@@ -470,8 +455,6 @@ def _default_env_path() -> Path:
 # Setting definitions: (key, label, secret, choices_or_None)
 _SETTINGS: list[tuple[str, str, str, bool, list[str] | None]] = [
     # (key, section, label, secret, choices)
-    ("ANTHROPIC_API_KEY", "API Keys", "Anthropic API key", True, None),
-    ("VOYAGE_API_KEY", "API Keys", "Voyage AI key", True, None),
     ("ENGRAM_MODE", "Engine", "Engine mode", False, ["helix", "lite", "full", "auto"]),
     (
         "ENGRAM_HELIX__TRANSPORT",

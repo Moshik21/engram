@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
@@ -40,7 +40,6 @@ async def edge_manager(graph_store, activation_store, search_index) -> GraphMana
         evidence_store_deferred=True,
         edge_adjudication_enabled=True,
         edge_adjudication_client_enabled=True,
-        edge_adjudication_server_enabled=False,
     )
     return GraphManager(
         graph_store=graph_store,
@@ -206,156 +205,6 @@ class TestEdgeAdjudicationHotPath:
 
 class TestEdgeAdjudicationPhase:
     @pytest.mark.asyncio
-    async def test_phase_uses_shared_resolution_path(
-        self,
-        edge_manager,
-        graph_store,
-        search_index,
-        activation_store,
-    ):
-        cfg = ActivationConfig(
-            evidence_extraction_enabled=True,
-            evidence_store_deferred=True,
-            edge_adjudication_enabled=True,
-            edge_adjudication_server_enabled=True,
-            edge_adjudication_server_min_age_minutes=0,
-            edge_adjudication_server_max_per_cycle=5,
-            edge_adjudication_server_daily_budget=5,
-        )
-        episode_id = await edge_manager.ingest_episode(
-            content="Alice works at Google, but maybe not anymore.",
-            source="test",
-        )
-        request = (await edge_manager.get_episode_adjudications(episode_id, group_id="default"))[0]
-        phase = EdgeAdjudicationPhase(graph_manager=edge_manager)
-        phase._call_server_adjudicator = AsyncMock(
-            return_value={
-                "entities": [
-                    {"name": "Alice", "entity_type": "Person"},
-                    {"name": "Google", "entity_type": "Organization"},
-                ],
-                "relationships": [
-                    {
-                        "subject": "Alice",
-                        "predicate": "WORKS_AT",
-                        "object": "Google",
-                        "polarity": "negative",
-                    },
-                ],
-                "reject_evidence_ids": [],
-                "rationale": "server adjudicated",
-            },
-        )
-
-        result, records = await phase.execute(
-            group_id="default",
-            graph_store=graph_store,
-            activation_store=activation_store,
-            search_index=search_index,
-            cfg=cfg,
-            cycle_id="cyc_edge",
-        )
-
-        stored_request = await graph_store.get_adjudication_request(
-            request["request_id"],
-            group_id="default",
-        )
-        assert result.status == "success"
-        assert records == []
-        assert stored_request is not None
-        assert stored_request["status"] == "materialized"
-        assert stored_request["resolution_source"] == "server_adjudication"
-
-    @pytest.mark.asyncio
-    async def test_phase_respects_cycle_and_daily_budget(
-        self,
-        edge_manager,
-        graph_store,
-        search_index,
-        activation_store,
-    ):
-        cfg = ActivationConfig(
-            evidence_extraction_enabled=True,
-            evidence_store_deferred=True,
-            edge_adjudication_enabled=True,
-            edge_adjudication_server_enabled=True,
-            edge_adjudication_server_min_age_minutes=0,
-            edge_adjudication_server_max_per_cycle=1,
-            edge_adjudication_server_daily_budget=1,
-        )
-        phase = EdgeAdjudicationPhase(graph_manager=edge_manager)
-        phase._daily_budget.clear()
-        phase._call_server_adjudicator = AsyncMock(
-            side_effect=[
-                {
-                    "entities": [
-                        {"name": "Alice", "entity_type": "Person"},
-                        {"name": "Google", "entity_type": "Organization"},
-                    ],
-                    "relationships": [
-                        {
-                            "subject": "Alice",
-                            "predicate": "WORKS_AT",
-                            "object": "Google",
-                        },
-                    ],
-                    "reject_evidence_ids": [],
-                },
-            ],
-        )
-
-        episode_one = await edge_manager.ingest_episode(
-            content="Alice works at Google, but maybe not anymore.",
-            source="test",
-        )
-        episode_two = await edge_manager.ingest_episode(
-            content="Bob works at Anthropic, but maybe not anymore.",
-            source="test",
-        )
-
-        first_result, _ = await phase.execute(
-            group_id="default",
-            graph_store=graph_store,
-            activation_store=activation_store,
-            search_index=search_index,
-            cfg=cfg,
-            cycle_id="cyc_budget_1",
-        )
-        second_result, _ = await phase.execute(
-            group_id="default",
-            graph_store=graph_store,
-            activation_store=activation_store,
-            search_index=search_index,
-            cfg=cfg,
-            cycle_id="cyc_budget_2",
-        )
-
-        first_requests = await edge_manager.get_episode_adjudications(
-            episode_one,
-            group_id="default",
-        )
-        second_requests = await edge_manager.get_episode_adjudications(
-            episode_two,
-            group_id="default",
-        )
-        stored_one = await graph_store.get_episode_adjudications(
-            episode_one,
-            group_id="default",
-        )
-        stored_two = await graph_store.get_episode_adjudications(
-            episode_two,
-            group_id="default",
-        )
-
-        assert first_result.status == "success"
-        assert second_result.status == "success"
-        assert phase._call_server_adjudicator.await_count == 1
-        assert stored_one[0]["status"] == "materialized"
-        assert stored_two[0]["status"] == "pending"
-        assert first_requests == []
-        assert len(second_requests) == 1
-
-    @pytest.mark.asyncio
     async def test_phase_expires_stale_request(
         self,
         edge_manager,
@@ -367,8 +216,7 @@ class TestEdgeAdjudicationPhase:
             evidence_extraction_enabled=True,
             evidence_store_deferred=True,
             edge_adjudication_enabled=True,
-            edge_adjudication_server_enabled=False,
-            edge_adjudication_request_ttl_hours=1,
+                edge_adjudication_request_ttl_hours=1,
         )
         episode_id = await edge_manager.ingest_episode(
             content="Alice works at Google, but maybe not anymore.",

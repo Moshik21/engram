@@ -57,14 +57,19 @@ OBSERVED_ECHO_SOURCE = "observed_echo"
 # verb -> the surfaces with a REAL emitter today. Enumerated from the call
 # sites, not from the accepted vocabulary: an empty set means "in _VALID_TYPES
 # and emitted by nothing", which is the state `confirmed`/`corrected` are in.
+# 2026-09-04: the dashboard chat route answers HTTP 501 (Engram runs no
+# external model), so the DASHBOARD_CHAT emitters below still exist in the tree
+# (the tree-scan test counts call sites) but are unreachable from any client;
+# a lifecycle number that lists dashboard_chat as an emitter is naming code,
+# not a surface that can move today.
 INTERACTION_EMITTERS: dict[str, frozenset[str]] = {
     # retrieval/service.py, retrieval/recall_surface.py, evaluation/smoke.py
     "surfaced": frozenset({AGENT_RECALL, DASHBOARD_CHAT, EVALUATION}),
-    # public_surface_policy.chat_tool_recall_policy -> retrieval/chat_tools.py
+    # public_surface_policy.chat_tool_recall_policy -> retrieval/chat_tools.py (behind the 501)
     "selected": frozenset({DASHBOARD_CHAT}),
-    # retrieval/chat_feedback.py + GraphManager.record_echoed_memory_usage
+    # retrieval/chat_feedback.py (behind the 501) + GraphManager.record_echoed_memory_usage
     "used": frozenset({DASHBOARD_CHAT, AGENT_CAPTURE}),
-    # retrieval/chat_feedback.py
+    # retrieval/chat_feedback.py (behind the 501)
     "dismissed": frozenset({DASHBOARD_CHAT}),
     "confirmed": frozenset(),
     "corrected": frozenset(),

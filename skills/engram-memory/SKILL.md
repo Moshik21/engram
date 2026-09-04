@@ -4,7 +4,7 @@ description: Native local memory for OpenClaw agents: Capture, Cue, Project, Rec
 version: 0.3.6
 homepage: https://github.com/Moshik21/engram
 user-invocable: true
-metadata: {"openclaw":{"requires":{"anyBins":["curl"]},"envVars":[{"name":"ANTHROPIC_API_KEY","required":false,"description":"Optional richer entity extraction; deterministic extraction works without it."},{"name":"ENGRAM_GROUP_ID","required":false,"description":"Optional brain namespace for multi-brain setups."}],"emoji":"\ud83e\udde0","homepage":"https://github.com/Moshik21/engram","install":[{"kind":"shell","command":"curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw","bins":["engram","engramctl"]}],"tags":["memory","knowledge-graph","mcp","recall","long-term-memory","cognitive-architecture"]}}
+metadata: {"openclaw":{"requires":{"anyBins":["curl"]},"envVars":[{"name":"ENGRAM_GROUP_ID","required":false,"description":"Optional brain namespace for multi-brain setups."}],"emoji":"\ud83e\udde0","homepage":"https://github.com/Moshik21/engram","install":[{"kind":"shell","command":"curl -sSL https://raw.githubusercontent.com/Moshik21/engram/main/scripts/install.sh | bash -s -- openclaw","bins":["engram","engramctl"]}],"tags":["memory","knowledge-graph","mcp","recall","long-term-memory","cognitive-architecture"]}}
 ---
 
 # Engram Memory
@@ -17,7 +17,7 @@ Native Helix through PyO3 is the primary OpenClaw path. It gives OpenClaw the fu
 
 ## Setup
 
-The Engram server must be running locally. No API keys are required for basic operation.
+The Engram server must be running locally. No API key is required: the resident agent is the extractor (it proposes entities and relationships through `remember`/`observe`; a deterministic narrow adapter is the internal rung) and embeddings are local FastEmbed on every shipped install (the install env pins `provider=local`).
 
 ### Public OpenClaw install
 
@@ -79,7 +79,6 @@ Use Docker only when the user explicitly asks for full Docker mode.
 ### Environment variables
 
 All optional:
-- `ANTHROPIC_API_KEY` — enables richer entity extraction via Claude Haiku. Without it, Engram uses a deterministic narrow extractor (zero cost).
 - `ENGRAM_GROUP_ID` — namespace for multi-brain setups. Defaults to `"default"`. Most users never need to set this.
 
 The REST API is available at `http://127.0.0.1:8100`. The OpenClaw MCP endpoint is available at `http://127.0.0.1:8100/mcp`. When MCP tools are visible, prefer the MCP tools; use the REST examples below as the manual fallback.

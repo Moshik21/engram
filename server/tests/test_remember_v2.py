@@ -56,7 +56,6 @@ class TestRememberV2Config:
         cfg = ActivationConfig()
         assert cfg.edge_adjudication_enabled is True
         assert cfg.edge_adjudication_client_enabled is True
-        assert cfg.edge_adjudication_server_enabled is False
 
 
 class TestGraphManagerEvidencePath:

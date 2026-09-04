@@ -1,8 +1,7 @@
 """Tests for the edge inference consolidation phase."""
 
-import json
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -858,359 +857,6 @@ class TestPMIScoring:
 
 
 # ---------------------------------------------------------------------------
-# LLM Validation Tests (Tier 3)
-# ---------------------------------------------------------------------------
-
-
-def _make_llm_response(verdict: str, reason: str = "test", count: int = 1):
-    """Create a mock Anthropic API response (batched format)."""
-    verdicts = [{"rel": i, "verdict": verdict, "reason": reason} for i in range(1, count + 1)]
-    content_block = MagicMock()
-    content_block.text = json.dumps(verdicts)
-    response = MagicMock()
-    response.content = [content_block]
-    return response
-
-
-class TestLLMValidation:
-    """Tests for Tier 3 LLM validation."""
-
-    @pytest.mark.asyncio
-    async def test_llm_disabled_by_default(self):
-        """No llm_verdict set when both LLM and auto-validation disabled."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_auto_validation_enabled=False,
-        )
-        phase = EdgeInferencePhase()
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=True,
-        )
-        assert len(records) == 1
-        assert records[0].llm_verdict is None
-
-    @pytest.mark.asyncio
-    async def test_llm_approves_edge(self):
-        """Approved edge becomes llm_validated."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("approved")
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-        assert len(records) == 1
-        assert records[0].infer_type == "llm_validated"
-        assert records[0].llm_verdict == "approved"
-        assert records[0].materialization_action == "created"
-        gs.create_relationship.assert_called_once()
-        mock_client.messages.create.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_llm_rejects_edge(self):
-        """Rejected edge is never materialized."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("rejected")
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-        assert len(records) == 1
-        assert records[0].infer_type == "llm_rejected"
-        assert records[0].llm_verdict == "rejected"
-        assert records[0].materialization_action == "rejected"
-        gs.create_relationship.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_llm_uncertain_leaves_edge(self):
-        """Uncertain verdict abstains instead of materializing."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("uncertain")
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-        assert len(records) == 1
-        assert records[0].infer_type == "co_occurrence"  # Unchanged
-        assert records[0].llm_verdict == "uncertain"
-        assert records[0].materialization_action == "abstained"
-        gs.create_relationship.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_llm_failure_nonfatal(self):
-        """API error caught, phase completes."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.side_effect = RuntimeError("API failure")
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        result, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-        # Phase should complete despite error
-        assert result.status == "success"
-        assert len(records) == 1
-        assert records[0].llm_verdict == "error"
-
-    @pytest.mark.asyncio
-    async def test_llm_respects_confidence_threshold(self):
-        """Only edges above threshold validated."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 3)],  # Low count → low confidence
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("approved")
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.5,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.95,  # Higher than possible
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-        # LLM should not be called (confidence below threshold)
-        mock_client.messages.create.assert_not_called()
-        assert records[0].llm_verdict is None
-
-    @pytest.mark.asyncio
-    async def test_llm_dry_run_skips_api(self):
-        """Dry run sets llm_verdict='dry_run_skipped', no client calls."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=True,
-        )
-        assert len(records) == 1
-        assert records[0].llm_verdict == "dry_run_skipped"
-        mock_client.messages.create.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_llm_uses_cached_system_prompt(self):
-        """LLM validation uses cached system prompt."""
-        e1 = _entity("Alice")
-        e2 = _entity("Bob")
-        entities = {e1.id: e1, e2.id: e2}
-        gs = _mock_graph_store(
-            pairs=[(e1.id, e2.id, 5)],
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("approved")
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-
-        call_kwargs = mock_client.messages.create.call_args[1]
-        assert isinstance(call_kwargs["system"], list)
-        assert call_kwargs["system"][0]["cache_control"] == {"type": "ephemeral"}
-
-    @pytest.mark.asyncio
-    async def test_llm_max_per_cycle(self):
-        """At most N edges validated."""
-        entities = {}
-        pairs = []
-        for i in range(5):
-            e1 = _entity(f"Entity{i}A")
-            e2 = _entity(f"Entity{i}B")
-            entities[e1.id] = e1
-            entities[e2.id] = e2
-            pairs.append((e1.id, e2.id, 5))
-
-        gs = _mock_graph_store(
-            pairs=pairs,
-            entities=entities,
-            ep_counts={},
-            total_episodes=0,
-        )
-        mock_client = MagicMock()
-        mock_client.messages.create.return_value = _make_llm_response("approved", count=2)
-
-        cfg = ActivationConfig(
-            consolidation_infer_cooccurrence_min=3,
-            consolidation_infer_confidence_floor=0.7,
-            consolidation_infer_llm_enabled=True,
-            consolidation_infer_auto_validation_enabled=False,
-            consolidation_infer_llm_confidence_threshold=0.5,
-            consolidation_infer_llm_max_per_cycle=2,
-        )
-        phase = EdgeInferencePhase(llm_client=mock_client)
-        _, records = await phase.execute(
-            group_id="test",
-            graph_store=gs,
-            activation_store=AsyncMock(),
-            search_index=AsyncMock(),
-            cfg=cfg,
-            cycle_id="cyc_test",
-            dry_run=False,
-        )
-        # Only 2 should be LLM-validated
-        validated = [r for r in records if r.llm_verdict == "approved"]
-        assert len(validated) == 2
-        # 2 candidates fit in 1 batch (batch size = 5)
-        assert mock_client.messages.create.call_count == 1
-
-
-# ---------------------------------------------------------------------------
 # PMI Helper Unit Tests
 # ---------------------------------------------------------------------------
 
@@ -1244,3 +890,33 @@ class TestPMIHelpers:
     def test_pmi_confidence_respects_floor(self):
         result = _pmi_confidence(0.0, 0.0, 0.0, 0.3, 0.6)
         assert result >= 0.6
+
+
+@pytest.mark.asyncio
+async def test_no_verdict_when_auto_validation_is_off():
+    """Re-added 2026-09-04 (it never depended on the deleted LLM path): with
+    auto-validation off, records carry no llm_verdict at all."""
+    e1 = _entity("Alice")
+    e2 = _entity("Bob")
+    gs = _mock_graph_store(
+        pairs=[(e1.id, e2.id, 5)],
+        entities={e1.id: e1, e2.id: e2},
+        ep_counts={},
+        total_episodes=0,
+    )
+    cfg = ActivationConfig(
+        consolidation_infer_cooccurrence_min=3,
+        consolidation_infer_auto_validation_enabled=False,
+    )
+    phase = EdgeInferencePhase()
+    _, records = await phase.execute(
+        group_id="test",
+        graph_store=gs,
+        activation_store=AsyncMock(),
+        search_index=AsyncMock(),
+        cfg=cfg,
+        cycle_id="cyc_test",
+        dry_run=True,
+    )
+    assert len(records) == 1
+    assert records[0].llm_verdict is None

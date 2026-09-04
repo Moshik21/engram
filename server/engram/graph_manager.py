@@ -651,7 +651,7 @@ class GraphManager:
         # legacy/LLM extract, even when evidence_extraction_enabled is False.
         if has_client_proposals and self._commit_policy is not None:
             return True
-        # NOTE: LLM extractors (Anthropic EntityExtractor, OllamaExtractor) are deliberately
+        # NOTE: non-narrow extractors (historically the Anthropic/Ollama LLM ones) are deliberately
         # NOT evidence-capable. _build_evidence_bundle only ever runs the narrow
         # _evidence_pipeline; it never consumes an LLM extractor's output. Routing an LLM
         # here silently DISCARDS its clean entities and persists narrow-regex fragments

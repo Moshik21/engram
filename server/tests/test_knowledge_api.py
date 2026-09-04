@@ -48,8 +48,10 @@ from engram.notifications.surface import NotificationSurfaceService
 from engram.public_surface_policy import PublicSurfacePolicyService
 from engram.retrieval.chat_feedback import apply_chat_recall_feedback
 from engram.retrieval.chat_runtime import (
+    CHAT_UNAVAILABLE_DETAIL,
     analyze_chat_memory_need,
     build_api_chat_rate_limit_surface,
+    build_api_chat_stream_response_surface,
     build_chat_context_surface,
     build_chat_memory_guidance,
     build_chat_messages,
@@ -64,8 +66,6 @@ from engram.retrieval.chat_runtime import (
 )
 from engram.retrieval.chat_tools import execute_chat_tool_json
 from engram.retrieval.context import ConversationContext, ConversationRuntimeService
-
-CHAT_RUNTIME_ANTHROPIC = "engram.retrieval.chat_runtime.anthropic.AsyncAnthropic"
 
 
 def _attach_public_surface_policy(manager, cfg: ActivationConfig) -> ActivationConfig:
@@ -1486,7 +1486,8 @@ class TestChat:
         rate_limiter.check.assert_awaited_once_with("brain_a", "chat")
 
     @pytest.mark.asyncio
-    async def test_chat_rate_limit_returns_shared_surface(self, knowledge_client, monkeypatch):
+    async def test_chat_route_is_501_without_external_model(self, knowledge_client, monkeypatch):
+        """POST /chat stays registered but answers 501: Engram runs no external model."""
         rate_limiter = SimpleNamespace(check=AsyncMock(return_value=(False, 2)))
         monkeypatch.setattr("engram.api.knowledge.get_rate_limiter", lambda: rate_limiter)
 
@@ -1495,31 +1496,39 @@ class TestChat:
             json={"message": "Tell me about Alice"},
         )
 
-        assert resp.status_code == 429
-        assert resp.json() == {
-            "detail": "Rate limit exceeded for chat",
-            "remaining": 2,
-        }
-        rate_limiter.check.assert_awaited_once_with("default", "chat")
+        assert resp.status_code == 501
+        assert resp.json() == {"detail": CHAT_UNAVAILABLE_DETAIL}
+        rate_limiter.check.assert_not_awaited()
+
+    @staticmethod
+    async def _stream_chat_surface(mock_client, *, message: str, history=None) -> list:
+        """Drive the retained turn machinery through the injected-client seam."""
+        surface = await build_api_chat_stream_response_surface(
+            _app_state["graph_manager"],
+            group_id="default",
+            message=message,
+            history=[ChatMessage(**item) for item in history or []],
+            conversation_store=None,
+            conversation_id=None,
+            session_date=None,
+            rate_limiter=None,
+            event_bus=None,
+            client_factory=lambda: mock_client,
+        )
+        assert surface.status_code == 200
+        assert surface.media_type == "text/event-stream"
+        text = "".join([chunk async for chunk in surface.stream])
+        return TestChat._parse_sse_events(text)
 
     @pytest.mark.asyncio
     async def test_chat_streams_sse(self, knowledge_client):
-        """POST /chat returns AI SDK v6 UIMessageStream protocol."""
+        """An injected client streams AI SDK v6 UIMessageStream protocol."""
         mock_response = _make_create_response("Hello world")
 
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
-            resp = await knowledge_client.post(
-                "/api/knowledge/chat",
-                json={"message": "Tell me about Alice"},
-            )
-
-        assert resp.status_code == 200
-        assert resp.headers["content-type"].startswith("text/event-stream")
-
-        events = self._parse_sse_events(resp.text)
+        events = await self._stream_chat_surface(mock_client, message="Tell me about Alice")
 
         # Should start with start + start-step
         assert events[0]["type"] == "start"
@@ -1541,44 +1550,32 @@ class TestChat:
 
     @pytest.mark.asyncio
     async def test_chat_with_history(self, knowledge_client):
-        """POST /chat accepts conversation history."""
+        """The chat turn accepts conversation history."""
         mock_response = _make_create_response("OK")
 
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
-            resp = await knowledge_client.post(
-                "/api/knowledge/chat",
-                json={
-                    "message": "Follow up question",
-                    "history": [
-                        {"role": "user", "content": "Who is Alice?"},
-                        {"role": "assistant", "content": "Alice is an engineer."},
-                    ],
-                },
-            )
+        await self._stream_chat_surface(
+            mock_client,
+            message="Follow up question",
+            history=[
+                {"role": "user", "content": "Who is Alice?"},
+                {"role": "assistant", "content": "Alice is an engineer."},
+            ],
+        )
 
-        assert resp.status_code == 200
-
-        # Verify messages passed to Claude include history
+        # Verify messages passed to the client include history
         call_kwargs = mock_client.messages.create.call_args[1]
         assert len(call_kwargs["messages"]) == 3  # 2 history + 1 new
 
     @pytest.mark.asyncio
     async def test_chat_error_handling(self, knowledge_client):
-        """POST /chat handles API errors gracefully."""
+        """A failing client becomes an SSE error frame, not a broken stream."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(side_effect=Exception("API key invalid"))
 
-        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
-            resp = await knowledge_client.post(
-                "/api/knowledge/chat",
-                json={"message": "test"},
-            )
-
-        assert resp.status_code == 200
-        events = self._parse_sse_events(resp.text)
+        events = await self._stream_chat_surface(mock_client, message="test")
 
         # Should have error event + finish with error reason
         error_events = [e for e in events if e["type"] == "error"]
@@ -1591,7 +1588,7 @@ class TestChat:
 
     @pytest.mark.asyncio
     async def test_chat_tool_use_loop(self, knowledge_client):
-        """POST /chat executes agentic tool-use loop before final response."""
+        """The chat turn executes the agentic tool-use loop before the final response."""
         # First call returns tool_use, second returns final text
         tool_block = MagicMock()
         tool_block.type = "tool_use"
@@ -1610,14 +1607,7 @@ class TestChat:
             side_effect=[tool_response, final_response],
         )
 
-        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
-            resp = await knowledge_client.post(
-                "/api/knowledge/chat",
-                json={"message": "Where does Alice work?"},
-            )
-
-        assert resp.status_code == 200
-        events = self._parse_sse_events(resp.text)
+        events = await self._stream_chat_surface(mock_client, message="Where does Alice work?")
 
         # Should have called create twice (tool turn + final)
         assert mock_client.messages.create.call_count == 2
@@ -1647,15 +1637,11 @@ class TestChat:
             side_effect=[generic_response, grounded_response],
         )
 
-        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
-            resp = await knowledge_client.post(
-                "/api/knowledge/chat",
-                json={"message": "How's the Engram project going?"},
-            )
+        events = await self._stream_chat_surface(
+            mock_client, message="How's the Engram project going?"
+        )
 
-        assert resp.status_code == 200
         assert mock_client.messages.create.call_count == 2
-        events = self._parse_sse_events(resp.text)
         text_deltas = [e for e in events if e["type"] == "text-delta"]
         full_text = "".join(e["delta"] for e in text_deltas)
         assert full_text == "Alice is still the engineer working on Engram."
@@ -1710,13 +1696,8 @@ class TestChat:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-        with patch(CHAT_RUNTIME_ANTHROPIC, return_value=mock_client):
-            resp = await knowledge_client.post(
-                "/api/knowledge/chat",
-                json={"message": "is full mode rework by default?"},
-            )
+        await self._stream_chat_surface(mock_client, message="is full mode rework by default?")
 
-        assert resp.status_code == 200
         system_prompt = mock_client.messages.create.call_args.kwargs["system"]
         prompt_text = "\n".join(part["text"] for part in system_prompt)
         assert "Answer-contract guidance for this turn:" in prompt_text

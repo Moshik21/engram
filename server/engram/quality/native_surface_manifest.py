@@ -221,6 +221,7 @@ NATIVE_SURFACE_MANIFEST: tuple[NativeSurface, ...] = (
         "POST",
         "/api/knowledge/chat",
         "test_native_helix_populated_brain_reaches_rest_and_mcp_surfaces",
+        note="Answers 501: Engram runs no external model. Registered so the dashboard is not 404.",
     ),
     _rest(
         "GET",
