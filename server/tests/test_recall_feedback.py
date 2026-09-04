@@ -354,6 +354,7 @@ class TestRecallMemoryInteractionApplier:
             "confirmed",
             result_type="entity",
             memory_id=entity.id,
+            source="chat_feedback",
         )
 
 
