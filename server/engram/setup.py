@@ -841,7 +841,11 @@ if [ ${#RESPONSE} -lt 20 ]; then
     exit 0
 fi
 
-RESPONSE="${RESPONSE:0:2000}"
+# 2026-09-04: a cut response says so. 454 live rows sat at exactly the old wall with
+# no marker, so nothing downstream could tell a short answer from a truncated one.
+if [ ${#RESPONSE} -gt 2000 ]; then
+    RESPONSE="${RESPONSE:0:2000} [engram: truncated at 2000 of ${#RESPONSE} chars]"
+fi
 PROJECT=$(basename "${CWD:-unknown}")
 CONTENT="[assistant|${PROJECT}] ${RESPONSE}"
 

@@ -365,3 +365,13 @@ def test_smoke_test_warns_when_local_embedder_cannot_embed(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "cannot embed" in out
     assert "FASTEMBED_CACHE_PATH" in out
+
+
+def test_capture_response_hook_marks_truncation():
+    """The hook template no longer cuts responses silently (2026-09-04)."""
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1] / "engram" / "setup.py"
+    text = source.read_text()
+    assert 'RESPONSE="${RESPONSE:0:2000}"\n' not in text
+    assert "[engram: truncated at 2000 of ${#RESPONSE} chars]" in text
