@@ -27,6 +27,20 @@ def _enum_value(value: object) -> object:
     return enum_value if isinstance(enum_value, str) else value
 
 
+def extraction_label(last_projection_reason: str | None) -> str | None:
+    """'agent' | 'narrow' | None from an episode's last projection reason.
+
+    Legacy rows say only "projected"; on the live brain every one of those
+    was the narrow rung (the external rungs never ran), so they read as narrow.
+    """
+    reason = (last_projection_reason or "").strip()
+    if reason == "projected_agent":
+        return "agent"
+    if reason in {"projected", "projected_narrow"}:
+        return "narrow"
+    return None
+
+
 class RecallResultBuilder:
     """Build GraphManager's raw recall result contract."""
 
@@ -185,6 +199,7 @@ class RecallResultBuilder:
             "created_at": _isoformat(episode.created_at),
             "conversation_date": _isoformat(getattr(episode, "conversation_date", None)),
             "project": getattr(episode, "project", None),
+            "extraction": extraction_label(getattr(episode, "last_projection_reason", None)),
         }
         if include_content:
             metadata["content"] = self.truncate_episode_content(episode)

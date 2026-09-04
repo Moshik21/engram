@@ -130,7 +130,9 @@ Public installs expose the continuity loop only. Prefer this set:
 lookups (`lookup_kind='entities'|'facts'`) instead of any search_* aliases.
 - **observe** — Cheap capture when harness cannot see high-value context.
 - **remember** — Sparse high-signal promotion (you are the extractor): \
-`proposed_entities` + `proposed_relationships` + verbatim `source_span`.
+`proposed_entities` + `proposed_relationships` + verbatim `source_span`. A recall \
+item whose episode says `extractedBy: "narrow"` was never structured by anyone; if \
+you rely on it, `remember(episode_id=<that id>, proposed_...)` re-projects it.
 - **intend** — Prospective memory / pinned context.
 - **forget** — Repair wrong or stale facts.
 - **claim_authority** — Session start when file memory is present; follow \

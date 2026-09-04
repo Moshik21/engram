@@ -106,6 +106,7 @@ def test_cue_episode_result_normalizes_state_and_feedback_counts() -> None:
         "created_at": episode.created_at.isoformat(),
         "conversation_date": None,
         "project": None,
+        "extraction": None,
     }
     assert result["linked_entities"] == ["ent_native"]
 

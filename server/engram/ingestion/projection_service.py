@@ -77,6 +77,11 @@ class EpisodeProjectionService:
         proposed_relationships: list[dict] | None = None,
         model_tier: str = "default",
     ) -> ProjectionLifecycleResult:
+        # 2026-09-04: record WHO projected. The resident agent (proposals) is the
+        # only real extractor; a narrow-projected episode is unstructured and the
+        # agent is asked on recall to re-propose it (remember(episode_id=...)).
+        agent_proposed = bool(proposed_entities or proposed_relationships)
+        projected_reason = "projected_agent" if agent_proposed else "projected_narrow"
         """Run extraction, resolution, graph writes, indexing, and lifecycle updates."""
         episode = await self._graph.get_episode_by_id(episode_id, group_id)
         if not episode:
@@ -281,7 +286,7 @@ class EpisodeProjectionService:
                 episode_id,
                 EpisodeProjectionState.PROJECTED,
                 group_id=group_id,
-                reason="projected",
+                reason=projected_reason,
                 last_projected_at=projected_at,
                 cue_updates={
                     "projection_state": EpisodeProjectionState.PROJECTED,
@@ -300,7 +305,7 @@ class EpisodeProjectionService:
                     outcome="projected",
                     episode_status=EpisodeStatus.COMPLETED,
                     projection_state=EpisodeProjectionState.PROJECTED,
-                    reason="projected",
+                    reason=projected_reason,
                     entity_count=persisted_entities,
                     relationship_count=persisted_relationships,
                     duration_ms=elapsed_ms,
@@ -326,7 +331,7 @@ class EpisodeProjectionService:
                 outcome="projected",
                 episode_status=EpisodeStatus.COMPLETED,
                 projection_state=EpisodeProjectionState.PROJECTED,
-                reason="projected",
+                reason=projected_reason,
                 entity_count=persisted_entities,
                 relationship_count=persisted_relationships,
                 duration_ms=elapsed_ms,

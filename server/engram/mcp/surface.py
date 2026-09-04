@@ -58,6 +58,8 @@ OPERATOR_EXTRA_TOOLS: frozenset[str] = frozenset(
         "search_artifacts",
         "observe_image",
         "observe_file",
+        # Re-proposal drain (2026-09-04): the resident agent structures what narrow could not
+        "list_unstructured_episodes",
         # Loop Steward (harness subconscious; not public golden loop)
         "loop_status",
         "loop_apply",

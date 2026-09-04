@@ -308,7 +308,7 @@ class NativeTransport:
             return False
         try:
             return bool(has_route(endpoint))
-        except Exception:  # silent-ok: a failing probe means "unknown", callers fall back to the error path
+        except Exception:  # silent-ok: a failing probe means "unknown"; callers use the error path
             return False
 
     async def query(self, endpoint: str, payload: dict) -> list[dict]:

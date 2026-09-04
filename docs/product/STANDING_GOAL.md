@@ -291,6 +291,7 @@ resets. Status as of 2026-07-24 evening.
 | — | **the two pre-pipeline lanes (`fast_preflight_hit`, durable-first `hit`) present episode rows with no content and no project** | 2026-09-04. They build items from cue rows without fetching the episode; the deep pipeline and both packet paths present `project`. Small, open: the consumer sees a bare id on the fastest lane. |
 | — | **7 017 episode vector rows carry no readable float payload by id: MMR diversity, inhibitory spreading and state-dependent retrieval are no-ops on 81 % of the corpus** | 2026-09-04, from the same census. `search.py` already warns about it (`rows matched but returned NO vector data`). Fix is native (the by-id route should read the vector from HNSW storage) or a one-time re-embed of the old rows; neither shipped today. |
 | — | **the graph kill rig VOIDs itself on a race it owns: capture-time indexing is deferred to a background lane and the rig runs preflight and closes the stores before it drains (24/60 gold episodes vectored, 5× `SQLiteVectorStore not initialized`)** | 2026-09-04, Step 5 first run, `--producer narrow`. The producer probe also failed honestly: narrow proposed edges whose endpoints never committed (`missing_entities`), zero semantic relationships — the extraction lever again, not the rig. |
+| — | **re-proposal drain (resident-agent step 5): every episode now records who projected it (`projected_agent` / `projected_narrow`), recall items carry `extractedBy`, `remember(episode_id=…)` re-projects an existing episode with the agent's proposals, and the operator tool `list_unstructured_episodes` pages the narrow-projected backlog** | 2026-09-04. Agent-driven and bounded by design: only what the agent reads or deliberately works gets restructured; no batch LLM. Legacy `projected` rows read as narrow because the external rungs never ran on this brain. Verified live: a narrow-projected item shows `extractedBy: narrow`. |
 
 ### T3 — capability and decision
 | # | item | note |
@@ -616,3 +617,8 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   them yesterday's rank-time multipliers and today's project key leaking into pinned fixtures,
   plus a dotenv-isolation flaw in the test harness. `CLAUDE.md` is git-ignored: its ladder
   paragraph was updated on disk only.
+- **2026-09-04** — resident-agent step 5: projector stamped on every episode, `extractedBy` on recall
+  items, `remember(episode_id=…)` re-projection, operator `list_unstructured_episodes`. Steps 1, 2
+  and 5 of the resident-agent plan are landed; step 3 is a handoff (env lines), step 4 is answered
+  by the planted kill-rig run (perfect proposals still reached nothing: the consumer, not the
+  producer, is the open problem).

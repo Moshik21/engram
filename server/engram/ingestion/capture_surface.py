@@ -693,6 +693,44 @@ async def _record_observed_usage_events(manager: Any, *, group_id: str, content:
         logger.debug("Observed-usage citation scan failed", exc_info=True)
 
 
+async def build_mcp_reproject_write_surface(
+    manager: Any,
+    *,
+    episode_id: str,
+    group_id: str,
+    proposed_entities: list[dict] | None,
+    proposed_relationships: list[dict] | None,
+    model_tier: str = "default",
+) -> dict[str, Any]:
+    """Re-project an EXISTING episode with the resident agent's proposals.
+
+    The re-proposal drain (2026-09-04): recall items marked
+    ``extractedBy: "narrow"`` were structured by the regex rung only; the
+    agent hands its proposals here and the same projection path commits them.
+    """
+    outcome = await manager.project_episode(
+        episode_id,
+        group_id=group_id,
+        proposed_entities=proposed_entities,
+        proposed_relationships=proposed_relationships,
+        model_tier=model_tier,
+    )
+    summary = outcome if isinstance(outcome, dict | str | int | float | bool) else str(outcome)
+    return {"status": "reprojected", "episode_id": episode_id, "outcome": summary}
+
+
+async def build_mcp_unstructured_episodes_surface(
+    manager: Any,
+    *,
+    group_id: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Operator listing of narrow-projected episodes for a re-proposal session."""
+    rows = await manager.list_unstructured_episodes(group_id, limit=limit, offset=offset)
+    return {"group_id": group_id, "count": len(rows), "episodes": rows}
+
+
 async def ingest_projecting_memory(
     manager: Any,
     *,

@@ -1607,6 +1607,37 @@ class GraphManager:
         )
         return episode_id
 
+    async def list_unstructured_episodes(
+        self,
+        group_id: str = "default",
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Episodes the narrow rung projected (no agent proposals), newest first.
+
+        The re-proposal drain (2026-09-04) is agent-driven: the resident agent
+        reads these and calls ``remember(episode_id=..., proposed_...)``.
+        """
+        from engram.retrieval.result_builder import extraction_label
+
+        episodes = await self._graph.get_episodes(group_id=group_id, limit=max(1, limit) + offset)
+        rows = [
+            ep
+            for ep in episodes or []
+            if extraction_label(getattr(ep, "last_projection_reason", None)) == "narrow"
+        ]
+        rows.sort(key=lambda ep: getattr(ep, "created_at", None) or 0, reverse=True)
+        return [
+            {
+                "episodeId": ep.id,
+                "createdAt": ep.created_at.isoformat() if ep.created_at else None,
+                "source": ep.source,
+                "content": (ep.content or "")[:2000],
+            }
+            for ep in rows[offset : offset + max(1, limit)]
+        ]
+
     async def project_episode(
         self,
         episode_id: str,

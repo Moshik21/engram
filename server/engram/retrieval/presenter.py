@@ -69,6 +69,7 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
             "created_at": ep.get("created_at"),
             "conversation_date": ep.get("conversation_date"),
             "project": ep.get("project"),
+            "extraction": ep.get("extraction"),
             "linked_entities": _linked_entity_names(result),
         }
 
@@ -128,6 +129,9 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
                 "source": item["source"],
                 "createdAt": item["created_at"],
                 "project": item.get("project"),
+                # 'agent' | 'narrow' | None: narrow means unstructured -- the
+                # agent can re-propose it with remember(episode_id=...).
+                "extractedBy": item.get("extraction"),
             },
             "score": item["score"],
             "scoreBreakdown": _api_score_breakdown(result),

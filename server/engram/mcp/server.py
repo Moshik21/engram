@@ -849,8 +849,14 @@ async def remember(
     image_mime: str = "image/png",
     events: list[dict] | None = None,
     compaction_id: str | None = None,
+    episode_id: str | None = None,
 ) -> str:
     """Store a high-signal fact. YOU are the extractor: supply the atomic facts.
+
+    Pass ``episode_id`` to re-project an EXISTING episode with your proposals
+    instead of storing new content: recall items whose episode shows
+    ``extractedBy: "narrow"`` were structured by nothing but a regex rung, and
+    this is how they become real graph facts. Content is ignored in that mode.
 
     Prefer passing proposed_entities + proposed_relationships — you understand the text
     better than Engram's internal extractor, so hand over the structured atoms and Engram
@@ -886,6 +892,18 @@ async def remember(
         JSON with status, episode_id, and message.
     """
     manager = _get_manager()
+    if episode_id:
+        from engram.ingestion.capture_surface import build_mcp_reproject_write_surface
+
+        payload = await build_mcp_reproject_write_surface(
+            manager,
+            episode_id=episode_id,
+            group_id=_group_id,
+            proposed_entities=proposed_entities,
+            proposed_relationships=proposed_relationships,
+            model_tier=model_tier,
+        )
+        return json.dumps(payload, default=str)
     response = await build_mcp_remember_write_surface(
         manager,
         content=content,
@@ -1714,6 +1732,21 @@ def _live_activation_cfg():
     from engram.config import EngramConfig
 
     return EngramConfig().activation
+
+
+@mcp.tool()
+async def list_unstructured_episodes(limit: int = 20, offset: int = 0) -> str:
+    """Operator: episodes projected by the narrow rung only (no agent proposals).
+
+    Work them with remember(episode_id=..., proposed_entities=..., proposed_relationships=...).
+    """
+    from engram.ingestion.capture_surface import build_mcp_unstructured_episodes_surface
+
+    manager = _get_manager()
+    payload = await build_mcp_unstructured_episodes_surface(
+        manager, group_id=_group_id, limit=limit, offset=offset
+    )
+    return json.dumps(payload, default=str)
 
 
 @mcp.tool()
