@@ -80,6 +80,10 @@ def configure_backup_parser(parser: argparse.ArgumentParser) -> None:
         help="Confirm replacing the current data dir (it is renamed aside first)",
     )
 
+    from engram.brain_export import build_parser as _build_export_parser
+
+    _build_export_parser(sub)
+
     compact_p = sub.add_parser(
         "compact",
         help="Compacting copy of the native brain (reclaims LMDB free pages; shell must be down)",
@@ -631,6 +635,10 @@ async def run_backup_command(args: argparse.Namespace) -> int:
         return _verify(args)
     if cmd == "restore":
         return _restore(args)
+    if cmd == "export":
+        from engram.brain_export import run_export
+
+        return await run_export(args)
     if cmd == "compact":
         return await _compact(args)
     if cmd == "ovfix":
