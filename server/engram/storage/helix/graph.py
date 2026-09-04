@@ -1693,7 +1693,7 @@ class HelixGraphStore:
         # spawning the same uncancellable 20s BM25 zombies that starve it.
         breaker = self._bm25_breaker()
         bm25_results: list[Any] = []
-        if breaker is None or breaker.allow_call():
+        if breaker is None or breaker.allow_call(as_probe=False):
             bm25_limit = max(limit * 3, 30)
             bm25_started = time.monotonic()
             try:

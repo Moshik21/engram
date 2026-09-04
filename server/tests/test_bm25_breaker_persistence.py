@@ -226,3 +226,25 @@ def test_breaker_releases_a_probe_that_never_reported():
     assert breaker.snapshot()["staleProbes"] == 1
     breaker.record_call(5.0)
     assert not breaker.is_open
+
+
+def test_open_breaker_serializes_probes_instead_of_blacking_out():
+    """Default shape: after opening, the very next call is a probe, concurrent
+    callers are skipped, a failed probe does NOT start a wait, and the first
+    warm probe closes it."""
+    from engram.storage.helix.search import Bm25CircuitBreaker
+
+    clock = [0.0]
+    breaker = Bm25CircuitBreaker("k", budget_ms=10.0, clock=lambda: clock[0])
+    breaker.record_call(50.0)
+    breaker.record_call(50.0)
+    assert breaker.is_open
+    assert breaker.allow_call() is True  # probe, immediately
+    assert breaker.allow_call() is False  # one in flight at a time
+    breaker.record_call(50.0)  # failed probe
+    assert breaker.is_open
+    clock[0] = 0.5
+    assert breaker.allow_call() is True  # no blackout: next call is the next probe
+    breaker.record_call(25.0)  # under the 3x grace -> closes
+    assert not breaker.is_open
+    assert breaker.snapshot()["closes"] == 1

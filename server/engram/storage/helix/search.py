@@ -262,7 +262,14 @@ _BM25_BREAKER_BUDGET_MS = 1000.0
 _BM25_BREAKER_CANCEL_STRIKE_MS = _BM25_BREAKER_BUDGET_MS
 _BM25_PROBE_GRACE = 3.0  # a cold half-open probe may take this many budgets and still close
 _BM25_BREAKER_OPEN_AFTER = 2  # consecutive over-budget calls
-_BM25_BREAKER_RETRY_AFTER_SECONDS = 60.0  # half-open probe interval
+# 0 = no blackout: while open, BM25 is SERIALIZED to one in-flight probe
+# at a time (judged at _BM25_PROBE_GRACE x budget) instead of skipped for a
+# fixed window. Measured 2026-09-04: with a 60 s window the fresh shell's two
+# cold calls opened the lane for the next 80 s of every restart/idle, and the
+# meter's cold run scored 0 while the warm runs scored 4-5. The pool is still
+# protected (at most one BM25 zombie), and recovery is the first warm call.
+_BM25_BREAKER_RETRY_AFTER_SECONDS = 0.0
+_BM25_BREAKER_LOG_EVERY = 20  # per-probe log lines while open: first, then every Nth
 # A granted half-open probe that never reports back (a caller path that was
 # cancelled without recording -- the native hard timeout is 20 s) would hold
 # the probe slot forever and the lane would stay off with no log line.
@@ -375,6 +382,7 @@ class Bm25CircuitBreaker:
         self._opened_at: float | None = None
         self._half_open_probe = False
         self._probe_granted_at: float | None = None
+        self._probes_this_window = 0
         self._pre_armed = False
         self._stats = {
             "overBudgetCalls": 0,
@@ -446,10 +454,18 @@ class Bm25CircuitBreaker:
         """True when BM25 is open or just blew its budget (>=1 strike)."""
         return self.is_open or self._consecutive_over_budget > 0
 
-    def allow_call(self) -> bool:
-        """Return True when a BM25 call may launch; count skips otherwise."""
+    def allow_call(self, *, as_probe: bool = True) -> bool:
+        """Return True when a BM25 call may launch; count skips otherwise.
+
+        ``as_probe=False`` (write-side candidate searches) never takes the
+        probe slot: only recall's own lane carries the probe, so a capture-lane
+        zombie cannot hold recall's recovery hostage.
+        """
         if self._opened_at is None:
             return True
+        if not as_probe:
+            self._stats["skippedCalls"] += 1
+            return False
         now = self._clock()
         if (
             self._half_open_probe
@@ -467,10 +483,14 @@ class Bm25CircuitBreaker:
         if not self._half_open_probe and now - self._opened_at >= self._retry_after_seconds:
             self._half_open_probe = True
             self._probe_granted_at = now
-            logger.warning(
-                "BM25 circuit breaker HALF-OPEN (key=%s): allowing one probe call",
-                self.key,
-            )
+            self._probes_this_window += 1
+            if self._probes_this_window == 1:
+                logger.warning(
+                    "BM25 circuit breaker HALF-OPEN (key=%s): BM25 serialized to one "
+                    "probe call at a time until one answers under %.0fms",
+                    self.key,
+                    self._budget_ms * _BM25_PROBE_GRACE,
+                )
             return True
         self._stats["skippedCalls"] += 1
         return False
@@ -498,29 +518,28 @@ class Bm25CircuitBreaker:
                 # Failed probe: restart the open window.
                 self._opened_at = self._clock()
                 self._persist_open_state(elapsed_ms)
-                logger.warning(
-                    "BM25 circuit breaker RE-OPENED after failed probe "
-                    "(key=%s, elapsed=%.0fms, cancelled=%s): skipping native "
-                    "BM25 lanes for %.0fs — vector/graph lanes carry recall",
-                    self.key,
-                    elapsed_ms,
-                    cancelled,
-                    self._retry_after_seconds,
-                )
+                if self._probes_this_window % _BM25_BREAKER_LOG_EVERY == 1:
+                    logger.warning(
+                        "BM25 circuit breaker probe %d failed (key=%s, elapsed=%.0fms, "
+                        "cancelled=%s): BM25 stays serialized; vector/graph lanes carry "
+                        "recall",
+                        self._probes_this_window,
+                        self.key,
+                        elapsed_ms,
+                        cancelled,
+                    )
             elif self._opened_at is None and self._consecutive_over_budget >= self._open_after:
                 self._opened_at = self._clock()
                 self._stats["opens"] += 1
                 self._persist_open_state(elapsed_ms)
                 logger.warning(
                     "BM25 circuit breaker OPEN after %d consecutive over-budget "
-                    "native BM25 calls (key=%s, last=%.0fms, cancelled=%s): "
-                    "skipping native BM25 lanes for %.0fs — vector/graph lanes "
-                    "carry recall",
+                    "native BM25 calls (key=%s, last=%.0fms, cancelled=%s): BM25 "
+                    "serialized to one probe at a time; vector/graph lanes carry recall",
                     self._consecutive_over_budget,
                     self.key,
                     elapsed_ms,
                     cancelled,
-                    self._retry_after_seconds,
                 )
             return
         if cancelled:
@@ -530,6 +549,7 @@ class Bm25CircuitBreaker:
         if self._opened_at is not None:
             self._opened_at = None
             self._pre_armed = False
+            self._probes_this_window = 0
             self._stats["closes"] += 1
             self._clear_persisted_state()
             logger.warning(

@@ -130,8 +130,9 @@ def test_config_defaults_pinned():
     assert cfg.retrieval_bm25_breaker_enabled is True
     # Breaker shape pinned: N=2 consecutive strikes, 300s half-open retry.
     assert _BM25_BREAKER_OPEN_AFTER == 2
-    # 2026-09-03: probes are shielded, so recovery can be quick.
-    assert _BM25_BREAKER_RETRY_AFTER_SECONDS == 60.0
+    # 2026-09-04: no blackout — open means serialized probes, so the lane is
+    # back on the first warm call instead of after a fixed window.
+    assert _BM25_BREAKER_RETRY_AFTER_SECONDS == 0.0
 
 
 # ---------------------------------------------------------------------------
