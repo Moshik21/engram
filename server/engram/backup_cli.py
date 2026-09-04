@@ -81,8 +81,10 @@ def configure_backup_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     from engram.brain_export import build_parser as _build_export_parser
+    from engram.brain_import import build_parser as _build_import_parser
 
     _build_export_parser(sub)
+    _build_import_parser(sub)
 
     compact_p = sub.add_parser(
         "compact",
@@ -639,6 +641,10 @@ async def run_backup_command(args: argparse.Namespace) -> int:
         from engram.brain_export import run_export
 
         return await run_export(args)
+    if cmd == "import":
+        from engram.brain_import import run_import
+
+        return await run_import(args)
     if cmd == "compact":
         return await _compact(args)
     if cmd == "ovfix":
