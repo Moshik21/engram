@@ -1,0 +1,180 @@
+{
+ "description": "Untouched June-Aug questions (recall_meter_rig_clean_2026-09) in battery shape, for the fresh-agent arm comparison.",
+ "scoring": "hit = any expected_tokens group fully present in top-3 surfaced text; wrong_hit = high-score result unrelated to question; miss = no group present",
+ "questions": [
+  {
+   "id": "scholar-arp",
+   "q": "why could we not find the Scholar host on the LAN from this machine",
+   "expected_tokens": [
+    [
+     "arp",
+     "cache"
+    ],
+    [
+     "scholar"
+    ]
+   ]
+  },
+  {
+   "id": "lying-gauges",
+   "q": "which instrument extrapolated the relationship count from a ten entity sample",
+   "expected_tokens": [
+    [
+     "extrapolates"
+    ],
+    [
+     "relationships"
+    ]
+   ]
+  },
+  {
+   "id": "m31-bridge-reach",
+   "q": "what did the M3.1 run show for bridge reach when producer and consumer ran together",
+   "expected_tokens": [
+    [
+     "22/36"
+    ],
+    [
+     "graph",
+     "won"
+    ]
+   ]
+  },
+  {
+   "id": "cleanup-commits",
+   "q": "which commits landed from the cleanup workflow with the briefing triples and cue loop",
+   "expected_tokens": [
+    [
+     "6a6b5b5"
+    ],
+    [
+     "fe971e4"
+    ]
+   ]
+  },
+  {
+   "id": "judge-panel",
+   "q": "how did the judge panel score the cognitive core plan and what did it endorse",
+   "expected_tokens": [
+    [
+     "judge",
+     "panel"
+    ],
+    [
+     "one-store-two-views"
+    ]
+   ]
+  },
+  {
+   "id": "locomo-stub",
+   "q": "why is the LoCoMo harness a non-functional stub",
+   "expected_tokens": [
+    [
+     "schema",
+     "mismatch"
+    ],
+    [
+     "locomo10"
+    ]
+   ]
+  },
+  {
+   "id": "oracle-sonnet",
+   "q": "why is the 83 percent oracle result mostly a Sonnet number rather than an Engram number",
+   "expected_tokens": [
+    [
+     "oracle"
+    ],
+    [
+     "distractors"
+    ]
+   ]
+  },
+  {
+   "id": "core-fixes-doc",
+   "q": "which document holds the cognitive core fixes plan and how is it structured",
+   "expected_tokens": [
+    [
+     "cognitive_core_fixes"
+    ],
+    [
+     "waves"
+    ]
+   ]
+  },
+  {
+   "id": "value-equation",
+   "q": "what equation describes the value of a surfaced memory and which term does Engram ignore",
+   "expected_tokens": [
+    [
+     "already"
+    ],
+    [
+     "correct"
+    ]
+   ]
+  },
+  {
+   "id": "m0-in-flight",
+   "q": "what was in flight alongside the M0 workflow and the retroactive verify",
+   "expected_tokens": [
+    [
+     "retroactive",
+     "verify"
+    ],
+    [
+     "flock"
+    ]
+   ]
+  },
+  {
+   "id": "ci-hang",
+   "q": "was the CI test run actually hanging or was it cancelled",
+   "expected_tokens": [
+    [
+     "cancel-in-progress"
+    ],
+    [
+     "56%"
+    ]
+   ]
+  },
+  {
+   "id": "vector-autopsy",
+   "q": "how many of the 8876 episodes ever had a vector and why",
+   "expected_tokens": [
+    [
+     "8,876"
+    ],
+    [
+     "projection"
+    ]
+   ]
+  },
+  {
+   "id": "p7-null",
+   "q": "how is the P7 briefing experiment framed",
+   "expected_tokens": [
+    [
+     "null",
+     "hypothesis"
+    ],
+    [
+     "briefing"
+    ]
+   ]
+  },
+  {
+   "id": "codegen-identical",
+   "q": "how token identical was the fresh Helix codegen compile to the checked in file",
+   "expected_tokens": [
+    [
+     "99.65%"
+    ],
+    [
+     "codegen"
+    ]
+   ]
+  }
+ ]
+}

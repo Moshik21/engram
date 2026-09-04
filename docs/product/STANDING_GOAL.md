@@ -291,6 +291,7 @@ resets. Status as of 2026-07-24 evening.
 | 12 | P7 presence curve — should session-start exist at all? | reframe the briefing as a design experiment, not a filter |
 | 9 | P4 small-brain / fresh-install behaviour | everything was tuned on a pathological 9,343-episode corpus |
 | 4 | RF flip, `ef_search` rebuild, `reindex_sweep` re-test, feeder flip, website sync | note the ef_search item targets a dead file — see 27 |
+| — | **Step 2 read, untouched questions: fresh agent with Engram 8/14 vs project files 4/14 (+4), at 69 k chars vs 13 k; on the session-topic battery 8/10 vs 6/10 (+2), 62 k vs 13 k** | 2026-09-04, `engram battery --fresh-agent --against-live --battery-path tests/rigs/agent_experience_battery_untouched_2026-09.json`, containment judge, warm shell. Two bars, keep them apart: the fresh-agent suite scores a hit when *any* expected group is present; the meter needs *all* groups — the same 14 questions are 8/14 on the first bar and 3–4/14 on the second. Read together: Engram usually surfaces half of an answer for an unseen question, at ~5× the characters of the repo files. The lift is real on the untouched set (+4) and smaller on the session-topic set (+2), the opposite of what self-reference would predict — the session-topic questions are the ones CLAUDE.md also answers. |
 
 ### T4 — strategic
 See §7.
@@ -579,3 +580,6 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   exists so that check is not needed. Open from today: the `recent_observation` ≥3-token hijack
   (T1 row), and the machine itself — swap 3.3/4 GB with the shell at 3.3 GB resident — which makes
   every live number on this box a *swapping-machine* number until the working set shrinks.
+- **2026-09-04** — Step 2 read (T3 row): untouched questions, fresh agent **8/14 with Engram vs 4/14
+  from project files**, +4, at 69 k vs 13 k chars; the bar is any-group, the meter's is all-groups
+  (3–4/14 on the same questions). Battery file committed so the number can be re-run.
