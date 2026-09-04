@@ -552,3 +552,85 @@ class TestMopReindexSweepGate:
             "reason": "reindex_sweep_enabled=False",
         }
         assert search.index_episode_calls == []  # never touched the index
+
+
+class TestDeindexOnly:
+    @pytest.mark.asyncio
+    async def test_deindex_only_touches_machinery_and_nothing_else(self):
+        """Substantive rows keep their coarse vectors, machinery loses its rows,
+        the cursor advances over both, and a dead provider is irrelevant."""
+        graph = FakeGraphStore(
+            episodes=[
+                _episode("s1", created=100.0),
+                _machinery_episode("m1", created=200.0),
+                _episode("s2", created=300.0),
+            ]
+        )
+        search = FakeSearchIndex(broken_provider=True)
+        for eid in ("s1", "m1", "s2"):
+            search.seed_row("episode", eid)
+        search.seed_row("chunk", "m1", 0)
+
+        result = await reindex_sweep_episodes(graph, search, "g", deindex_only=True)
+
+        assert result.deindexed_machinery == 1
+        assert result.skipped_substantive == 2
+        assert result.reindexed == 0
+        assert result.rows_deleted == 2
+        assert sorted(search.episode_ids_with_rows("episode")) == ["s1", "s2"]
+        assert search.episode_ids_with_rows("chunk") == []
+        assert result.cursor_next == (300.0, "s2")
+        assert result.complete is True
+        assert result.to_dict()["skipped_substantive"] == 2
+
+    @pytest.mark.asyncio
+    async def test_deindex_only_dry_run_counts_planned_and_keeps_rows(self):
+        graph = FakeGraphStore(episodes=[_machinery_episode("m1", created=100.0)])
+        search = FakeSearchIndex()
+        search.seed_row("episode", "m1")
+
+        result = await reindex_sweep_episodes(graph, search, "g", deindex_only=True, dry_run=True)
+
+        assert result.deindexed_machinery == 1
+        assert result.rows_deleted == 0
+        assert search.episode_ids_with_rows("episode") == ["m1"]
+
+
+class TestMopMachineryDeindex:
+    @pytest.mark.asyncio
+    async def test_mop_deindexes_machinery_while_the_reindex_sweep_is_off(
+        self, engram_home: Path
+    ):
+        graph = FakeGraphStore(
+            episodes=[_episode("s1", created=100.0), _machinery_episode("m1", created=200.0)]
+        )
+        search = FakeSearchIndex(broken_provider=True)
+        search.seed_row("episode", "s1")
+        search.seed_row("episode", "m1")
+
+        report = await _run_mop(graph, search, sweep_enabled=False)
+
+        assert report["mop"]["reindex_sweep"]["skipped"] is True
+        md = report["mop"]["machinery_deindex"]
+        assert md["deindexed_machinery"] == 1 and md["skipped_substantive"] == 1
+        assert search.episode_ids_with_rows("episode") == ["s1"]
+        assert search.index_episode_calls == []
+        state = json.loads((engram_home / "hygiene-state.json").read_text())
+        assert state["machinery_deindex"]["g"]["complete"] is True
+        again = await _run_mop(graph, search, sweep_enabled=False)
+        assert again["mop"]["machinery_deindex"] == {"skipped": True, "reason": "pass complete"}
+
+    @pytest.mark.asyncio
+    async def test_mop_dry_run_reports_planned_machinery_deindex(self, engram_home: Path):
+        graph = FakeGraphStore(episodes=[_machinery_episode("m1", created=200.0)])
+        search = FakeSearchIndex()
+        search.seed_row("episode", "m1")
+
+        report = await _run_mop(graph, search, dry_run=True, sweep_enabled=False)
+
+        md = report["mop"]["machinery_deindex"]
+        assert md["dry_run"] is True and md["deindexed_machinery"] == 1
+        assert search.episode_ids_with_rows("episode") == ["m1"]
+        state_path = engram_home / "hygiene-state.json"
+        if state_path.exists():
+            assert "machinery_deindex" not in json.loads(state_path.read_text())

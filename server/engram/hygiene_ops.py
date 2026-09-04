@@ -54,6 +54,10 @@ _USAGE_DECAY_SECONDS_MAX = 120.0
 # cursor + complete flag persist in the hygiene state.
 _REINDEX_SWEEP_EPISODES_MAX = 25
 _REINDEX_SWEEP_SECONDS_MAX = 300.0
+# De-index-only windows never embed: a window is by-id row probes plus row
+# deletes (~0.05 s / 200 ids measured for M0.2), so it can afford a corpus-
+# sized budget per 2 h window instead of the sweep's 25.
+_MACHINERY_DEINDEX_EPISODES_MAX = 500
 
 
 def _hygiene_state_path() -> Path:
@@ -689,6 +693,74 @@ async def execute_hygiene_mop(
             except Exception:
                 logger.exception("mop reindex sweep failed")
                 mop["reindex_sweep"] = {"status": "error"}
+
+    # Machinery de-index (2026-09-04): the capture-time salience gate keeps NEW
+    # machinery captures out of vector space, but every machinery episode
+    # vectorised before the gate kept its rows — the only de-indexer lived
+    # inside the reindex sweep above, which ships OFF. This drain runs the
+    # sweep's machinery branch alone (no provider, no re-index), newest-first
+    # under the same per-window budget, with its own cursor; a completed pass
+    # is marked and never re-runs. The salience kill switch empties the
+    # predicate, so it needs no knob of its own.
+    if not getattr(activation_cfg, "salience_gated_embedding_enabled", True):
+        mop["machinery_deindex"] = {
+            "skipped": True,
+            "reason": "salience_gated_embedding_enabled=False",
+        }
+    else:
+        state = _read_hygiene_state()
+        md_all = state.get("machinery_deindex")
+        md_all = dict(md_all) if isinstance(md_all, dict) else {}
+        md_group = md_all.get(group_id)
+        md_group = dict(md_group) if isinstance(md_group, dict) else {}
+        md_cursor: tuple[float, str] | None = None
+        raw_cursor = md_group.get("cursor")
+        if isinstance(raw_cursor, (list, tuple)) and len(raw_cursor) == 2:
+            try:
+                md_cursor = (float(raw_cursor[0]), str(raw_cursor[1]))
+            except (TypeError, ValueError):
+                md_cursor = None
+        if md_group.get("complete") is True:
+            mop["machinery_deindex"] = {"skipped": True, "reason": "pass complete"}
+        else:
+            try:
+                md_result = await asyncio.wait_for(
+                    reindex_sweep_episodes(
+                        graph_store,
+                        search_index,
+                        group_id,
+                        max_episodes=_MACHINERY_DEINDEX_EPISODES_MAX,
+                        cursor=md_cursor,
+                        machinery=_machinery_skip,
+                        newest_first=True,
+                        deindex_only=True,
+                        dry_run=bool(dry_run),
+                        deadline_ts=time.monotonic() + _REINDEX_SWEEP_SECONDS_MAX,
+                    ),
+                    timeout=_REINDEX_SWEEP_SECONDS_MAX + 30.0,
+                )
+                if not dry_run:
+                    if md_result.cursor_next is not None:
+                        md_group["cursor"] = list(md_result.cursor_next)
+                    if md_result.complete:
+                        md_group["complete"] = True
+                    if md_result.cursor_next is not None or md_result.complete:
+                        md_all[group_id] = md_group
+                        state["machinery_deindex"] = md_all
+                        _write_hygiene_state(state)
+                mop["machinery_deindex"] = md_result.to_dict()
+                mop["machinery_deindex"]["budget"] = _MACHINERY_DEINDEX_EPISODES_MAX
+                mop["machinery_deindex"]["dry_run"] = bool(dry_run)
+            except TimeoutError:
+                logger.warning(
+                    "mop machinery de-index exceeded its wall-clock bound (%ss) — "
+                    "window closed early, cursor kept",
+                    _REINDEX_SWEEP_SECONDS_MAX,
+                )
+                mop["machinery_deindex"] = {"status": "timeout"}
+            except Exception:
+                logger.exception("mop machinery de-index failed")
+                mop["machinery_deindex"] = {"status": "error"}
 
     # M4.1 usage-decay demotion (D4 demotion-first): chronic surfaced-never-
     # used episodes/cues/entities get an offline demotion marker. P5: the

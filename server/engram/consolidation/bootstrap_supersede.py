@@ -84,7 +84,11 @@ async def supersede_bootstrap_snapshots(
     dry_run: bool = False,
 ) -> BootstrapSupersedeResult:
     result = BootstrapSupersedeResult(dry_run=dry_run)
-    rows = await graph_store._query("find_episodes_by_group", {"gid": group_id})
+    query = getattr(graph_store, "_query", None)
+    if not callable(query):
+        # Lite / fake stores have no raw query surface: nothing to supersede.
+        return result
+    rows = await query("find_episodes_by_group", {"gid": group_id})
     result.scanned = len(rows)
     keys = {snapshot_key(r.get("content")) for r in rows}
     keys.discard(None)

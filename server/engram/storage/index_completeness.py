@@ -917,6 +917,7 @@ class ReindexSweepResult:
     reindexed: int = 0
     deindexed_machinery: int = 0
     skipped_capture_indexed: int = 0
+    skipped_substantive: int = 0  # deindex_only: substantive rows left untouched
     failed: int = 0
     rows_deleted: int = 0
     cursor_next: tuple[float, str] | None = None
@@ -930,6 +931,7 @@ class ReindexSweepResult:
             "reindexed": self.reindexed,
             "deindexed_machinery": self.deindexed_machinery,
             "skipped_capture_indexed": self.skipped_capture_indexed,
+            "skipped_substantive": self.skipped_substantive,
             "failed": self.failed,
             "rows_deleted": self.rows_deleted,
             "cursor": list(self.cursor_next) if self.cursor_next is not None else None,
@@ -955,8 +957,17 @@ async def reindex_sweep_episodes(
     deadline_ts: float | None = None,
     machinery: Callable[[Any], bool] | None = None,
     newest_first: bool = False,
+    deindex_only: bool = False,
 ) -> ReindexSweepResult:
     """One-time historical re-index of the coarse emergency-backfill corpus.
+
+    ``deindex_only=True`` runs just the MACHINERY branch: substantive
+    episodes are passed over untouched (counted as ``skipped_substantive``)
+    and the embedding provider is never needed. This is the mop's standalone
+    machinery de-index drain (2026-09-04): the re-index half of this sweep
+    ships OFF because it enlarges the vector index, and that left every
+    machinery episode vectorised before the capture-time gate holding its
+    rows with no drain able to reach them.
 
     The 2026-07-21 emergency backfill wrote ONE vector per episode from
     1,200-char truncated text; the designed ``index_episode`` path writes a
@@ -1051,7 +1062,7 @@ async def reindex_sweep_episodes(
             vecs_by_ep.setdefault(eid, []).append(row)
 
     is_machinery = {key[1]: bool(machinery(ep)) for key, ep in window}
-    needs_embed = any(
+    needs_embed = not deindex_only and any(
         not is_machinery[key[1]] and key[1] not in chunks_by_ep for key, _ep in window
     )
     if needs_embed and not dry_run:
@@ -1100,6 +1111,12 @@ async def reindex_sweep_episodes(
             else:
                 result.failed += 1
                 prefix_intact = False
+            continue
+
+        if deindex_only:
+            result.skipped_substantive += 1
+            if not dry_run and prefix_intact:
+                cursor_candidate = key
             continue
 
         if eid in chunks_by_ep:
