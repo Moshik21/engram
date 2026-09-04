@@ -224,6 +224,9 @@ def _build_service(graph: _FakeGraphStore, cfg: ActivationConfig) -> RecallServi
 
 def _quiet_recall_config() -> ActivationConfig:
     return ActivationConfig(
+        recall_short_episode_floor_chars=0,
+        recall_machinery_episode_multiplier=1.0,
+        recall_other_project_multiplier=1.0,
         multi_pool_enabled=False,
         graph_query_expansion_enabled=False,
         template_reformulation_enabled=False,
