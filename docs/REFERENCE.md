@@ -123,7 +123,7 @@ Details: [`docs/install/helix.md`](docs/install/helix.md)
 
 ### API Keys
 
-Engram never calls an external model in operation. No key is required: structure comes from the resident agent, and embeddings are local FastEmbed on every shipped install (the install env pins `provider=local`).
+Engram never calls an external model in operation. No key is required: structure comes from the resident agent, and embeddings are local FastEmbed (local FastEmbed is the only embedding provider and no key is read; `noop` disables vectors).
 
 #### Extraction Provider
 
@@ -147,10 +147,10 @@ The resident agent holding the MCP is the extractor: it passes `proposed_entitie
 
 #### Embeddings
 
-Embeddings are local: [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768d, 137M params) via fastembed (ONNX runtime, CPU). fastembed is a default dependency; the model (~130MB) is downloaded on first use and cached locally. Embeddings are local FastEmbed on every shipped install (the install env pins `provider=local`); no key is required.
+Embeddings are local: [Nomic Embed v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) (768d, 137M params) via fastembed (ONNX runtime, CPU). fastembed is a default dependency; the model (~130MB) is downloaded on first use and cached locally. Embeddings are local FastEmbed (local FastEmbed is the only embedding provider and no key is read; `noop` disables vectors); no key is required.
 
 ```bash
-export ENGRAM_EMBEDDING__PROVIDER=local   # local FastEmbed — pinned by the install env on every shipped install; noop disables embeddings
+export ENGRAM_EMBEDDING__PROVIDER=local   # local FastEmbed (local FastEmbed is the only embedding provider and no key is read; `noop` disables vectors); noop disables embeddings
 ```
 
 **Without embeddings** (`ENGRAM_EMBEDDING__PROVIDER=noop`): Engram still works — retrieval uses FTS5 keyword matching, ACT-R activation, and spreading activation. You lose semantic similarity but keep everything else.

@@ -41,9 +41,8 @@ native = []  # installer adds helix-native from release wheels/source until PyPI
 gnn = ["torch>=2.0.0"]
 helix = ["helix-py>=0.2.30"]
 grpc = ["grpcio>=1.60.0", "grpcio-tools>=1.60.0"]
-gemini = ["google-genai>=1.0.0"]
 # External model clients are benchmark-only: Engram never calls one in operation.
-benchmark = ["anthropic>=0.40.0", "voyageai>=0.3.0"]
+benchmark = ["anthropic>=0.40.0"]
 full = [
     "redis[hiredis]>=5.0.0",
     "falkordb>=1.0.0",
@@ -56,7 +55,7 @@ full = [
 
 [dependency-groups]
 dev = [
-    "engram[full,local,helix,grpc,gemini,benchmark]",
+    "engram[full,local,helix,grpc,benchmark]",
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",

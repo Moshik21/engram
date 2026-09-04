@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import cast
 
 from engram.config import EngramConfig
@@ -14,69 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 def _create_embedding_provider(config: EngramConfig):
-    """Resolve embedding provider from config with automatic fallback.
+    """Resolve the embedding provider from config.
 
-    Resolution order for ``"auto"`` (default):
-    1. Voyage — if VOYAGE_API_KEY is set
-    2. Local (FastEmbed) — always available (default dependency)
-    3. Noop — vector search disabled, FTS5 still works
+    Local FastEmbed is the only provider (2026-09-04: Engram never calls an
+    external model; no API key is read). ``"noop"`` disables vectors; BM25 /
+    FTS5 still work.
     """
-    from engram.embeddings.provider import NoopProvider, VoyageProvider
+    from engram.embeddings.provider import NoopProvider
 
     provider_type = config.embedding.provider.lower()
 
-    # --- Gemini (explicit or auto-detected) ---
-    if provider_type in ("gemini", "auto"):
-        # GEMINI_API_KEY may be in .env but not os.environ (pydantic reads it
-        # into config but doesn't export). Load dotenv to ensure visibility.
-        from dotenv import load_dotenv
-
-        load_dotenv()
-        gemini_key = os.environ.get("GEMINI_API_KEY", "")
-        if gemini_key or provider_type == "gemini":
-            try:
-                from engram.embeddings.provider import GeminiProvider
-
-                model = config.embedding.gemini_model
-                dims = config.embedding.dimensions if config.embedding.dimensions > 0 else 3072
-                provider = GeminiProvider(
-                    api_key=gemini_key,
-                    model=model,
-                    dimensions=dims,
-                    batch_size=config.embedding.batch_size,
-                )
-                config.embedding.dimensions = dims
-                logger.info("Embedding provider: GeminiProvider (%s, %dd)", model, dims)
-                return provider
-            except ImportError:
-                if provider_type == "gemini":
-                    logger.warning("google-genai not installed — pip install google-genai")
-                # Fall through to next provider
-            except Exception as e:
-                # silent-ok: provider ladder; logged Gemini failure falls through to next provider
-                logger.warning("GeminiProvider init failed: %s", e)
-
-    # --- Voyage (explicit or auto-fallback) ---
-    if provider_type in ("voyage", "auto"):
-        api_key = config.embedding.api_key or os.environ.get("VOYAGE_API_KEY", "")
-        if api_key:
-            dims = config.embedding.dimensions if config.embedding.dimensions > 0 else 1024
-            config.embedding.dimensions = dims
-            logger.info(
-                "Embedding provider: VoyageProvider (%s, %dd)", config.embedding.model, dims
-            )
-            return VoyageProvider(
-                api_key=api_key,
-                model=config.embedding.model,
-                dimensions=dims,
-                batch_size=config.embedding.batch_size,
-            )
-        if provider_type == "voyage":
-            logger.warning("No VOYAGE_API_KEY — falling back to local embeddings")
-        provider_type = "local"
-
-    # --- Local (FastEmbed) ---
-    if provider_type in ("local", "auto"):
+    if provider_type == "local":
         try:
             from engram.embeddings.provider import FastEmbedProvider
 
@@ -131,24 +78,11 @@ def create_stores(
         storage_dim = config.embedding.storage_dimensions
         if storage_dim > 0 and storage_dim >= provider.dimension():
             storage_dim = 0  # no truncation if storage >= native
-        if storage_dim > 0 and config.embedding.provider == "voyage":
-            logger.warning(
-                "Matryoshka truncation (storage_dimensions=%d) is not supported "
-                "by Voyage models. Only Nomic Embed v1.5 supports this. "
-                "Set ENGRAM_EMBEDDING__STORAGE_DIMENSIONS=0 or use provider=local.",
-                storage_dim,
-            )
 
         # Embedding metadata for versioning
         provider_type = config.embedding.provider.lower()
         embed_meta_provider = provider_type
-        embed_meta_model = (
-            config.embedding.model
-            if provider_type == "voyage"
-            else config.embedding.local_model
-            if provider_type == "local"
-            else "noop"
-        )
+        embed_meta_model = config.embedding.local_model if provider_type == "local" else "noop"
 
         fts = FTS5SearchIndex(db_path)
         vectors = SQLiteVectorStore(db_path)
@@ -185,22 +119,10 @@ def create_stores(
         storage_dim = config.embedding.storage_dimensions
         if storage_dim > 0 and storage_dim >= provider.dimension():
             storage_dim = 0
-        if storage_dim > 0 and config.embedding.provider == "voyage":
-            logger.warning(
-                "Matryoshka truncation (storage_dimensions=%d) is not supported "
-                "by Voyage models. Use provider=local for Matryoshka support.",
-                storage_dim,
-            )
 
         provider_type = config.embedding.provider.lower()
         embed_meta_provider = provider_type
-        embed_meta_model = (
-            config.embedding.model
-            if provider_type == "voyage"
-            else config.embedding.local_model
-            if provider_type == "local"
-            else "noop"
-        )
+        embed_meta_model = config.embedding.local_model if provider_type == "local" else "noop"
 
         # Create shared async client for all Helix stores
         from engram.storage.helix.client import HelixClient
@@ -266,22 +188,10 @@ def create_stores(
         storage_dim = config.embedding.storage_dimensions
         if storage_dim > 0 and storage_dim >= provider.dimension():
             storage_dim = 0
-        if storage_dim > 0 and config.embedding.provider == "voyage":
-            logger.warning(
-                "Matryoshka truncation (storage_dimensions=%d) is not supported "
-                "by Voyage models. Use provider=local for Matryoshka support.",
-                storage_dim,
-            )
 
         provider_type = config.embedding.provider.lower()
         embed_meta_provider = provider_type
-        embed_meta_model = (
-            config.embedding.model
-            if provider_type == "voyage"
-            else config.embedding.local_model
-            if provider_type == "local"
-            else "noop"
-        )
+        embed_meta_model = config.embedding.local_model if provider_type == "local" else "noop"
 
         return cast(
             tuple[GraphStore, ActivationStore, SearchIndex],

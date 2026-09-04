@@ -110,17 +110,57 @@ class PostgreSQLConfig(BaseModel):
     max_pool_size: int = 10
 
 
+# 2026-09-04: config keys/values of the removed external embedding providers
+# (Gemini, Voyage, the 'auto' ladder that picked them up from an API key). Seen
+# in a config or env they are dropped or mapped to local with a warning instead
+# of failing startup.
+_RETIRED_EMBEDDING_KEYS = ("api_key", "gemini_model", "model")
+_RETIRED_EMBEDDING_VALUES = ("auto", "gemini", "voyage")
+
+
 class EmbeddingConfig(BaseModel):
-    provider: str = "auto"  # "auto" | "gemini" | "voyage" | "local" | "noop"
-    model: str = "voyage-4-lite"  # voyage model name
-    gemini_model: str = "gemini-embedding-2-preview"
+    @model_validator(mode="before")
+    @classmethod
+    def _retire_external_providers(cls, data: Any) -> Any:
+        """Map retired external-embedding config to local, loudly (2026-09-04)."""
+        if not isinstance(data, dict):
+            return data
+        for key in _RETIRED_EMBEDDING_KEYS:
+            if key in data:
+                data = dict(data)
+                data.pop(key)
+                logging.getLogger(__name__).warning(
+                    "ENGRAM_EMBEDDING__%s is retired: Engram embeds with local FastEmbed "
+                    "only and reads no API key -- delete that line from your .env",
+                    key.upper(),
+                )
+        value = data.get("provider")
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if not normalized:
+                data = dict(data)
+                data.pop("provider", None)  # blank env line == absent
+                return data
+            if normalized in _RETIRED_EMBEDDING_VALUES:
+                logging.getLogger(__name__).warning(
+                    "embedding provider=%r is retired: local FastEmbed is the only "
+                    "provider; using 'local' -- delete ENGRAM_EMBEDDING__PROVIDER "
+                    "from your .env",
+                    value,
+                )
+                normalized = "local"
+            data = dict(data)
+            data["provider"] = normalized
+        return data
+
+    # Local FastEmbed is the only provider; "noop" disables vectors (BM25/FTS only).
+    provider: str = Field(default="local", pattern="^(local|noop)$")
     local_model: str = "nomic-ai/nomic-embed-text-v1.5"  # fastembed model
     # Per-text char cap for the LOCAL model only (see FastEmbedProvider.DEFAULT_MAX_CHARS):
     # a hardware bound, not a quality knob. 0 disables the cap.
     local_max_chars: int = 2000
-    dimensions: int = 0  # 0 = use provider default (gemini=3072, voyage=1024, local=768)
+    dimensions: int = 0  # 0 = use the model's native dimension (nomic v1.5 = 768)
     storage_dimensions: int = 0  # 0 = same as native dimension (no truncation)
-    api_key: str = ""  # voyage API key
     batch_size: int = 64
     fts_weight: float = 0.3
     vec_weight: float = 0.7

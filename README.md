@@ -261,7 +261,7 @@ Details: [docs/install/helix.md](docs/install/helix.md) · [Benchmarks](docs/REF
 
 Everything runs and stays local by default.
 
-- No API key is required to operate. Embeddings are local FastEmbed (nomic) on every shipped install (the install env pins `provider=local`); extraction is the resident agent proposing entities and relationships through `remember`/`observe`, with a deterministic narrow adapter as the internal rung (regex-level entities and relationships, marked `extractedBy: narrow`, that the agent can re-propose with `remember(episode_id=...)`). Engram never calls an external model.
+- No API key is required to operate. Embeddings are local FastEmbed (nomic) (local FastEmbed is the only embedding provider and no key is read; `noop` disables vectors); extraction is the resident agent proposing entities and relationships through `remember`/`observe`, with a deterministic narrow adapter as the internal rung (regex-level entities and relationships, marked `extractedBy: narrow`, that the agent can re-propose with `remember(episode_id=...)`). Engram never calls an external model.
 - The offline capture queue at `~/.engram/capture-queue.jsonl` holds **verbatim prompts** until they are replayed into the graph on the next session start.
 - The graph store is **plaintext on disk**. An encryption config exists (`ENGRAM_ENCRYPTION__ENABLED`) but is **off by default**.
 - The REST API binds `127.0.0.1` and is **unauthenticated** by default. Only pass `--host 0.0.0.0` if you understand the exposure.

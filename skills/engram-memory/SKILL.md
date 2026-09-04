@@ -17,7 +17,7 @@ Native Helix through PyO3 is the primary OpenClaw path. It gives OpenClaw the fu
 
 ## Setup
 
-The Engram server must be running locally. No API key is required: the resident agent is the extractor (it proposes entities and relationships through `remember`/`observe`; a deterministic narrow adapter is the internal rung) and embeddings are local FastEmbed on every shipped install (the install env pins `provider=local`).
+The Engram server must be running locally. No API key is required: the resident agent is the extractor (it proposes entities and relationships through `remember`/`observe`; a deterministic narrow adapter is the internal rung) and embeddings are local FastEmbed (local FastEmbed is the only embedding provider and no key is read; `noop` disables vectors).
 
 ### Public OpenClaw install
 

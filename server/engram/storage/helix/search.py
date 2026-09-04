@@ -667,7 +667,7 @@ class HelixSearchIndex:
         provider: EmbeddingProvider,
         embed_config: EmbeddingConfig,
         storage_dim: int = 0,
-        embed_provider: str = "auto",
+        embed_provider: str = "local",
         embed_model: str = "noop",
         client=None,
         owns_client: bool | None = None,

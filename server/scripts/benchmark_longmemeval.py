@@ -203,7 +203,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument(
         "--embeddings",
-        choices=["none", "local", "voyage", "gemini", "auto"],
+        choices=["none", "local"],
         default="local",
         help="Embedding provider (default: local — deterministic FastEmbed, no API key)",
     )

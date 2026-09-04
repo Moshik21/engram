@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from engram.embeddings.provider import NoopProvider, VoyageProvider
+from engram.benchmark.voyage_provider import VoyageProvider
+from engram.embeddings.provider import NoopProvider
 
 
 class TestNoopProvider:

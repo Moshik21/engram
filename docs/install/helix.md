@@ -132,8 +132,8 @@ cd server && ENGRAM_MODE=helix ENGRAM_HELIX__HOST=localhost ENGRAM_HELIX__PORT=6
 ```bash
 # No model API key is required: the resident agent is the extractor
 # (remember/observe proposals; deterministic narrow adapter as the internal rung)
-# and embeddings are local FastEmbed on every shipped install (the install env
-# pins provider=local). ENGRAM_ACTIVATION__EXTRACTION_PROVIDER
+# and embeddings are local FastEmbed by default (the only provider that exists;
+# no key is read). ENGRAM_ACTIVATION__EXTRACTION_PROVIDER
 # accepts only "narrow"; retired auto/anthropic/ollama values and OLLAMA_* keys
 # are mapped away with a warning.
 

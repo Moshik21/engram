@@ -43,8 +43,8 @@ from engram.benchmark.metrics import (
     recall_at_k,
     reciprocal_rank,
 )
+from engram.benchmark.voyage_provider import VoyageProvider
 from engram.config import ActivationConfig
-from engram.embeddings.provider import VoyageProvider
 from engram.storage.memory.activation import MemoryActivationStore
 from engram.storage.sqlite.graph import SQLiteGraphStore
 from engram.storage.sqlite.hybrid_search import HybridSearchIndex

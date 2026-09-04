@@ -56,7 +56,10 @@ async def import_episodes(
     limit: int | None = None,
     rate_per_s: float = 5.0,
 ) -> dict[str, Any]:
-    rows = [json.loads(line) for line in (export_dir / "episodes.jsonl").read_text().splitlines()]
+    # Split on "\n" only: str.splitlines() also breaks on U+2028/U+000B and the
+    # like, which real conversation content contains (first live run died on it).
+    with (export_dir / "episodes.jsonl").open(encoding="utf-8") as fh:
+        rows = [json.loads(line) for line in fh if line.strip()]
     chosen = [r for r in rows if r.get("classification") in classes]
     if limit is not None:
         chosen = chosen[:limit]

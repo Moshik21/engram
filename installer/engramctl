@@ -372,10 +372,6 @@ write_lite_env_file() {
     anthropic="$(prompt_value 'Anthropic API key (optional, press enter to use deterministic extraction)')"
   fi
 
-  local voyage="${VOYAGE_API_KEY:-${ENGRAM_VOYAGE_API_KEY:-}}"
-  if [ -z "$voyage" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
-    voyage="$(prompt_value 'Voyage AI key (optional, press enter to skip)')"
-  fi
 
   local auth_token="${ENGRAM_AUTH__BEARER_TOKEN:-}"
   local enc_key="${ENGRAM_ENCRYPTION__MASTER_KEY:-}"
@@ -387,7 +383,6 @@ ENGRAM_INSTALL_VARIANT=lite
 ENGRAM_API_PORT=${ENGRAM_API_PORT:-8100}
 
 ANTHROPIC_API_KEY=$anthropic
-VOYAGE_API_KEY=${voyage:-}
 
 ENGRAM_MODE=$engine_mode
 # Golden-loop tool freeze for agents (operator/full for debugging).
@@ -424,10 +419,6 @@ write_full_env_file() {
     anthropic="$(prompt_value 'Anthropic API key (optional, press enter to use deterministic extraction)')"
   fi
 
-  local voyage="${VOYAGE_API_KEY:-${ENGRAM_VOYAGE_API_KEY:-}}"
-  if [ -z "$voyage" ] && [ "${ENGRAM_INSTALL_NONINTERACTIVE:-0}" != "1" ]; then
-    voyage="$(prompt_value 'Voyage AI key (optional, press enter to skip)')"
-  fi
 
   local falkor_pw="${ENGRAM_FALKORDB_PASSWORD:-$(random_hex)}"
   local redis_pw="${ENGRAM_REDIS_PASSWORD:-$(random_hex)}"
@@ -452,7 +443,6 @@ ENGRAM_API_PORT=${ENGRAM_API_PORT:-8100}
 ENGRAM_DASHBOARD_PORT=${ENGRAM_DASHBOARD_PORT:-3000}
 
 ANTHROPIC_API_KEY=$anthropic
-VOYAGE_API_KEY=$voyage
 
 ENGRAM_MODE=full
 ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE=${ENGRAM_ACTIVATION__CONSOLIDATION_PROFILE:-standard}

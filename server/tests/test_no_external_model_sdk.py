@@ -50,4 +50,9 @@ def test_external_model_sdks_are_not_base_dependencies() -> None:
     extras = pyproject["project"]["optional-dependencies"]
     assert base.isdisjoint({"anthropic", "voyageai", "google-genai", "cohere"}), base
     assert names(extras["full"]).isdisjoint({"anthropic", "voyageai"}), extras["full"]
-    assert {"anthropic", "voyageai"} <= names(extras["benchmark"])
+    assert "anthropic" in names(extras["benchmark"])
+    # Embedding clients are gone entirely: local FastEmbed is the only provider,
+    # and the benchmark's Voyage lane speaks raw httpx.
+    assert "gemini" not in extras
+    every_extra = set().union(*(names(reqs) for reqs in extras.values()))
+    assert every_extra.isdisjoint({"voyageai", "google-genai"}), every_extra

@@ -22,8 +22,9 @@ from engram.benchmark.showcase.models import (
     ScenarioTurn,
     estimate_tokens,
 )
+from engram.benchmark.voyage_provider import VoyageProvider
 from engram.config import ActivationConfig
-from engram.embeddings.provider import EmbeddingProvider, FastEmbedProvider, VoyageProvider
+from engram.embeddings.provider import EmbeddingProvider, FastEmbedProvider
 from engram.extraction.extractor import EntityExtractor, ExtractionResult
 from engram.graph_manager import GraphManager
 from engram.storage.bootstrap import close_if_supported

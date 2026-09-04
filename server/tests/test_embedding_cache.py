@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from engram.embeddings.provider import VoyageProvider
+from engram.benchmark.voyage_provider import VoyageProvider
 
 
 @pytest.fixture

@@ -57,3 +57,24 @@ async def test_import_posts_only_the_chosen_classes(tmp_path: Path):
     report = await import_episodes(tmp_path, post, rate_per_s=0)
     assert [p["content"][:6] for p in seen] == ["[user|"]
     assert report["chosen"] == 1 and report["posted"] == 1 and report["statuses"] == {"observed": 1}
+
+
+async def test_import_survives_unicode_line_separators_in_content(tmp_path: Path):
+    """The export writes ensure_ascii=False, so U+2028 lands raw in the file."""
+    row = {
+        "episode_id": "u",
+        "classification": "conversation",
+        "content": "[user|Engram] first\u2028second line of a real answer",
+        "source": "auto:prompt",
+    }
+    (tmp_path / "episodes.jsonl").write_text(
+        json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    seen = []
+
+    async def post(payload):
+        seen.append(payload)
+        return {"status": "observed"}
+
+    report = await import_episodes(tmp_path, post, rate_per_s=0)
+    assert report["posted"] == 1 and "\u2028" in seen[0]["content"]

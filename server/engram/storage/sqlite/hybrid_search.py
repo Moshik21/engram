@@ -668,6 +668,10 @@ class HybridSearchIndex:
                         current_dim,
                     )
                 stored_provider = row["embed_provider"] if "embed_provider" in row.keys() else ""
+                # Rows tagged 'auto' predate 2026-09-04; with no key set 'auto'
+                # resolved to the same local nomic model, so it is not a mismatch.
+                if stored_provider == "auto":
+                    stored_provider = "local"
                 if stored_provider and stored_provider != self._embed_provider and row["cnt"] > 0:
                     logger.warning(
                         "Embedding provider mismatch: %d vectors from '%s' "

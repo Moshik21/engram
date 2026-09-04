@@ -106,7 +106,7 @@ async def cmd_run(args: argparse.Namespace) -> None:
     if args.verbose:
         logging.basicConfig(level=logging.INFO)
 
-    # Load .env for GEMINI_API_KEY (embedding judge only — not Anthropic)
+    # Load .env for ENGRAM_* / FASTEMBED_CACHE_PATH (embedding judge is local)
     from dotenv import load_dotenv
 
     load_dotenv(Path.home() / ".engram" / ".env", override=False)
@@ -117,9 +117,9 @@ async def cmd_run(args: argparse.Namespace) -> None:
     # Embedding provider for containment scoring
     embed_fn = None
     try:
-        from engram.embeddings.provider import GeminiProvider
+        from engram.embeddings.provider import FastEmbedProvider
 
-        provider = GeminiProvider()
+        provider = FastEmbedProvider()
         embed_fn = provider.embed
         logger.info("Embedding provider ready for containment scoring")
     except Exception:

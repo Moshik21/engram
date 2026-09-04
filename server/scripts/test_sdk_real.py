@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from engram.benchmark.longmemeval.dataset import load_dataset
-from engram.embeddings.provider import GeminiProvider
+from engram.embeddings.provider import FastEmbedProvider
 
 os.environ.pop("CLAUDECODE", None)
 os.environ.pop("CLAUDE_CODE_ENTRYPOINT", None)
@@ -18,7 +18,7 @@ load_dotenv()
 
 # Init embedding provider (same as baseline)
 try:
-    provider = GeminiProvider()
+    provider = FastEmbedProvider()
     print("Embedding provider: OK")
 except Exception as e:
     print(f"Embedding provider failed: {e}")
