@@ -53,8 +53,18 @@ impl<'db, 'arena, 'txn, I: Iterator<Item = Result<TraversalValue<'arena>, GraphE
         K: TryInto<usize>,
         K::Error: std::fmt::Debug,
     {
+        // The BM25 index spans every label. Cutting to `k` BEFORE the label
+        // filter returned a page that was mostly other labels: measured
+        // 2026-09-03 on an 8.6k-episode brain, `SearchBM25<Episode>("Engram", 50)`
+        // yielded 7 episodes and `("semanticize", 50)` yielded 0 while 30
+        // episodes contain the word -- the top 50 across all labels were cues
+        // and chunks. The index already scores every matching document before
+        // it truncates, so fetching a wider slice costs only by-id label
+        // checks; the page is then cut to `k` AFTER the filter.
+        let k_usize: usize = k.try_into().unwrap();
+        let fetch = k_usize.saturating_mul(16).max(k_usize);
         let results = match self.storage.bm25.as_ref() {
-            Some(s) => s.search(self.txn, query, k.try_into().unwrap(), self.arena)?,
+            Some(s) => s.search(self.txn, query, fetch, self.arena)?,
             None => return Err(GraphError::from("BM25 not enabled!")),
         };
 
@@ -94,7 +104,7 @@ impl<'db, 'arena, 'txn, I: Iterator<Item = Result<TraversalValue<'arena>, GraphE
             }
             }
             None
-        });
+        }).take(k_usize);
 
         Ok(RoTraversalIterator {
             storage: self.storage,
