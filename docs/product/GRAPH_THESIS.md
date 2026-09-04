@@ -528,9 +528,13 @@ edges whose endpoints never committed (`missing_entities`), 60/60 gold vectored.
 producer cannot build a single bridge from real repository text, so the organic arm measures the
 extractor, exactly as §5 says it would. That is the extraction lever (2026-06-04), unchanged.
 
-What this does not settle (unchanged from the section above): a rebuilt consumer (§4 D/E) could
-still turn the surfaced edge into the surfaced episode; this run kills the graph *as shipped*, not
-the design space. Caveat on C: one question in 51 is not a round-trip capability either.
+Arm B is the pre-registered one: `entity_episode_traversal_source="candidates"`, the M3.1
+surfacing port that scored 22/36 on 2026-07-17 (`arms.py` `ARM_B_OVERRIDES`). Under this
+instrument — harvested text, verified bridges, the kill arm attached — **that result did not
+reproduce: 0/51.** What this does not settle (unchanged from the section above): a differently
+built consumer (§4 D/E reranker) could still turn the surfaced edge into the surfaced episode;
+this run kills the graph with the surfacing port on, not the design space. Caveat on C: one
+question in 51 is not a round-trip capability either.
 
 ### Not a valid instrument
 `engram battery`. Its scoring rule requires all tokens of one group inside **one** top-3
