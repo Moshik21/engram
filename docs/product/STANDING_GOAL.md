@@ -642,3 +642,17 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   session-start bootstrap gated off, the ledger reconciliation (c044ae5). Open: the embedding
   default flip (in flight), the fresh-brain switch (blocked on Konner's `!` block), the export's
   re-seed and re-measure.
+- **2026-09-04 (evening)** — **the fresh-brain switch is done.** Export verified (8,695 rows: 6,131
+  conversation / 1,021 machinery / 620 session / 228 probe / 695 bootstrap; 953 entities, 1,751
+  edges, 7,618 cues, 12 identity-core) at `~/.engram/exports/dogfood-axi-20260904` and a copy under
+  `~/.helix/backups/`; Konner ran the switch block (17 GB manifest-less backup + May-20 dir
+  deleted, sidecars parked in `~/.engram/retired-20260904`, `ENGRAM_HELIX__DATA_DIR` →
+  `~/.helix/engram-native-2026-09`, installed hook truncation marker). The old 7.7 GB dir and both
+  Sep-3 backups are untouched. Re-seed of the 6,131 conversation rows through the capture path
+  (`engram backup import`, 5/s) in progress; 48 h machine probe sampling to
+  `~/.engram/logs/machine-probe.jsonl`. Two traps found on the way: `uv sync` pruned the
+  undeclared native extension (fixed: `be3ae9e`, helix-native is a uv path source), and
+  `str.splitlines` broke the export on U+2028 (fixed: `6c1f78f`). `test_loop_ritual` ran LIVE
+  against the fresh shell during a suite run and promoted a test entity (deleted); §2.12 stands.
+  Step-0 baseline of the OLD brain was aborted as unmeasurable (swap 4.8/5 GB) — owed later from
+  the retained dir on a quiet machine.
