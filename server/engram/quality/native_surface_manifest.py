@@ -339,7 +339,10 @@ NATIVE_SURFACE_MANIFEST: tuple[NativeSurface, ...] = (
         identifier="list_unstructured_episodes",
         coverage="static_not_data_bound",
         evidence="server/tests/test_reproposal_drain.py",
-        note="Re-proposal drain listing: narrow-projected episodes for the resident agent (operator surface only).",
+        note=(
+            "Re-proposal drain listing: narrow-projected episodes for the resident "
+            "agent (operator surface only)."
+        ),
     ),
     NativeSurface(
         kind="mcp_tool",
