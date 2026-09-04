@@ -637,10 +637,13 @@ helix = [
 local = [
     { name = "fastembed" },
 ]
+native = [
+    { name = "helix-native" },
+]
 
 [package.dev-dependencies]
 dev = [
-    { name = "engram", extra = ["benchmark", "full", "grpc", "helix", "local"] },
+    { name = "engram", extra = ["benchmark", "full", "grpc", "helix", "local", "native"] },
     { name = "grpcio-tools" },
     { name = "httpx" },
     { name = "mypy" },
@@ -663,6 +666,7 @@ requires-dist = [
     { name = "grpcio", marker = "extra == 'full'", specifier = ">=1.60.0" },
     { name = "grpcio", marker = "extra == 'grpc'", specifier = ">=1.60.0" },
     { name = "grpcio-tools", marker = "extra == 'grpc'", specifier = ">=1.60.0" },
+    { name = "helix-native", marker = "extra == 'native'", editable = "../native/helix-repo/helix-python" },
     { name = "helix-py", marker = "extra == 'helix'", specifier = ">=0.2.30" },
     { name = "httpx", extras = ["http2"], specifier = ">=0.27.0" },
     { name = "mcp", specifier = ">=1.0.0" },
@@ -684,7 +688,7 @@ provides-extras = ["local", "native", "gnn", "helix", "grpc", "benchmark", "full
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "engram", extras = ["full", "local", "helix", "grpc", "benchmark"] },
+    { name = "engram", extras = ["full", "local", "helix", "grpc", "benchmark", "native"] },
     { name = "grpcio-tools", specifier = ">=1.60.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "mypy", specifier = ">=1.13.0" },
@@ -928,6 +932,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/1d/17/afa56379f94ad0fe8
 wheels = [
     { url = "https://files.pythonhosted.org/packages/69/b2/119f6e6dcbd96f9069ce9a2665e0146588dc9f88f29549711853645e736a/h2-4.3.0-py3-none-any.whl", hash = "sha256:c438f029a25f7945c69e0ccf0fb951dc3f73a5f6412981daee861431b70e2bdd", size = 61779, upload-time = "2025-08-23T18:12:17.779Z" },
 ]
+
+[[package]]
+name = "helix-native"
+version = "0.1.0"
+source = { editable = "../native/helix-repo/helix-python" }
 
 [[package]]
 name = "helix-py"

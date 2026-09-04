@@ -37,7 +37,7 @@ dependencies = [
 
 [project.optional-dependencies]
 local = ["fastembed>=0.5.0"]  # kept for backwards compat
-native = []  # installer adds helix-native from release wheels/source until PyPI hosting is available
+native = ["helix-native"]  # built from ../native/helix-repo/helix-python via [tool.uv.sources]
 gnn = ["torch>=2.0.0"]
 helix = ["helix-py>=0.2.30"]
 grpc = ["grpcio>=1.60.0", "grpcio-tools>=1.60.0"]
@@ -55,7 +55,7 @@ full = [
 
 [dependency-groups]
 dev = [
-    "engram[full,local,helix,grpc,benchmark]",
+    "engram[full,local,helix,grpc,benchmark,native]",
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
@@ -110,3 +110,8 @@ markers = [
     "requires_api_key: marks tests requiring external API keys",
     "requires_local_embeddings: marks tests requiring fastembed",
 ]
+
+[tool.uv.sources]
+# 2026-09-04: uv sync used to PRUNE the locally built helix_native extension (it was
+# installed by `maturin develop`, undeclared); the shell then failed to start.
+helix-native = { path = "../native/helix-repo/helix-python", editable = true }
