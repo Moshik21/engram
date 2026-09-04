@@ -626,3 +626,9 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   external API key line removed from `server/.env`, `~/.engram/.env` and the repo `.env`; shell
   restarts with no retirement warning; `engram doctor` from a plain terminal: extraction narrow,
   embeddings local, no external model. Keys that were on disk are to be rotated.
+- **2026-09-04** — state assessment (16-agent workflow) written to
+  `docs/product/investigations/ASSESSMENT_2026-09-04.md`: 45 open rows tiered, brain verdict
+  **fresh-after-export** (the 4,581 May–June turns exist nowhere but the LMDB env; no export route
+  exists), a 12-step plan with probes, and 11 recorded disagreements including three judges picking
+  three different winners. The ENOSPC blocker row is falsified today (fresh native store created
+  2/2); eleven closed-in-code rows are still unstruck — reconciliation owed.
