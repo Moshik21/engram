@@ -224,6 +224,7 @@ resets. Status as of 2026-07-24 evening.
 | — | **a unit test wrote its cursor into the live `~/.engram/hygiene-state.json` (group `g`, episode `ep1`)** — **FIXED `c833c83`** | 2026-09-04. A mop wiring test without the module's `engram_home` fixture; the state path is `ENGRAM_HOME`-relative and nothing set it. `tests/conftest.py` now gives every test a throwaway `ENGRAM_HOME` (autouse); the live file was repaired by hand. Any live number read after a test run on this box before today may have been steered by test state. |
 | — | ~~**the vector backfill's presence probe called 7 017 of 8 654 episodes missing; a native census counts 8 074 vector rows and the ANN serves them**~~ **FIXED `773755b`** | 2026-09-04. `get_episode_embeddings` returns `data: []` for every row written before the data-field projection, so 'has floats' ≠ 'has a row'. The drain re-embedded 50 already-indexed episodes per window (no duplicates: the row count moved only by the 44 the machinery de-index removed). Presence is now row-based. |
 | — | **CORRECTION to the 'cold-brain LaunchAgent silent since 2026-08-15' row above: launchd fires it every 2 h; the runs were `skipped: on battery power` by design, and my kickstart collided with my own store-opening census** | 2026-09-04. The verbatim plist command ran clean from a terminal (`Brain run ok`). Row stays for the record; the open question is only whether the battery skip is the right default on a laptop that is mostly on battery. |
+| — | **STEP 6 (fresh store, same code, same swapping machine): untouched rig 10/14 on every run, cold included — [10,10,10] and [10,10], 0/84 degraded, 84–490 ms; battery 14/14 vs 4/14 from repo files at 59 k chars; ten explicit recalls 64–135 ms, all deep-pipeline. The old brain's 3–4/14 warm and 0/14 cold were the store, not the code.** | 2026-09-04 19:15–19:36, `scratchpad/step6/`, store = 5,898 re-seeded conversation rows with single full-content vectors, **no graph at all (entities 0)**. Same four misses both passes (m31-bridge-reach, locomo-stub, ci-hang, codegen-identical). The pre-registered decider is answered: cold was store-bound, not the fallback cascade. The old-brain bar itself is still owed from the retained dir on a quiet machine (§2.6). |
 
 ### T1 — actively harmful
 | # | item | note |
@@ -664,3 +665,7 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   drain with the shell down managed ~60/min against the shell's own ~36/min, so the shell is
   draining it in the background (~90 min). The step-6 re-measure waits for a complete vector
   lane. The loop-ritual stray episode is purged. Store: 302 MB.
+- **2026-09-04 (night)** — **Step 6 measured.** Fresh store, untouched rig: **10/14 on all runs, cold
+  included** (was 3–4 warm / 0 cold); battery **14/14 vs 4/14** (was 8/14); explicit recall
+  64–135 ms (was 2.5–4.5 s with fallbacks). No graph in the store. The switch is provisional
+  until the day-14 gate (§8 entry of 2026-09-04 afternoon, ASSESSMENT step 9); the old dir stays.
