@@ -8,7 +8,7 @@ import logging
 import re
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
@@ -4368,8 +4368,14 @@ def _prefer_project_context_results(
     result_list = [dict(result) for result in results]
     if not project_path:
         return result_list
-    project_name = Path(project_path).expanduser().name.strip().lower()
-    if not project_name:
+    # 2026-09-04: the project is the repository, not the cwd basename. Rows
+    # captured from a subdirectory (tagged 'server', 'app', ...) were dropped
+    # here whenever any root-tagged row matched -- the four stable misses of
+    # the untouched rig on the fresh store were exactly that.
+    from engram.ingestion.project_identity import accepted_project_names
+
+    project_names = accepted_project_names(project_path)
+    if not project_names:
         return result_list
     project_path_text = str(Path(project_path).expanduser()).lower()
     project_results = [
@@ -4377,7 +4383,7 @@ def _prefer_project_context_results(
         for result in result_list
         if _context_result_mentions_project(
             result,
-            project_name=project_name,
+            project_names=project_names,
             project_path=project_path_text,
         )
     ]
@@ -4387,7 +4393,7 @@ def _prefer_project_context_results(
 def _context_result_mentions_project(
     result: Mapping[str, Any],
     *,
-    project_name: str,
+    project_names: Iterable[str] | str,
     project_path: str,
 ) -> bool:
     text_parts: list[str] = []
@@ -4406,7 +4412,12 @@ def _context_result_mentions_project(
         else:
             text_parts.append(str(linked))
     text = " ".join(text_parts).lower()
-    return project_name in text or bool(project_path and project_path in text)
+    names = [project_names] if isinstance(project_names, str) else list(project_names)
+    # Whole-word match: a subdirectory named 'app' must not match 'application'.
+    for name in names:
+        if name and re.search(r"(?<![a-z0-9_])" + re.escape(name.lower()) + r"(?![a-z0-9_])", text):
+            return True
+    return bool(project_path and project_path in text)
 
 
 def _context_specific_relevance_tokens(tokens: set[str]) -> set[str]:
