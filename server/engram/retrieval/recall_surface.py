@@ -1868,19 +1868,28 @@ def _prefer_project_context_results(
     project_path: str | None,
 ) -> list[dict]:
     result_list = [dict(result) for result in results]
-    project_name = _project_name(project_path)
-    if not project_name:
+    # 2026-09-04: the project is the repository, not the cwd basename. This
+    # filter kept only rows mentioning the basename and dropped every row
+    # captured from a subdirectory ('server', 'app'); the four stable misses
+    # of the untouched rig on the fresh store were exactly that, and this is
+    # the copy the recall path uses (context_builder has the other).
+    from engram.ingestion.project_identity import accepted_project_names
+
+    names = accepted_project_names(project_path)
+    if not names:
         return result_list
-    project_terms = {
-        project_name.lower(),
-        str(Path(project_path).expanduser()).lower() if project_path else "",
-    }
-    project_terms.discard("")
-    project_results = [
-        result
-        for result in result_list
-        if any(term in _recall_result_search_text(result) for term in project_terms)
+    path_text = str(Path(project_path).expanduser()).lower() if project_path else ""
+    patterns = [
+        re.compile(r"(?<![a-z0-9_])" + re.escape(n.lower()) + r"(?![a-z0-9_])") for n in names if n
     ]
+
+    def _mentions(result: Mapping[str, Any]) -> bool:
+        text = _recall_result_search_text(result)
+        if any(pat.search(text) for pat in patterns):
+            return True
+        return bool(path_text and path_text in text)
+
+    project_results = [result for result in result_list if _mentions(result)]
     return project_results or result_list
 
 
