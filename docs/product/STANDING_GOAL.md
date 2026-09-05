@@ -656,3 +656,10 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
   against the fresh shell during a suite run and promoted a test entity (deleted); §2.12 stands.
   Step-0 baseline of the OLD brain was aborted as unmeasurable (swap 4.8/5 GB) — owed later from
   the retained dir on a quiet machine.
+- **2026-09-04 (night)** — re-seed done: 6,131 rows posted, 5,892 observed, 226 dedup-skipped
+  (identical repeats inside the dedup window), 13 too short; store 5,898 episodes / 5,876 cue
+  vectors. **Capture-time EPISODE embedding could not keep pace with a 5/s import on a swapping
+  machine**: 4,223 rows landed in the durable `episode_index_outbox` (nothing lost); an offline
+  drain with the shell down managed ~60/min against the shell's own ~36/min, so the shell is
+  draining it in the background (~90 min). The step-6 re-measure waits for a complete vector
+  lane. The loop-ritual stray episode is purged. Store: 302 MB.
