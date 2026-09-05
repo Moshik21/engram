@@ -579,10 +579,11 @@ async def _episode_project_multipliers(
     scope_on = bool(project_path) and mult < 1.0
     if (not scope_on and floor_chars <= 0 and machinery_mult >= 1.0) or not episode_ids:
         return {}
-    from pathlib import Path
 
-    project = Path(project_path).expanduser().name.strip().lower() if project_path else ""
-    if scope_on and not project:
+    from engram.ingestion.project_identity import accepted_project_names
+
+    accepted = accepted_project_names(project_path) if project_path else frozenset()
+    if scope_on and not accepted:
         scope_on = False
     get_episode = getattr(graph_store, "get_episode_by_id", None)
     if not callable(get_episode):
@@ -604,7 +605,7 @@ async def _episode_project_multipliers(
             machinery += 1
         if scope_on:
             named = getattr(episode, "project", None) or _project_of_content(content)
-            if named and named.lower() != project:
+            if named and named.lower() not in accepted:
                 weight *= mult
                 demoted += 1
         if floor_chars > 0:

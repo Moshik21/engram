@@ -68,10 +68,11 @@ def _text_value(value: Any) -> str | None:
 
 
 def _project_from_cwd(cwd: str | None) -> str | None:
-    if not cwd:
-        return None
-    name = cwd.rstrip("/").rsplit("/", 1)[-1]
-    return name or None
+    # 2026-09-04: the repository root's name, not the cwd basename (one repo
+    # was becoming 'Engram' + 'server' + 'app'); a home dir is no project.
+    from engram.ingestion.project_identity import project_name
+
+    return project_name(cwd)
 
 
 def _source_for_role(role: str | None) -> str:
