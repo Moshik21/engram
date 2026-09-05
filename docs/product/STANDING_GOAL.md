@@ -673,3 +673,5 @@ Append one line per landed change. Keep it terse; the detail belongs in the comm
 - **2026-09-04 (night)** — the four stable misses on the fresh store were the project-identity split
   (cwd basename), not retrieval; fixed on both sides with `project_identity.py`. Confirmation
   meter pass in flight.
+- **2026-09-04 (night)** — confirmation pass after the identity fix: **[12, 12, 12] of 14**, 0/42
+  degraded, median 105 ms (min 76, max 193). Remaining misses: ci-hang, codegen-identical.
