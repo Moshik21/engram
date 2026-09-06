@@ -1403,8 +1403,10 @@ _BRAIN_LAUNCH_AGENT_BODY = """\
   <false/>
   <key>Nice</key>
   <integer>10</integer>
+  <!-- Standard, not Background: launchd pended a Background interval job for 42 h
+       on a memory-pressured Mac (2026-09-06); Nice keeps it polite. -->
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>Standard</string>
   <key>StandardOutPath</key>
   <string>{log_file}</string>
   <key>StandardErrorPath</key>
