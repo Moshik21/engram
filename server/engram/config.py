@@ -793,10 +793,13 @@ class ActivationConfig(BaseModel):
         description="Max chars of episode content in recall results (0 = unlimited)",
     )
     recall_content_window_chars: int = Field(
-        default=600,
+        default=450,  # 2026-09-06: see the description for the measurement
         ge=0,
         le=20000,
         description=(
+            "2026-09-06 measured on the untouched battery: 600 gave 31.9k chars for 14/14 "
+            "against a 26.7k bar (2x repo files); an offline replay of the window over the "
+            "rig rows lost 2 groups at 600 and 0 at 450. "
             "Recall items (REST and MCP) whose episode content is longer than this "
             "many characters are cut to a window of this size centred on the densest "
             "cluster of query-term matches (the head when nothing matches), with a "

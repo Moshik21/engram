@@ -2770,7 +2770,8 @@ def _packets_satisfy_explicit_query(
         # it only counts on a distinctive match: the latest capture shares common
         # words with almost any question about the same project.
         if _packet_is_session_recent_only(packet):
-            if not is_graph or not _distinctive_session_recent_match(tokens, matches):
+            distinctive = _distinctive_session_recent_match(tokens, matches, packet=packet)
+            if not is_graph or not distinctive:
                 continue
             # Once admitted, common words still do not count toward the score.
             matches = matches - _RESCUE_STOPWORDS
@@ -3074,7 +3075,7 @@ def _weak_session_recent_match(
     }
     if not is_session_recent and trust_source not in {"mcp_observe", "api_auto_observe"}:
         return False
-    return not _distinctive_session_recent_match(tokens, matches)
+    return not _distinctive_session_recent_match(tokens, matches, packet=packet)
 
 
 def _weak_packet_query_match(matches: set[str]) -> bool:
@@ -3085,20 +3086,49 @@ def _weak_packet_query_match(matches: set[str]) -> bool:
     return token.isdigit()
 
 
-def _distinctive_session_recent_match(tokens: set[str], matches: set[str]) -> bool:
+_HEADER_PROJECT_RE = re.compile(
+    r"\[(?:[a-z][a-z-]*)\|([^\]|\n]{1,200})(?:\|[^\]\n]{0,200})?\]", re.I
+)
+
+
+def _packet_project_tokens(packet: Mapping[str, Any] | None) -> set[str]:
+    """Tokens of the project named in the packet's capture header, lower-cased.
+
+    The recall surface prefixes every query with the project name, and every
+    row of that project carries it in its header, so it is shared by
+    construction and can never make a match distinctive.
+    """
+    if packet is None:
+        return set()
+    text = _packet_search_text(packet)
+    names: set[str] = set()
+    for m in _HEADER_PROJECT_RE.finditer(text[:2000]):
+        names.update(t for t in re.findall(r"[a-z0-9_]+", m.group(1).lower()) if t)
+    return names
+
+
+def _distinctive_session_recent_match(
+    tokens: set[str],
+    matches: set[str],
+    *,
+    packet: Mapping[str, Any] | None = None,
+) -> bool:
     """Graduated gate for the session's most recent observe packets.
 
-    Common words (``_RESCUE_STOPWORDS``) never count. The rest must carry one
-    high-signal token, or at least two tokens covering half of the query's
-    distinctive tokens. Measured 2026-09-04: a stale capture sharing only
-    capture / project / field with the query was answering it as cache_satisfied.
+    Common words (``_RESCUE_STOPWORDS``) and the project's own name never
+    count. The rest must carry one high-signal token, or at least three
+    tokens covering half of the query's distinctive tokens. Measured
+    2026-09-04: a stale capture sharing only capture / project / field with
+    the query was answering it as cache_satisfied; 2026-09-06: the query
+    prefix 'Engram' matched every row's header and lifted coverage to half.
     """
-    distinctive_matches = matches - _RESCUE_STOPWORDS
+    excluded = _RESCUE_STOPWORDS | _packet_project_tokens(packet)
+    distinctive_matches = matches - excluded
     if any(_high_signal_query_token(token) for token in distinctive_matches):
         return True
-    if len(distinctive_matches) < 2:
+    if len(distinctive_matches) < 3:
         return False
-    return 2 * len(distinctive_matches) >= len(tokens - _RESCUE_STOPWORDS)
+    return 2 * len(distinctive_matches) >= len(tokens - excluded)
 
 
 def _high_signal_query_token(token: str) -> bool:

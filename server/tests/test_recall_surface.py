@@ -2921,3 +2921,19 @@ def test_session_recent_admitted_packet_scores_without_stopwords():
     query = "ep_4bdbb5696150 project memory decision"
     assert _packets_satisfy_explicit_query([recent], query=query) is False
     assert _packets_satisfy_explicit_query([durable], query=query) is True
+
+
+def test_session_recent_project_name_in_the_header_never_counts():
+    """2026-09-06 live: the query prefix 'Engram' matched every row's '[user|Engram]'
+    header and, with two common words, lifted coverage to half. Faithful repro."""
+    from engram.retrieval.recall_surface import _packets_satisfy_explicit_query
+
+    packet = {
+        "packet_type": "recent_observation",
+        "_cache_scope": "session_recent",
+        "summary": "[user|Engram] fifth capture proving the project field is presented on recall",
+        "provenance": ["episode:ep_5"],
+        "trust": {"source": "api_auto_observe"},
+    }
+    query = "Engram second capture on the restarted shell with the project field"
+    assert _packets_satisfy_explicit_query([packet], query=query) is False

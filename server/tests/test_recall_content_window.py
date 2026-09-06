@@ -107,8 +107,8 @@ def test_query_terms_drop_glue_words_and_keep_order():
 
 
 def test_config_default_is_on_and_stubs_get_the_default():
-    assert ActivationConfig().recall_content_window_chars == 600
-    assert content_window_for(SimpleNamespace(), "q").window_chars == 600
+    assert ActivationConfig().recall_content_window_chars == 450
+    assert content_window_for(SimpleNamespace(), "q").window_chars == 450
     assert content_window_for(SimpleNamespace(recall_content_window_chars=0), "q").window_chars == 0
     assert content_window_for(ActivationConfig(recall_content_window_chars=250), "q") == (
         ContentWindow(query="q", window_chars=250)
