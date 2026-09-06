@@ -257,3 +257,22 @@ async def test_rest_recall_surface_window_off_returns_full_content(monkeypatch) 
     assert episode["content"] == content
     assert episode["windowed"] is False
     assert episode["fullChars"] == len(content)
+
+
+def test_spread_terms_stretch_the_window_within_the_cap():
+    """Two distinct query terms ~900 chars apart: a 450 window would hold one; the
+    stretched window (<= 3x) holds both; terms 2,000 apart fall back to one window."""
+    from engram.retrieval.content_window import STRETCH_CAP, window_content
+
+    filler = "lorem ipsum dolor sit amet " * 200
+    near = "the cognitive_core_fixes plan " + filler[:850] + " is organised in waves " + filler
+    text, cut = window_content(
+        near, "which document holds the cognitive core fixes plan waves", window_chars=450
+    )
+    assert cut and "cognitive_core_fixes" in text and "waves" in text
+    assert len(text) <= 450 * STRETCH_CAP + 100
+    far = "the cognitive_core_fixes plan " + filler[:2000] + " is organised in waves " + filler
+    text, cut = window_content(
+        far, "which document holds the cognitive core fixes plan waves", window_chars=450
+    )
+    assert cut and len(text) <= 450 + 80  # not stretched past the cap

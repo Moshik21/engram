@@ -105,12 +105,29 @@ def content_window_for(cfg: Any, query: str) -> ContentWindow:
     return ContentWindow(query=query, window_chars=window_chars)
 
 
+# A row whose distinct query terms are spread out gets a stretched window, up
+# to this many base windows, so the answer is not cut in half; rows whose terms
+# are farther apart than that fall back to the densest single window. Measured
+# 2026-09-06: at 450 one rig question lost both its groups because they sat
+# ~1,000 chars apart in every top row (14/14 unwindowed, 13/14 windowed).
+STRETCH_CAP = 3
+
+
 def window_content(content: str, query: str, *, window_chars: int) -> tuple[str, bool]:
     """Return ``(text, windowed)``; content at or under the window is untouched."""
     if window_chars <= 0 or len(content) <= window_chars:
         return content, False
-    start = _densest_window_start(content, query_terms(query), window_chars)
-    end = min(len(content), start + window_chars)
+    terms = query_terms(query)
+    start = _densest_window_start(content, terms, window_chars)
+    size = window_chars
+    span = _covering_span(content, terms, start, window_chars)
+    if span is not None:
+        span_start, span_end = span
+        span_len = span_end - span_start
+        if span_len > window_chars and span_len <= window_chars * STRETCH_CAP:
+            size = min(len(content), span_len + 2 * _SNAP_CHARS)
+            start = max(0, min(span_start - _SNAP_CHARS, len(content) - size))
+    end = min(len(content), start + size)
     if start > 0:
         gap = _WS_RE.search(content, start, min(end, start + _SNAP_CHARS))
         if gap:
@@ -127,17 +144,44 @@ def window_content(content: str, query: str, *, window_chars: int) -> tuple[str,
     return text, True
 
 
+def _term_matches(content: str, terms: list[str]) -> list[tuple[int, int, int]]:
+    """(position, term index, length) for every case-insensitive match, sorted."""
+    matches: list[tuple[int, int, int]] = []
+    for index, term in enumerate(terms):
+        for found in re.finditer(re.escape(term), content, re.IGNORECASE):
+            matches.append((found.start(), index, found.end() - found.start()))
+    matches.sort()
+    return matches
+
+
+def _covering_span(
+    content: str, terms: list[str], anchor_start: int, window: int
+) -> tuple[int, int] | None:
+    """Smallest span holding one match of EVERY term that occurs in the content,
+    choosing for each term the match nearest the densest window's centre."""
+    matches = _term_matches(content, terms)
+    if not matches:
+        return None
+    centre = anchor_start + window / 2
+    nearest: dict[int, tuple[int, int]] = {}
+    for position, index, length in matches:
+        best = nearest.get(index)
+        if best is None or abs(position - centre) < abs(best[0] - centre):
+            nearest[index] = (position, length)
+    if len(nearest) < 2:
+        return None
+    lo = min(p for p, _ in nearest.values())
+    hi = max(p + n for p, n in nearest.values())
+    return lo, hi
+
+
 def _densest_window_start(content: str, terms: list[str], window: int) -> int:
     """Start of the window covering the most distinct query terms, then matches."""
     # Match on the ORIGINAL text (case-insensitive regex): a casefolded copy can
     # change length (ß -> ss, İ -> i + combining dot) and shift every position.
-    matches: list[tuple[int, int, int]] = []  # (position, term index, term length)
-    for index, term in enumerate(terms):
-        for found in re.finditer(re.escape(term), content, re.IGNORECASE):
-            matches.append((found.start(), index, found.end() - found.start()))
+    matches = _term_matches(content, terms)
     if not matches:
         return 0
-    matches.sort()
     best_score = (0, 0)
     best_low = best_high = 0
     counts: dict[int, int] = {}
