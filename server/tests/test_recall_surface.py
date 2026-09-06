@@ -1069,6 +1069,105 @@ def test_project_file_cache_requires_distinctive_marker_for_recall() -> None:
     assert not _packets_satisfy_explicit_query([packet], query=query)
 
 
+_HIJACK_QUERY = "second capture on the restarted shell with the project field"
+
+
+def _session_recent_packet(summary: str) -> dict:
+    return {
+        "packet_type": "recent_observation",
+        "title": "Recent Observation: ep_recent",
+        "summary": summary,
+        "episode_ids": ["ep_recent"],
+        "provenance": ["episode:ep_recent", "source:mcp"],
+        "trust": {"source": "mcp_observe", "freshness": "fresh"},
+        "_cache_scope": "session_recent",
+    }
+
+
+# Measured 2026-09-04: a 7-minute-old capture answered the query above as
+# cache_satisfied because it shared the common words capture / project / field.
+_STALE_CAPTURE_SUMMARY = (
+    "First capture on the fresh runtime: the project field landed in the observe payload."
+)
+
+
+def test_session_recent_common_words_do_not_satisfy_explicit_recall() -> None:
+    packet = _session_recent_packet(_STALE_CAPTURE_SUMMARY)
+
+    assert not _packets_satisfy_explicit_query([packet], query=_HIJACK_QUERY)
+    assert _filter_packets_for_query([packet], query=_HIJACK_QUERY, limit=3) == []
+
+
+def test_session_recent_high_signal_token_satisfies_explicit_recall() -> None:
+    packet = _session_recent_packet(
+        "Observed: the project_path field is present in the restarted shell payload."
+    )
+    # Ten distinctive query tokens, four shared (< half): only project_path carries it.
+    query = "did the project_path field land in every drop point after the restarted shell capture"
+
+    assert _packets_satisfy_explicit_query([packet], query=query)
+    assert _filter_packets_for_query([packet], query=query, limit=3) == [packet]
+
+
+def test_session_recent_half_coverage_satisfies_explicit_recall() -> None:
+    packet = _session_recent_packet("Second capture landed on the restarted runtime.")
+    # Six distinctive query tokens, three shared (exactly half), none high-signal.
+    query = f"{_HIJACK_QUERY} payload"
+
+    assert _packets_satisfy_explicit_query([packet], query=query)
+    assert _filter_packets_for_query([packet], query=query, limit=3) == [packet]
+
+
+def test_durable_packet_keeps_three_token_explicit_recall_threshold() -> None:
+    packet = {
+        "packet_type": "decision",
+        "title": "Decision: first capture",
+        "summary": _STALE_CAPTURE_SUMMARY,
+        "entity_ids": ["ent_first_capture"],
+        "provenance": ["entity:ent_first_capture"],
+        "trust": {"source": "graph", "freshness": "durable"},
+    }
+
+    assert _packets_satisfy_explicit_query([packet], query=_HIJACK_QUERY)
+
+
+@pytest.mark.asyncio
+async def test_api_recall_surface_stale_session_recent_reaches_pipeline() -> None:
+    stale_packet = _session_recent_packet(_STALE_CAPTURE_SUMMARY)
+
+    def get_recent(_group_id: str, *, scopes: tuple[str, ...], **_kwargs):
+        return [stale_packet] if scopes == ("session_recent",) else []
+
+    manager = SimpleNamespace(
+        recall=AsyncMock(return_value=[]),
+        fast_recall_fallback=AsyncMock(return_value=[]),
+        get_explicit_recall_packet_policy=lambda: SimpleNamespace(
+            enabled=True,
+            max_packets=3,
+        ),
+        get_memory_need_config=lambda: ActivationConfig(
+            recall_budget_explicit_ms=100,
+            recall_fast_preflight_enabled=False,
+        ),
+        get_cached_memory_packets=Mock(return_value=None),
+        get_recent_cached_memory_packets=Mock(side_effect=get_recent),
+        cache_memory_packets=Mock(return_value={}),
+        record_memory_operation=Mock(),
+    )
+
+    result = await build_api_recall_surface(
+        manager,
+        group_id="native_brain",
+        query=_HIJACK_QUERY,
+        limit=3,
+        operation_source="mcp_recall",
+    )
+
+    assert result["lifecycle"]["fallbackStatus"] != "cache_satisfied"
+    assert result["budget"]["skipReason"] != "cache_satisfied"
+    manager.recall.assert_awaited()
+
+
 @pytest.mark.asyncio
 async def test_api_recall_surface_uses_session_recent_packet_cache() -> None:
     recent_packet = {
@@ -2800,3 +2899,25 @@ def test_relationship_triple_entity_filter() -> None:
     assert not f("GOLDEN_DECISION_1783643390", "LongMemEval is not product north star")
     assert not f("Konner Moshier", "Founder of Engram; wants fully-local memory")
     assert not f("recall profile", "The recall profile should be set to all for depth")
+
+
+def test_session_recent_admitted_packet_scores_without_stopwords():
+    """Residual from the 2026-09-06 gate: once a session-recent packet is admitted on a
+    high-signal token, the common words it also shares must not lift best_score to the
+    durable-packet bar. A durable packet with the same overlap still satisfies."""
+    from engram.retrieval.recall_surface import _RESCUE_STOPWORDS, _packets_satisfy_explicit_query
+
+    assert "project" in _RESCUE_STOPWORDS
+    recent = {
+        "packet_type": "recent_observation",
+        "_cache_scope": "session_recent",
+        "summary": "the project memory decision about ep_4bdbb5696150 on the restarted shell",
+        "provenance": ["episode:ep_1"],
+        "trust": {"source": "api_auto_observe"},
+    }
+    durable = dict(
+        recent, packet_type="durable_fact", _cache_scope="durable", provenance=["entity:ent_1"]
+    )
+    query = "ep_4bdbb5696150 project memory decision"
+    assert _packets_satisfy_explicit_query([recent], query=query) is False
+    assert _packets_satisfy_explicit_query([durable], query=query) is True

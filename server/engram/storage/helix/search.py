@@ -674,6 +674,7 @@ class HelixSearchIndex:
         topic_segmentation: bool = True,
         topic_threshold: float = 0.5,
         bm25_breaker_enabled: bool = True,
+        chunk_vectors: bool = False,
     ) -> None:
         self._helix_config = helix_config
         self._provider = provider
@@ -686,6 +687,9 @@ class HelixSearchIndex:
         self._vec_weight = embed_config.vec_weight
         self._topic_segmentation = topic_segmentation
         self._topic_threshold = topic_threshold
+        # Off by default: ActivationConfig.chunk_vectors_enabled carries the
+        # 2026-09-04 measurements (>2 s/row chunked vs 0.15 s/row single).
+        self._chunk_vectors = chunk_vectors
         self._client: Any = None  # helix.Client, created lazily in initialize()
         self._helix_client = client  # Shared HelixClient (async httpx)
         self._owns_helix_client = client is None if owns_client is None else owns_client
@@ -1695,7 +1699,13 @@ class HelixSearchIndex:
             #      labels) — matches Naive RAG granularity (~5-6 chunks/session)
             #   2. Topic segmentation (non-conversational long text)
             #   3. Size-based chunking (last resort)
-            if self._helix_client is not None and len(episode.content) > self.CHUNK_MIN_LENGTH:
+            # Gated by chunk_vectors (default OFF): one full-content vector per
+            # episode is the capture-time contract; chunk rows are opt-in.
+            if (
+                self._chunk_vectors
+                and self._helix_client is not None
+                and len(episode.content) > self.CHUNK_MIN_LENGTH
+            ):
                 chunks: list[str] = []
 
                 # 1. Try round-level chunking first (conversational content)

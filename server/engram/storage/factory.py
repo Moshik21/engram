@@ -148,6 +148,7 @@ def create_stores(
                 topic_segmentation=config.activation.chunk_topic_segmentation,
                 topic_threshold=config.activation.chunk_topic_threshold,
                 bm25_breaker_enabled=config.activation.retrieval_bm25_breaker_enabled,
+                chunk_vectors=config.activation.chunk_vectors_enabled,
             ),
         )
 

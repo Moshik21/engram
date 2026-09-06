@@ -338,3 +338,45 @@ def test_storage_paths_use_native_default_when_unconfigured(
 
     assert paths[0]["label"] == "Helix native data"
     assert paths[0]["path"] == str(tmp_path / ".helix" / "engram-native")
+
+
+@pytest.mark.asyncio
+async def test_storage_diagnostics_reports_index_outbox_pending_counts(
+    tmp_path: Path,
+) -> None:
+    """GET /api/storage carries the durable index-outbox depth (2026-09-04: the
+    4,223-row backlog was invisible), and null — not zeros — when no capture
+    service is attached to report it."""
+    config = EngramConfig(mode="helix")
+    config.helix.transport = "http"
+    config.helix.data_dir = str(tmp_path / "helix-native")
+    config.sqlite.path = str(tmp_path / "engram.db")
+    graph_store = FakeGraphStore(
+        {"episodes": 1, "entities": 1, "relationships": 0, "cue_metrics": {"cue_count": 1}}
+    )
+    status = {"cues_pending": 2, "episodes_pending": 4223, "inflight": 3, "drained": 7, "failed": 1}
+
+    diagnostics = await StorageDiagnostics.create(
+        config=config,
+        mode="helix",
+        graph_store=graph_store,
+        group_id="default",
+        index_outbox_status=lambda: status,
+    )
+    snapshot = await diagnostics.snapshot(group_id="default")
+    assert snapshot["diagnostics"]["indexOutbox"] == {
+        "cuesPending": 2,
+        "episodesPending": 4223,
+        "inflight": 3,
+        "drained": 7,
+        "failed": 1,
+    }
+
+    unattached = await StorageDiagnostics.create(
+        config=config,
+        mode="helix",
+        graph_store=graph_store,
+        group_id="default",
+    )
+    snapshot = await unattached.snapshot(group_id="default")
+    assert snapshot["diagnostics"]["indexOutbox"] is None

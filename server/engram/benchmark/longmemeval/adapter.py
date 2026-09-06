@@ -261,7 +261,9 @@ class EngramLongMemEvalAdapter:
         extractor = self._build_extractor()
         self._current_group_id = self._group_id_for(question_id)
 
-        cfg = self._cfg or ActivationConfig()
+        cfg = self._cfg or ActivationConfig(
+            chunk_vectors_enabled=True
+        )  # instrument constant (chunks were on when the benchmark was calibrated)
         if not self._use_graph:
             # Episode-vector + rerank baseline: give all result slots to
             # episodes and disable graph structural embedding search.
@@ -282,7 +284,9 @@ class EngramLongMemEvalAdapter:
         if self._extraction_mode == "narrow":
             from engram.extraction.narrow_adapter import NarrowExtractorAdapter
 
-            cfg = self._cfg or ActivationConfig()
+            cfg = self._cfg or ActivationConfig(
+                chunk_vectors_enabled=True
+            )  # instrument constant (chunks were on when the benchmark was calibrated)
             return NarrowExtractorAdapter(cfg)
 
         if self._extraction_mode == "none":
@@ -396,7 +400,9 @@ class EngramLongMemEvalAdapter:
                 logger.warning("No consolidation store for this mode")
                 return
 
-            cfg = self._cfg or ActivationConfig()
+            cfg = self._cfg or ActivationConfig(
+                chunk_vectors_enabled=True
+            )  # instrument constant (chunks were on when the benchmark was calibrated)
             engine = ConsolidationEngine(
                 graph_store=self._graph_store,
                 activation_store=self._activation_store,

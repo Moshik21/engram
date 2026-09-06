@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any
 
+from engram.retrieval.content_window import ContentWindow
+
 ResolveEntityName = Callable[[str], Awaitable[str]]
 GetAccessCount = Callable[[str], Awaitable[int]]
 
@@ -50,8 +52,16 @@ def _linked_entity_names(result: Mapping[str, Any]) -> list[str]:
     return names
 
 
-def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize a raw GraphManager recall result into a surface-neutral contract."""
+def recall_contract_item(
+    result: Mapping[str, Any],
+    *,
+    content_window: ContentWindow | None = None,
+) -> dict[str, Any]:
+    """Normalize a raw GraphManager recall result into a surface-neutral contract.
+
+    ``content_window`` cuts long episode content to a query-centred window;
+    ``full_chars``/``windowed`` on the item keep the cut visible.
+    """
     result_type = str(result.get("result_type", "entity"))
     score = _score(result)
     score_breakdown = _breakdown(result)
@@ -59,12 +69,19 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
     if result_type == "episode":
         episode = result.get("episode", {})
         ep = episode if isinstance(episode, Mapping) else {}
+        content = ep.get("content", "")
+        full_chars = len(content) if isinstance(content, str) else 0
+        windowed = False
+        if content_window is not None and isinstance(content, str):
+            content, windowed = content_window.apply(content)
         return {
             "result_type": "episode",
             "score": score,
             "score_breakdown": score_breakdown,
             "episode_id": ep.get("id"),
-            "content": ep.get("content", ""),
+            "content": content,
+            "full_chars": full_chars,
+            "windowed": windowed,
             "source": ep.get("source"),
             "created_at": ep.get("created_at"),
             "conversation_date": ep.get("conversation_date"),
@@ -115,9 +132,13 @@ def recall_contract_item(result: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
+def present_api_recall_item(
+    result: Mapping[str, Any],
+    *,
+    content_window: ContentWindow | None = None,
+) -> dict[str, Any]:
     """Format one recall result for the REST API camelCase contract."""
-    item = recall_contract_item(result)
+    item = recall_contract_item(result, content_window=content_window)
     result_type = item["result_type"]
 
     if result_type == "episode":
@@ -126,6 +147,12 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
             "episode": {
                 "id": item["episode_id"],
                 "content": item["content"],
+                # The cut is visible, never silent: fullChars is the length the
+                # pipeline handed the presenter (result_builder's 15k head cap is
+                # upstream and still unmarked); windowed says content is a
+                # query-centred span of it.
+                "fullChars": item["full_chars"],
+                "windowed": item["windowed"],
                 "source": item["source"],
                 "createdAt": item["created_at"],
                 "project": item.get("project"),
@@ -186,8 +213,12 @@ def present_api_recall_item(result: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def present_api_recall_items(results: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    return [present_api_recall_item(result) for result in results]
+def present_api_recall_items(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    content_window: ContentWindow | None = None,
+) -> list[dict[str, Any]]:
+    return [present_api_recall_item(result, content_window=content_window) for result in results]
 
 
 def recall_response_contract(
@@ -355,11 +386,12 @@ def present_api_recall_response(
     query: str,
     results: Sequence[Mapping[str, Any]],
     packets: Sequence[Mapping[str, Any]],
+    content_window: ContentWindow | None = None,
 ) -> dict[str, Any]:
     """Format the REST explicit-recall response with shared lifecycle semantics."""
     packet_payloads = list(packets)
     effective_results, mirrored = _mirror_empty_results_from_packets(results, packet_payloads)
-    items = present_api_recall_items(effective_results)
+    items = present_api_recall_items(effective_results, content_window=content_window)
     contract = recall_response_contract(
         query=query,
         result_count=len(items),
@@ -428,9 +460,10 @@ async def present_mcp_recall_item(
     *,
     resolve_entity_name: ResolveEntityName,
     get_access_count: GetAccessCount,
+    content_window: ContentWindow | None = None,
 ) -> dict[str, Any]:
     """Format one recall result for the MCP snake_case contract."""
-    item = recall_contract_item(result)
+    item = recall_contract_item(result, content_window=content_window)
     result_type = item["result_type"]
     bd = _breakdown(result)
 
@@ -439,6 +472,8 @@ async def present_mcp_recall_item(
             "result_type": "episode",
             "episode_id": item["episode_id"],
             "content": item["content"],
+            "full_chars": item["full_chars"],
+            "windowed": item["windowed"],
             "source": item["source"],
             "created_at": item["created_at"],
             "score": round(item["score"], 4),
@@ -505,12 +540,14 @@ async def present_mcp_recall_items(
     *,
     resolve_entity_name: ResolveEntityName,
     get_access_count: GetAccessCount,
+    content_window: ContentWindow | None = None,
 ) -> list[dict[str, Any]]:
     return [
         await present_mcp_recall_item(
             result,
             resolve_entity_name=resolve_entity_name,
             get_access_count=get_access_count,
+            content_window=content_window,
         )
         for result in results
     ]

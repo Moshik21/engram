@@ -376,7 +376,7 @@ def test_engram_setup_write_launch_agent_matches_installer_contract(tmp_path: Pa
     assert "exec /opt/bin/engram brain run --tier mop --budget 1000 --pause-shell" in content
     assert "<key>StartInterval</key>" in content
     assert "<integer>7200</integer>" in content
-    assert "<string>Background</string>" in content
+    assert "<string>Standard</string>" in content  # 2026-09-06: Background was pended by launchd
 
 
 def test_engramctl_stop_cleans_engram_owned_orphan_listener_only() -> None:

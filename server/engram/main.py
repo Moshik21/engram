@@ -336,14 +336,10 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         )
         episode_worker.start(config.default_group_id, event_bus)
 
-    cue_index_outbox_task = None
-    if config.activation.cue_index_outbox_enabled:
-        cue_index_outbox_task = asyncio.create_task(
-            manager.drain_cue_index_outbox(
-                limit=config.activation.cue_index_outbox_replay_limit,
-                include_failed=False,
-            ),
-        )
+    # Continuous outbox drain (2026-09-04): the one-shot startup replay of
+    # cue_index_outbox_replay_limit rows left 4,223 episode rows queued after
+    # a 5/s import; this loop drains batch after batch for the shell's life.
+    cue_index_outbox_task = _start_index_outbox_drain(manager, config)
 
     # Rate limiter + usage meter (Redis-backed in full mode)
     from engram.security.rate_limit import RateLimiter
@@ -408,6 +404,7 @@ async def _startup(app: FastAPI, config: EngramConfig) -> None:
         mode=mode.value,
         graph_store=graph_store,
         group_id=config.default_group_id,
+        index_outbox_status=manager.get_index_outbox_status,
     )
     manager.attach_storage_diagnostics(storage_diagnostics)
 
@@ -770,6 +767,27 @@ def _start_continuity_warmup(manager: GraphManager, config: EngramConfig) -> Non
     task = asyncio.create_task(_warm_bounded())
     _track_startup_background_task(task)
     logger.info("Continuity startup warmup started")
+
+
+def _start_index_outbox_drain(manager: GraphManager, config: EngramConfig) -> asyncio.Task | None:
+    """Run the durable index-outbox drain loop for the life of the shell.
+
+    Returned task is cancelled by ``_shutdown`` (stored as ``cue_index_outbox_task``).
+    """
+    if not config.activation.cue_index_outbox_enabled:
+        return None
+    task = asyncio.create_task(
+        manager.run_cue_index_outbox_drain_loop(
+            batch_limit=config.activation.cue_index_outbox_replay_limit,
+            idle_interval_seconds=config.activation.cue_index_outbox_drain_interval_seconds,
+        ),
+    )
+    logger.info(
+        "Index outbox drain loop started (batch=%d, idle=%.0fs)",
+        config.activation.cue_index_outbox_replay_limit,
+        config.activation.cue_index_outbox_drain_interval_seconds,
+    )
+    return task
 
 
 def _track_startup_background_task(task: asyncio.Task) -> None:

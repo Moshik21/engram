@@ -66,6 +66,13 @@ class EpisodeCaptureService:
         self._episode_index_semaphore = asyncio.Semaphore(1)
         self._last_stage_timings_ms: dict[str, float] = {}
         self._last_capture_activity_at = 0.0
+        # Outbox rows whose in-process index task is still queued or running,
+        # keyed (kind, episode_id, group_id). The continuous drain skips them
+        # so a live capture is never indexed twice (duplicate HNSW rows).
+        self._inflight_index_keys: set[tuple[str, str, str]] = set()
+        self._outbox_wake = asyncio.Event()
+        self._outbox_drained_total = 0
+        self._outbox_failed_total = 0
 
     async def warm_capture_store(
         self,
@@ -423,12 +430,15 @@ class EpisodeCaptureService:
         self,
         cue,
         stage_timings: dict[str, float] | None = None,
-    ) -> None:
-        """Index cue vectors without letting embedding latency block capture."""
+    ) -> bool:
+        """Index cue vectors without letting embedding latency block capture.
+
+        Returns whether the cue was indexed (the outbox row is marked either way).
+        """
         index_cue = getattr(self._search, "index_episode_cue", None)
         if not callable(index_cue):
             self._mark_cue_index_failed(cue, "index_episode_cue unavailable")
-            return
+            return False
         timeout_ms = int(getattr(self._cfg, "capture_cue_vector_index_timeout_ms", 0) or 0)
         index_started = time_perf_counter()
         indexed = False
@@ -466,12 +476,13 @@ class EpisodeCaptureService:
                 self._mark_cue_index_done(cue)
             elif error is not None:
                 self._mark_cue_index_failed(cue, error)
+        return indexed
 
     async def _index_episode_cue_serialized(
         self,
         cue,
         stage_timings: dict[str, float] | None = None,
-    ) -> None:
+    ) -> bool:
         """Run cue vector indexing one-at-a-time to avoid background write contention."""
         async with self._cue_index_semaphore:
             quiet_wait_ms = await self._wait_for_capture_quiet_period(
@@ -479,7 +490,7 @@ class EpisodeCaptureService:
             )
             if stage_timings is not None and quiet_wait_ms > 0:
                 stage_timings["cue_index_quiet_wait"] = quiet_wait_ms
-            await self._index_episode_cue_best_effort(cue, stage_timings)
+            return await self._index_episode_cue_best_effort(cue, stage_timings)
 
     async def _wait_for_capture_quiet_period(self, quiet_ms: int) -> float:
         """Keep best-effort background vector writes out of the immediate live-turn window."""
@@ -511,6 +522,7 @@ class EpisodeCaptureService:
             return
         self._cue_index_tasks.add(task)
         task.add_done_callback(self._cue_index_tasks.discard)
+        self._track_inflight_index(("cue", cue.episode_id, cue.group_id), task)
 
     async def _enqueue_episode_vector_index(
         self,
@@ -535,12 +547,17 @@ class EpisodeCaptureService:
             return
         self._episode_index_tasks.add(task)
         task.add_done_callback(self._episode_index_tasks.discard)
+        self._track_inflight_index(("episode", episode.id, episode.group_id), task)
+
+    def _track_inflight_index(self, key: tuple[str, str, str], task: asyncio.Task[Any]) -> None:
+        self._inflight_index_keys.add(key)
+        task.add_done_callback(lambda _done: self._inflight_index_keys.discard(key))
 
     async def _index_episode_vector_serialized(
         self,
         episode: Episode,
         stage_timings: dict[str, float] | None = None,
-    ) -> None:
+    ) -> bool:
         """Run episode vector indexing one-at-a-time to avoid write contention."""
         async with self._episode_index_semaphore:
             quiet_wait_ms = await self._wait_for_capture_quiet_period(
@@ -548,13 +565,13 @@ class EpisodeCaptureService:
             )
             if stage_timings is not None and quiet_wait_ms > 0:
                 stage_timings["episode_vector_quiet_wait"] = quiet_wait_ms
-            await self._index_episode_vector_best_effort(episode, stage_timings)
+            return await self._index_episode_vector_best_effort(episode, stage_timings)
 
     async def _index_episode_vector_best_effort(
         self,
         episode: Episode,
         stage_timings: dict[str, float] | None = None,
-    ) -> None:
+    ) -> bool:
         """Index the episode vector without letting embedding latency block capture.
 
         Mirrors the cue lane, plus the ``episodes_failed`` stat-delta check from
@@ -562,11 +579,13 @@ class EpisodeCaptureService:
         embed failures internally (the FastEmbed broken-model latch returns []
         without raising), so a swallowed failure must keep the outbox row
         retryable instead of reporting a clean index.
+
+        Returns whether the episode was indexed (the outbox row is marked either way).
         """
         index_episode = getattr(self._search, "index_episode", None)
         if not callable(index_episode):
             self._mark_episode_index_failed(episode, "index_episode unavailable")
-            return
+            return False
         timeout_ms = int(getattr(self._cfg, "capture_episode_vector_index_timeout_ms", 0) or 0)
         stats = getattr(self._search, "_embed_stats", None)
         failed_before = int(stats.get("episodes_failed", 0)) if isinstance(stats, dict) else None
@@ -614,6 +633,7 @@ class EpisodeCaptureService:
                 self._mark_episode_index_done(episode)
             elif error is not None:
                 self._mark_episode_index_failed(episode, error)
+        return indexed
 
     async def _persist_episode_index_work(
         self,
@@ -625,6 +645,7 @@ class EpisodeCaptureService:
         started = time_perf_counter()
         try:
             await asyncio.to_thread(self._cue_index_outbox.enqueue_episode, episode)
+            self._outbox_wake.set()
         except Exception:
             logger.warning(
                 "Failed to enqueue episode %s for durable vector indexing",
@@ -681,28 +702,150 @@ class EpisodeCaptureService:
         limit: int | None = None,
         include_failed: bool = True,
     ) -> int:
-        """Replay durable cue- and episode-indexing work from previous lifetimes."""
+        """Replay durable cue- and episode-indexing work from previous lifetimes.
+
+        One bounded batch; returns the number of rows attempted.
+        """
         if self._cue_index_outbox is None:
             return 0
         replay_limit = limit or int(getattr(self._cfg, "cue_index_outbox_replay_limit", 100))
-        items = self._cue_index_outbox.pending(
+        attempted, _indexed = await self._drain_index_outbox_batch(
             limit=replay_limit,
+            include_failed=include_failed,
+        )
+        return attempted
+
+    async def _drain_index_outbox_batch(
+        self,
+        *,
+        limit: int,
+        include_failed: bool,
+    ) -> tuple[int, int]:
+        """Replay up to ``limit`` cue rows and ``limit`` episode rows through the
+        serialized index lanes. Returns ``(attempted, indexed)``.
+
+        Rows whose in-process capture task is still in flight are skipped: the
+        task will mark them itself, and indexing them here too would insert a
+        second HNSW row for the same episode.
+        """
+        outbox = self._cue_index_outbox
+        if outbox is None:
+            return 0, 0
+        attempted = indexed = 0
+        cue_items = await asyncio.to_thread(
+            outbox.pending,
+            limit=limit,
             include_failed=include_failed,
         )
         # Yield to any explicit recall in flight before each item: the
         # native worker pool is shared, and a recall's reads otherwise queue
         # behind this drain's HNSW inserts (see retrieval/recall_activity.py).
-        for item in items:
+        # Snapshot the in-flight set at fetch time as well as checking it per row:
+        # a capture that starts after the fetch but finishes before this row's
+        # turn would otherwise be indexed twice (a second HNSW row).
+        inflight_at_fetch = set(self._inflight_index_keys)
+        for item in cue_items:
+            cue_key = ("cue", item.cue.episode_id, item.cue.group_id)
+            if cue_key in inflight_at_fetch or cue_key in self._inflight_index_keys:
+                continue
+            attempted += 1
             await recall_activity.wait_idle()
-            await self._index_episode_cue_best_effort(item.cue)
-        episode_items = self._cue_index_outbox.pending_episodes(
-            limit=replay_limit,
+            if await self._index_episode_cue_serialized(item.cue):
+                indexed += 1
+        episode_items = await asyncio.to_thread(
+            outbox.pending_episodes,
+            limit=limit,
             include_failed=include_failed,
         )
+        inflight_at_fetch |= set(self._inflight_index_keys)
         for episode_item in episode_items:
+            episode = episode_item.episode
+            episode_key = ("episode", episode.id, episode.group_id)
+            if episode_key in inflight_at_fetch or episode_key in self._inflight_index_keys:
+                continue
+            attempted += 1
             await recall_activity.wait_idle()
-            await self._index_episode_vector_best_effort(episode_item.episode)
-        return len(items) + len(episode_items)
+            if await self._index_episode_vector_serialized(episode):
+                indexed += 1
+            elif getattr(episode_item, "attempts", 0) >= 3:
+                logger.warning(
+                    "Index outbox: episode %s has failed %d times (%s); it will keep retrying "
+                    "once per idle interval",
+                    episode.id,
+                    getattr(episode_item, "attempts", 0),
+                    (getattr(episode_item, "last_error", "") or "")[:120],
+                )
+        return attempted, indexed
+
+    async def run_cue_index_outbox_drain_loop(
+        self,
+        *,
+        batch_limit: int,
+        idle_interval_seconds: float,
+    ) -> None:
+        """Keep the durable index outbox drained for the life of the process.
+
+        Each pass replays one bounded batch (see ``_drain_index_outbox_batch``).
+        While rows keep succeeding the next pass starts at once; after a pass in
+        which every row failed (provider outage) the loop backs off
+        ``idle_interval_seconds``; with nothing to do it sleeps until capture
+        enqueues a row or the interval elapses. Runs until cancelled.
+        """
+        if self._cue_index_outbox is None:
+            return
+        while True:
+            self._outbox_wake.clear()
+            attempted = indexed = 0
+            try:
+                if await self._index_outbox_has_unclaimed_work():
+                    attempted, indexed = await self._drain_index_outbox_batch(
+                        limit=batch_limit,
+                        include_failed=True,
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("Index outbox drain batch failed", exc_info=True)
+                await asyncio.sleep(idle_interval_seconds)
+                continue
+            failed = attempted - indexed
+            self._outbox_drained_total += indexed
+            self._outbox_failed_total += failed
+            if attempted:
+                logger.info(
+                    "Index outbox drain: %d indexed, %d failed, %d cue / %d episode rows pending",
+                    indexed,
+                    failed,
+                    self.cue_index_outbox_pending_count(),
+                    self.episode_index_outbox_pending_count(),
+                )
+            if indexed:
+                continue
+            if attempted:
+                await asyncio.sleep(idle_interval_seconds)
+                continue
+            try:
+                await asyncio.wait_for(self._outbox_wake.wait(), timeout=idle_interval_seconds)
+            except TimeoutError:
+                pass
+
+    async def _index_outbox_has_unclaimed_work(self) -> bool:
+        """Cheap COUNT check so a capture wake does not page rows already in flight."""
+        pending = await asyncio.to_thread(self._index_outbox_pending_total)
+        return pending > len(self._inflight_index_keys)
+
+    def _index_outbox_pending_total(self) -> int:
+        return self.cue_index_outbox_pending_count() + self.episode_index_outbox_pending_count()
+
+    def index_outbox_status(self) -> dict[str, int]:
+        """Pending outbox rows plus this lifetime's drain progress, for diagnostics."""
+        return {
+            "cues_pending": self.cue_index_outbox_pending_count(),
+            "episodes_pending": self.episode_index_outbox_pending_count(),
+            "inflight": len(self._inflight_index_keys),
+            "drained": self._outbox_drained_total,
+            "failed": self._outbox_failed_total,
+        }
 
     def episode_index_outbox_pending_count(self) -> int:
         """Return queued durable episode-vector indexing work, if enabled."""
@@ -742,6 +885,7 @@ class EpisodeCaptureService:
         started = time_perf_counter()
         try:
             await asyncio.to_thread(self._cue_index_outbox.enqueue, cue)
+            self._outbox_wake.set()
         except Exception:
             logger.warning(
                 "Failed to enqueue cue %s for durable vector indexing",

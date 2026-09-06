@@ -299,3 +299,42 @@ async def test_graph_stats_startup_warmup_tracks_background_task() -> None:
         for task in list(main_module._startup_background_tasks):
             task.cancel()
         main_module._startup_background_tasks.clear()
+
+
+@pytest.mark.asyncio
+async def test_index_outbox_drain_loop_starts_with_config_cadence() -> None:
+    """The shell runs the continuous outbox drain (not a one-shot replay) with
+    the configured batch size and idle cadence, and skips it when the outbox
+    is disabled."""
+    import asyncio
+
+    from engram import main as main_module
+    from engram.config import EngramConfig
+
+    started = asyncio.Event()
+    seen: dict[str, object] = {}
+
+    async def drain_loop(*, batch_limit, idle_interval_seconds):
+        seen["batch_limit"] = batch_limit
+        seen["idle_interval_seconds"] = idle_interval_seconds
+        started.set()
+        await asyncio.Event().wait()  # runs until cancelled, like the real loop
+
+    config = EngramConfig()
+    config.activation.cue_index_outbox_replay_limit = 42
+    config.activation.cue_index_outbox_drain_interval_seconds = 7.5
+    manager = SimpleNamespace(run_cue_index_outbox_drain_loop=drain_loop)
+
+    task = main_module._start_index_outbox_drain(manager, config)
+    assert task is not None
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        assert seen == {"batch_limit": 42, "idle_interval_seconds": 7.5}
+        assert not task.done()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    config.activation.cue_index_outbox_enabled = False
+    assert main_module._start_index_outbox_drain(manager, config) is None

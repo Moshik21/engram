@@ -2259,6 +2259,22 @@ class GraphManager:
         """Return durable cue-index work still waiting for replay."""
         return self._capture_service.cue_index_outbox_pending_count()
 
+    async def run_cue_index_outbox_drain_loop(
+        self,
+        *,
+        batch_limit: int,
+        idle_interval_seconds: float,
+    ) -> None:
+        """Keep the capture outbox drained until cancelled (shell lifespan task)."""
+        await self._capture_service.run_cue_index_outbox_drain_loop(
+            batch_limit=batch_limit,
+            idle_interval_seconds=idle_interval_seconds,
+        )
+
+    def get_index_outbox_status(self) -> dict[str, int]:
+        """Pending outbox rows and drain progress for the storage diagnostics route."""
+        return self._capture_service.index_outbox_status()
+
     async def fast_recall_fallback(
         self,
         *,

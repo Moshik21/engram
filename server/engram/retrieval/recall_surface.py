@@ -22,6 +22,7 @@ from engram.retrieval.budgets import (
     recall_budget_for_profile,
     surface_for_source,
 )
+from engram.retrieval.content_window import content_window_for
 from engram.retrieval.context_builder import (
     _PROJECT_FILE_FALLBACK_PACKET_VERSION,
     SESSION_RECENT_PACKET_SCOPE,
@@ -103,6 +104,7 @@ async def build_api_recall_surface(
     """Build the REST explicit-recall payload."""
     packet_policy = manager.get_explicit_recall_packet_policy()
     cfg = manager.get_memory_need_config()
+    content_window = content_window_for(cfg, query)
     pre_stage_timings: dict[str, float] = {}
     started = time.perf_counter()
     packet_started = time.perf_counter()
@@ -144,6 +146,7 @@ async def build_api_recall_surface(
             query=query,
             results=[],
             packets=cache_packets,
+            content_window=content_window,
         )
         _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
         # The REST payload presents camelCase `items` the citation scan cannot
@@ -314,12 +317,21 @@ async def build_api_recall_surface(
             recall_metadata["budget_miss"] = _metadata_budget_exceeded(recall_metadata)
     if not results and not packets and recall_metadata["status"] != "ok":
         packets = [_diagnostic_recall_packet(query=query, metadata=recall_metadata)]
-    response = present_api_recall_response(query=query, results=results, packets=packets)
+    response = present_api_recall_response(
+        query=query,
+        results=results,
+        packets=packets,
+        content_window=content_window,
+    )
     _attach_recall_budget_metadata(response, recall_metadata, camel_case=True)
+    # The echo mask sees the windowed text: that is what the agent saw, and a
+    # mask over the unseen tail would call the agent's own words an echo.
     note_surfaced_texts_from_response(
         group_id,
         {
-            "results": [recall_contract_item(result) for result in results],
+            "results": [
+                recall_contract_item(result, content_window=content_window) for result in results
+            ],
             "packets": list(packets),
         },
         cfg,
@@ -340,6 +352,7 @@ async def build_mcp_recall_surface(
 ) -> dict[str, Any]:
     """Build the MCP explicit-recall payload without transport-only metadata."""
     pre_stage_timings: dict[str, float] = {}
+    content_window = content_window_for(cfg, query)
     packet_enabled = bool(getattr(cfg, "recall_packets_enabled", False))
     max_packets = int(getattr(cfg, "recall_packet_explicit_limit", 0) or 0)
     started = time.perf_counter()
@@ -514,6 +527,7 @@ async def build_mcp_recall_surface(
         results,
         resolve_entity_name=resolve_entity_name,
         get_access_count=get_access_count,
+        content_window=content_window,
     )
     recall_metadata.setdefault("stage_timings_ms", {})["recall_present"] = _elapsed_ms(
         present_started,
@@ -2752,9 +2766,16 @@ def _packets_satisfy_explicit_query(
         matches = _packet_query_matches(packet, tokens)
         if not matches:
             continue
-        # Session-recent observe recap also must not skip graph rescue alone.
-        if _packet_is_session_recent_only(packet) and not is_graph:
-            continue
+        # Session-recent observe recap also must not skip graph rescue alone, and
+        # it only counts on a distinctive match: the latest capture shares common
+        # words with almost any question about the same project.
+        if _packet_is_session_recent_only(packet):
+            if not is_graph or not _distinctive_session_recent_match(tokens, matches):
+                continue
+            # Once admitted, common words still do not count toward the score.
+            matches = matches - _RESCUE_STOPWORDS
+            if not matches:
+                continue
         covered_tokens.update(matches)
         best_score = max(best_score, len(matches))
     return best_score >= 3 or (best_score >= 2 and len(covered_tokens) >= 4)
@@ -2938,7 +2959,7 @@ def _filter_packets_for_query(
             continue
         if _weak_packet_query_match(matches):
             continue
-        if _weak_session_recent_match(packet, matches):
+        if _weak_session_recent_match(packet, matches, tokens):
             continue
         if exact_project_file_match:
             score = max(score, len(tokens))
@@ -3037,6 +3058,7 @@ def _packet_query_matches(packet: Mapping[str, Any], tokens: set[str]) -> set[st
 def _weak_session_recent_match(
     packet: Mapping[str, Any],
     matches: set[str],
+    tokens: set[str],
 ) -> bool:
     if not matches:
         return False
@@ -3052,9 +3074,7 @@ def _weak_session_recent_match(
     }
     if not is_session_recent and trust_source not in {"mcp_observe", "api_auto_observe"}:
         return False
-    if len(matches) >= 2:
-        return False
-    return not any(_high_signal_query_token(token) for token in matches)
+    return not _distinctive_session_recent_match(tokens, matches)
 
 
 def _weak_packet_query_match(matches: set[str]) -> bool:
@@ -3063,6 +3083,22 @@ def _weak_packet_query_match(matches: set[str]) -> bool:
         return False
     token = next(iter(matches))
     return token.isdigit()
+
+
+def _distinctive_session_recent_match(tokens: set[str], matches: set[str]) -> bool:
+    """Graduated gate for the session's most recent observe packets.
+
+    Common words (``_RESCUE_STOPWORDS``) never count. The rest must carry one
+    high-signal token, or at least two tokens covering half of the query's
+    distinctive tokens. Measured 2026-09-04: a stale capture sharing only
+    capture / project / field with the query was answering it as cache_satisfied.
+    """
+    distinctive_matches = matches - _RESCUE_STOPWORDS
+    if any(_high_signal_query_token(token) for token in distinctive_matches):
+        return True
+    if len(distinctive_matches) < 2:
+        return False
+    return 2 * len(distinctive_matches) >= len(tokens - _RESCUE_STOPWORDS)
 
 
 def _high_signal_query_token(token: str) -> bool:

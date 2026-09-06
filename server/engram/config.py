@@ -792,6 +792,26 @@ class ActivationConfig(BaseModel):
         le=50000,
         description="Max chars of episode content in recall results (0 = unlimited)",
     )
+    recall_content_window_chars: int = Field(
+        default=600,
+        ge=0,
+        le=20000,
+        description=(
+            "Recall items (REST and MCP) whose episode content is longer than this "
+            "many characters are cut to a window of this size centred on the densest "
+            "cluster of query-term matches (the head when nothing matches), with a "
+            "'[…]' marker at each cut edge and full_chars/windowed on the item; "
+            "shorter items are returned whole. Measured 2026-09-04/06 on the fresh "
+            "store: the fresh-agent battery counted 59,165 chars for 14/14 answers "
+            "against 13,335 chars for 4/14 from repo files, single rows of "
+            "2,019-4,098 chars (the hook and bootstrap capture caps); the gate is "
+            "answers >= repo files at <= 2x the characters (~27k). The answer tokens "
+            "sit next to the query terms in almost every hit, so the window keeps "
+            "the answer and drops the rest. 600 is the low end of the 600-900 range "
+            "because at ~90 chars of per-item metadata the gate only clears if the "
+            "long rows land near 600. 0 disables (full content)."
+        ),
+    )
     recall_tier_aware_truncation_enabled: bool = Field(
         default=False,
         description=(
@@ -993,7 +1013,26 @@ class ActivationConfig(BaseModel):
     # --- Chunk search ---
     chunk_search_enabled: bool = Field(
         default=True,
-        description="Search episode chunks for sub-episode precision during recall",
+        description=(
+            "Search episode chunks for sub-episode precision during recall. Reads "
+            "whatever chunk rows exist (historical projection-era chunks included); "
+            "an empty chunk index returns no hits and is never an error. Whether NEW "
+            "episodes get chunk rows is chunk_vectors_enabled."
+        ),
+    )
+    chunk_vectors_enabled: bool = Field(
+        default=False,
+        description=(
+            "Write per-chunk vectors in index_episode in addition to the one "
+            "full-content episode vector. DEFAULT OFF, measured 2026-09-04 on the "
+            "dogfood brain with the shell down: chunked index_episode ran >2 s/row "
+            "at 3 GB RSS under swap, so a 5/s import left 4,223 of 5,898 rows queued "
+            "in episode_index_outbox; a single full-content vector ran 0.15 s/row at "
+            "787 MB. The chunk re-index sweep was measured to HURT recall "
+            "(reindex_sweep_enabled: agent-experience battery 6->3/10) and single "
+            "vectors scored 14/14 on the untouched rig. The chunking code path is "
+            "kept; enable for experiments."
+        ),
     )
     chunk_topic_segmentation: bool = Field(
         default=True,
@@ -1845,7 +1884,8 @@ class ActivationConfig(BaseModel):
             "index tips recall past its primary budget into an expensive "
             "durable-entity-rescue fallback. Answer-locality chunking needs a "
             "latency-aware redesign (two-stage retrieval or coarser chunks) "
-            "before this sweep runs unattended. Opt-in for experiments."
+            "before this sweep runs unattended. Opt-in for experiments; only "
+            "writes chunk rows when chunk_vectors_enabled is also on."
         ),
     )
     cue_index_outbox_enabled: bool = Field(
@@ -1863,7 +1903,24 @@ class ActivationConfig(BaseModel):
         default=100,
         ge=1,
         le=5000,
-        description="Max pending cue-index outbox rows to replay on runtime startup",
+        description=(
+            "Max outbox rows (cue and episode tables each) replayed per drain "
+            "batch: the MCP startup replay and every pass of the shell's "
+            "continuous drain loop."
+        ),
+    )
+    cue_index_outbox_drain_interval_seconds: float = Field(
+        default=30.0,
+        gt=0.0,
+        le=3600.0,
+        description=(
+            "Idle cadence of the shell's continuous index-outbox drain. The loop "
+            "wakes early when capture enqueues work nobody is indexing in-process, "
+            "keeps draining batch after batch while rows succeed, and backs off "
+            "this long after a batch in which every row failed. Before 2026-09-04 "
+            "the shell replayed cue_index_outbox_replay_limit rows once at startup "
+            "and never again, so 4,223 rows sat in episode_index_outbox."
+        ),
     )
     targeted_projection_enabled: bool = Field(
         default=True,

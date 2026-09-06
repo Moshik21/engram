@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -84,6 +85,9 @@ class StorageDiagnostics:
     startup_paths: list[dict[str, Any]]
     count_cache: dict[str, _CachedCounts] = field(default_factory=dict)
     path_cache: _CachedPaths | None = None
+    # Capture-service probe for durable index-outbox rows; None when no
+    # capture service was attached, reported as null rather than zeros.
+    index_outbox_status: Callable[[], dict[str, int]] | None = None
     _count_refresh_tasks: dict[str, asyncio.Task[dict[str, int]]] = field(
         default_factory=dict,
         repr=False,
@@ -99,6 +103,7 @@ class StorageDiagnostics:
         graph_store: Any,
         group_id: str,
         startup_timeout_seconds: float | None = None,
+        index_outbox_status: Callable[[], dict[str, int]] | None = None,
     ) -> StorageDiagnostics:
         """Create diagnostics with a startup baseline."""
         started_at = time.time()
@@ -127,6 +132,7 @@ class StorageDiagnostics:
             mode=mode,
             graph_store=graph_store,
             group_id=group_id,
+            index_outbox_status=index_outbox_status,
             started_at=started_at,
             startup_counts=startup_counts,
             startup_bytes=sum(item["bytes"] for item in startup_paths),
@@ -216,6 +222,7 @@ class StorageDiagnostics:
         paths = _clone_paths(path_snapshot.paths)
         total_bytes = sum(item["bytes"] for item in paths)
         started_at = datetime.fromtimestamp(self.started_at, tz=UTC).isoformat()
+        index_outbox = await self._index_outbox_snapshot()
         now = time.time()
 
         return {
@@ -264,12 +271,33 @@ class StorageDiagnostics:
                 # ``fusedPages`` means the two lanes agree, not that the
                 # reserve is unwired.
                 "hybridFusion": _rrf_lane_stats(),
+                # Durable index outbox (cue + episode vector rows capture
+                # persisted before indexing them). Pending counts that do not
+                # shrink mean the shell's continuous drain is not keeping pace
+                # with capture; null means no capture service reported.
+                "indexOutbox": index_outbox,
                 "stageTimingsMs": {
                     "storage_counts": count_ms,
                     "storage_paths": path_ms,
                     "storage_snapshot": _elapsed_ms(started),
                 },
             },
+        }
+
+    async def _index_outbox_snapshot(self) -> dict[str, int] | None:
+        if self.index_outbox_status is None:
+            return None
+        try:
+            status = await asyncio.to_thread(self.index_outbox_status)
+        except Exception:  # silent-ok: a diagnostics probe must never fail the storage route
+            LOGGER.debug("index outbox status unavailable", exc_info=True)
+            return None
+        return {
+            "cuesPending": int(status.get("cues_pending", 0)),
+            "episodesPending": int(status.get("episodes_pending", 0)),
+            "inflight": int(status.get("inflight", 0)),
+            "drained": int(status.get("drained", 0)),
+            "failed": int(status.get("failed", 0)),
         }
 
     async def _counts_snapshot(

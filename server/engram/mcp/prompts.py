@@ -194,6 +194,11 @@ workspace, pass the same `project_path` you used for `get_context`@@RECALL_ROUTI
 so recall can prefer project-scoped \
 memory before falling back to local project files.
 
+Long episode results are windowed: `content` is a `[…]`-marked span centred on \
+your query terms, flagged `windowed: true` with `full_chars`. To read another \
+part of that row, recall again with the exact phrase you need — there is no \
+by-id episode read, and `remember(episode_id=...)` re-proposes rather than fetches.
+
 @@EPISTEMIC_ROUTING@@## Auto-Recall on Tool Calls
 
 All read-oriented tools (recall, get_context@@AUTO_RECALL_EXTRA@@) \

@@ -1139,7 +1139,13 @@ async def recall(
         include_epistemic: Include internal epistemic facts when lookup_kind=facts
 
     Returns:
-        JSON with results array, total_candidates, and query_time_ms.
+        JSON with results array, total_candidates, and query_time_ms. Episode
+        `content` longer than the configured window is a `[…]`-marked
+        span centred on your query terms, with `windowed: true` and `full_chars`;
+        to read a different part of that row, recall again with the exact phrase
+        you need (the window re-centres on the query). There is no by-id episode
+        read on this surface; `remember(episode_id=...)` re-proposes, it does
+        not fetch.
     """
     manager = _get_manager()
     session = _get_session()

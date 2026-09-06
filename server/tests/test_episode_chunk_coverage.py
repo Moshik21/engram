@@ -36,7 +36,7 @@ class _FakeProvider(EmbeddingProvider):
         return self._dim
 
 
-def _make_index() -> HelixSearchIndex:
+def _make_index(*, chunk_vectors: bool = False) -> HelixSearchIndex:
     return HelixSearchIndex(
         helix_config=HelixDBConfig(host="localhost", port=6969, transport="native"),
         provider=_FakeProvider(16),
@@ -44,6 +44,7 @@ def _make_index() -> HelixSearchIndex:
         storage_dim=16,
         embed_provider="fake",
         embed_model="fake-16",
+        chunk_vectors=chunk_vectors,
     )
 
 
@@ -62,7 +63,7 @@ _PROSE = (
 
 @pytest.mark.asyncio
 async def test_prose_episode_writes_multiple_chunk_vectors(monkeypatch):
-    index = _make_index()
+    index = _make_index(chunk_vectors=True)
     index._embeddings_enabled = True
     index._helix_client = SimpleNamespace()  # truthy: enter the chunking branch
     index._topic_segmentation = True
@@ -98,7 +99,7 @@ async def test_prose_episode_writes_multiple_chunk_vectors(monkeypatch):
 async def test_short_episode_writes_no_chunks(monkeypatch):
     """A genuinely short episode keeps its single full-content vector and no
     chunks — the fix must not over-chunk."""
-    index = _make_index()
+    index = _make_index(chunk_vectors=True)
     index._embeddings_enabled = True
     index._helix_client = SimpleNamespace()
     index._topic_segmentation = True
@@ -120,6 +121,83 @@ async def test_short_episode_writes_no_chunks(monkeypatch):
 
     assert index._embed_stats["chunks_indexed"] == 0
     assert not [c for c in calls if "chunk" in c]
+
+
+@pytest.mark.asyncio
+async def test_default_writes_one_full_content_vector_and_no_chunks(monkeypatch):
+    """chunk_vectors_enabled default OFF (2026-09-04: chunked index_episode
+    >2 s/row at 3 GB RSS vs 0.15 s/row single; the chunk sweep hurt recall
+    6->3/10): a long prose episode gets exactly one episode vector."""
+    index = _make_index()  # constructor default mirrors the config default
+    index._embeddings_enabled = True
+    index._helix_client = SimpleNamespace()
+
+    calls: list[str] = []
+    embed_batches: list[int] = []
+
+    async def fake_query(endpoint, payload=None, *a, **k):
+        calls.append(endpoint)
+        return []
+
+    async def fake_embed_texts(texts):
+        embed_batches.append(len(texts))
+        return [[0.1] * 16 for _ in texts]
+
+    monkeypatch.setattr(index, "_query", fake_query)
+    monkeypatch.setattr(index, "_embed_texts", fake_embed_texts)
+
+    await index.index_episode(Episode(id="ep_prose", content=_PROSE, group_id="g1"))
+
+    assert calls == ["add_episode_vector"]
+    assert embed_batches == [1]  # one embed call, one text: no chunk batch
+    assert index._embed_stats["chunks_indexed"] == 0
+    assert index._embed_stats["episodes_indexed"] == 1
+
+
+def test_chunk_vectors_config_default_off_and_wired_through_factory():
+    """The knob is read by the store factory, so setting it is not inert."""
+    from engram.config import ActivationConfig, EngramConfig
+    from engram.storage.factory import create_stores
+    from engram.storage.resolver import EngineMode
+
+    assert ActivationConfig().chunk_vectors_enabled is False
+
+    config = EngramConfig(mode="helix")
+    config.embedding.provider = "noop"
+    _graph, _activation, search = create_stores(EngineMode.HELIX, config)
+    assert search._chunk_vectors is False
+
+    config.activation.chunk_vectors_enabled = True
+    _graph, _activation, search = create_stores(EngineMode.HELIX, config)
+    assert search._chunk_vectors is True
+
+
+@pytest.mark.asyncio
+async def test_chunk_search_without_chunk_vectors_is_empty_not_an_error(monkeypatch):
+    """chunk_search_enabled stays on by default: an index with no chunk rows
+    (the new default) must answer chunk search with [] — never raise into the
+    recall pipeline — whether the chunk lane is empty or absent."""
+    index = _make_index()
+    index._embeddings_enabled = True
+    index._helix_client = SimpleNamespace()
+
+    async def embed_query(_query):
+        return [0.1] * 16
+
+    monkeypatch.setattr(index, "_embed_query_cached", embed_query)
+
+    async def empty_lane(endpoint, payload=None, *a, **k):
+        assert endpoint == "search_episode_chunks_filtered"
+        return []
+
+    monkeypatch.setattr(index, "_query", empty_lane)
+    assert await index.search_episode_chunks("where is the kiln", group_id="g1") == []
+
+    async def absent_lane(endpoint, payload=None, *a, **k):
+        raise RuntimeError("EpisodeChunk vector index not found")
+
+    monkeypatch.setattr(index, "_query", absent_lane)
+    assert await index.search_episode_chunks("where is the kiln", group_id="g1") == []
 
 
 def test_chunk_search_runs_on_primary_timeout_by_default():

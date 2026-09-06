@@ -51,6 +51,7 @@ async def test_native_chunks_are_embedded_in_one_batch(tmp_path) -> None:
         client=client,
         owns_client=False,
         topic_segmentation=False,
+        chunk_vectors=True,  # default OFF since 2026-09-04; this test is about the chunk path
     )
     content = ("The recall pipeline burned the wall on durable probes. " * 40 + "\n\n") * 6
     await index.index_episode(Episode(id="ep_1", group_id="default", content=content))
